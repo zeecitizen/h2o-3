@@ -72,7 +72,7 @@ g_java_start_text = 'STARTING TEST:'    # test being started in java
 
 g_ok_java_messages = [] # store java bad messages that we can ignore
 g_java_message_dict = {"messages":[],"message_types":[]}
-g_build_failed_message = ['BUILD FAILED'.lower(),"Finished: FAILURE".lower()]   # something has gone wrong.  No tests are performed.
+g_build_failed_message = ["Finished: FAILURE".lower(),'BUILD FAILED'.lower()]   # something has gone wrong.  No tests are performed.
 
 '''
 The sole purpose of this function is to enable us to be able to call
@@ -164,11 +164,15 @@ def find_build_failure(each_line,temp_func_list):
     #     g_failed_test_info_dict["7.build_failure"] = 'No'
     #     temp_func_list.remove(find_build_failure)
 
-    if each_line.strip().lower() in g_build_failed_message:
-        g_failure_occurred = True
-        g_failed_test_info_dict["7.build_failure"] = 'Yes'
-        temp_func_list.remove(find_build_failure)
-        return False
+    for ind in range(0,len(g_build_failed_message)):
+        if g_build_failed_message[ind] in each_line.lower():
+            if ((ind == 0) and (len(g_failed_jobs) > 0)):
+                continue
+            else:
+                g_failure_occurred = True
+                g_failed_test_info_dict["7.build_failure"] = 'Yes'
+                temp_func_list.remove(find_build_failure)
+                return False
 
     return True
 
@@ -420,7 +424,7 @@ def extract_java_messages():
     if len(g_failed_jobs) > 0:
         g_failed_test_info_dict["failed_tests_info"] = [g_failed_jobs,g_failed_job_java_messages,g_failed_job_java_message_types]
     if len(g_success_jobs) > 0:
-        g_failed_test_info_dict["success_tests_info"] = [g_success_jobs,g_success_job_java_messages,g_success_job_java_message_types]
+        g_failed_test_info_dict["passed_tests_info"] = [g_success_jobs,g_success_job_java_messages,g_success_job_java_message_types]
 
     if len(g_java_general_bad_messages) > 0:
         g_failed_test_info_dict["9.general_bad_java_messages"] = [g_java_general_bad_messages,g_java_general_bad_message_types]
