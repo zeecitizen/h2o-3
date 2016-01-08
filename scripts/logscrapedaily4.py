@@ -27,6 +27,7 @@ g_node_name = "Building remotely on"   # the very next string is the name of the
 g_git_hash_branch = "Checking out Revision"    # next string is git hash, and the next one is (origin/branch)
 g_build_timeout = "Build timed out"             # phrase when tests run too long
 g_build_success = ["Finished: SUCCESS",'BUILD SUCCESSFUL']           # sentence at the end that guarantee build success
+
 g_build_success_tests = ['generate_rest_api_docs.py','generate_java_bindings.py'] # two functions that are usually performed after build success
 g_build_id_text = 'Build id is'
 g_view_name = ''
@@ -71,7 +72,7 @@ g_java_start_text = 'STARTING TEST:'    # test being started in java
 
 g_ok_java_messages = [] # store java bad messages that we can ignore
 g_java_message_dict = {"messages":[],"message_types":[]}
-g_build_failed_message = 'BUILD FAILED'.lower()
+g_build_failed_message = ['BUILD FAILED'.lower(),"Finished: FAILURE".lower()]   # something has gone wrong.  No tests are performed.
 
 '''
 The sole purpose of this function is to enable us to be able to call
@@ -158,12 +159,12 @@ def find_build_failure(each_line,temp_func_list):
     global g_build_success_tests
     global g_failed_test_info_dict
     global g_failure_occurred
-
+    global g_build_failed_message
     # if ((g_build_success[0] in each_line) or (g_build_success[1] in each_line) or (g_build_success_tests[0] in each_line) or (g_build_success_tests[1] in each_line)):
     #     g_failed_test_info_dict["7.build_failure"] = 'No'
     #     temp_func_list.remove(find_build_failure)
 
-    if g_build_failed_message in each_line.lower():
+    if each_line.strip().lower() in g_build_failed_message:
         g_failure_occurred = True
         g_failed_test_info_dict["7.build_failure"] = 'Yes'
         temp_func_list.remove(find_build_failure)
