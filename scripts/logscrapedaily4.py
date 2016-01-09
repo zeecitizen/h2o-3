@@ -336,7 +336,7 @@ def grab_java_message():
         
             temp_strings = each_line.strip().split()   # grab each line and process
 
-            if temp_strings[5] in g_java_message_type:  # find one of the strings of interest
+            if ((len(temp_strings) > 5) and (temp_strings[5] in g_java_message_type)):  # find one of the strings of interest
                 all_messages = g_java_message_dict["messages"]
 
                 startStr,found,endStr = each_line.strip().partition(temp_strings[5])
@@ -422,9 +422,9 @@ def extract_java_messages():
 
     # build up the dict structure that we are storing our data in
     if len(g_failed_jobs) > 0:
-        g_failed_test_info_dict["********* failed_tests_info *********"] = [g_failed_jobs,g_failed_job_java_messages,g_failed_job_java_message_types]
+        g_failed_test_info_dict["failed_tests_info *********"] = [g_failed_jobs,g_failed_job_java_messages,g_failed_job_java_message_types]
     if len(g_success_jobs) > 0:
-        g_failed_test_info_dict["********* passed_tests_info *********"] = [g_success_jobs,g_success_job_java_messages,g_success_job_java_message_types]
+        g_failed_test_info_dict["passed_tests_info *********"] = [g_success_jobs,g_success_job_java_messages,g_success_job_java_message_types]
 
     if len(g_java_general_bad_messages) > 0:
         g_failed_test_info_dict["9.general_bad_java_messages"] = [g_java_general_bad_messages,g_java_general_bad_message_types]
