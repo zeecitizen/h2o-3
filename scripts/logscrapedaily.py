@@ -19,14 +19,14 @@ tracked repos, I was not able to get the correct console output for some reason.
 
 '''
 TODOs:
-1. separately write the java messages for failed tests and tests that passed.
+1. separately write the java messages for failed tests and tests that passed. --DONE 1/13/16.
 2. add option to argument list so that users can choose to upload personalized
 bad Java messages to exclude.  If options not specified, default files will be
-used to stored the bad Java messages to include.
+used to stored the bad Java messages to include.     --DONE 1/13/16.
 3. Implement the code to support general Java messages to exclude and support Java messages
-to exclude per test name;
+to exclude per test name;    --DONE 1/13/16.
 4. Implement the code to support loading Java messages to exclude from default or user
-specified files.
+specified files.     --DONE 1/13/16.
 '''
 # --------------------------------------------------------------------
 # Main program
@@ -83,8 +83,8 @@ g_current_testname = ''
 
 g_java_start_text = 'STARTING TEST:'    # test being started in java
 
-g_ok_java_messages = [] # store java bad messages that we can ignore
-g_java_message_dict = {"messages":[],"message_types":[]}
+g_ok_java_messages = {} # store java bad messages that we can ignore
+g_java_message_pickle_filename = "bad_java_messages_to_exclude.pickle"  # pickle file that store the dictionary structure that include Java error message to exclude
 g_build_failed_message = ["Finished: FAILURE".lower(),'BUILD FAILED'.lower()]   # something has gone wrong.  No tests are performed.
 
 '''
@@ -319,7 +319,6 @@ def extract_job_build_url(url_string):
 
 def grab_java_message():
     global g_temp_filename
-    global g_java_message_dict
     global g_current_testname
     global g_java_start_text
     global g_ok_java_messages
@@ -352,24 +351,29 @@ def grab_java_message():
             temp_strings = each_line.strip().split()   # grab each line and process
 
             if ((len(temp_strings) > 5) and (temp_strings[5] in g_java_message_type)):  # find one of the strings of interest
-                all_messages = g_java_message_dict["messages"]
 
-                startStr,found,endStr = each_line.strip().partition(temp_strings[5])
+                startStr,found,endStr = each_line.strip().partition(temp_strings[5])    # can be WARN,ERRR,FATAL,TRACE
 
                 if found and (len(endStr.strip()) > 0):
                     tempMessage = endStr.strip()
-                    if (tempMessage not in all_messages) and (tempMessage not in g_ok_java_messages):  # found valid bad messages
-
-                        g_java_message_dict["messages"].append(tempMessage)
-                        g_java_message_dict["message_types"].append(temp_strings[5])
-                        g_failure_occurred = True
+                    if (tempMessage not in g_ok_java_messages["general"]):  # found new bad messages
 
                         if (len(g_current_testname) == 0):    # java message not associated with any test name
                             g_java_general_bad_messages.append(tempMessage)
                             g_java_general_bad_message_types.append(temp_strings[5])
-                        else:
-                            java_messages.append(tempMessage)
-                            java_message_types.append(temp_strings[5])
+                            g_failure_occurred = True
+                        else:   # java message found during a test
+                            write_test = False  # do not include java message for test if False
+                            if g_current_testname in g_ok_java_messages.keys(): # test name associated with ignored Java messages
+                                if tempMessage not in g_ok_java_messages[g_current_testname]:
+                                    write_test = True
+                            else:
+                                write_test = True
+
+                            if write_test:
+                                java_messages.append(tempMessage)
+                                java_message_types.append(temp_strings[5])
+                                g_failure_occurred = True
 #        print "line read ",linecount
                             
 
@@ -550,7 +554,18 @@ def write_java_message(key,val,text_file):
 
         text_file.write('\n \n')
 
-        
+
+def load_java_messages_to_ignore():
+    global g_ok_java_messages
+    global g_java_message_pickle_filename
+
+    if os.path.isfile(g_java_message_pickle_filename):
+        with open(g_java_message_pickle_filename,'rb') as tfile:
+            g_ok_java_messages = pickle.load(tfile)
+    else:
+        g_ok_java_messages["general"] = []
+
+
 def main(argv):
     """
     Main program.
@@ -565,9 +580,10 @@ def main(argv):
     global g_output_pickle_filename
     global g_failure_occurred
     global g_failed_test_info_dict
+    global g_java_message_pickle_filename
 
     if len(argv) < 2:
-        print "Must resource url like http://mr-0xa1:8080/view/wendy_jenkins/job/h2o_regression_pyunit_medium_large/lastBuild/consoleFull, filename (optional) for log file.\n"
+        print "Must resource url like http://mr-0xa1:8080/view/wendy_jenkins/job/h2o_regression_pyunit_medium_large/lastBuild/consoleFull, filename (optional ending in .pickle) to retrieve Java error messages to exclude.\n"
         sys.exit(1)
     else:   # we may be in business
         g_script_name = os.path.basename(argv[0])   # get name of script being run.
@@ -576,21 +592,21 @@ def main(argv):
         g_temp_filename = os.path.join(g_test_root_dir,'tempText')
 
         if len(argv) == 3:
-            log_filename = argv[2]
-            log_pickle_filename = argv[2]
-
+            g_java_message_pickle_filename  = argv[2]
 
         get_console_out(resource_url)   # save remote console output in local directory
         extract_job_build_url(resource_url) # extract the job name of build id for identification purposes
 
-        if (len(argv) == 2):    # user did not provide filename for log files, we will have to extract the name for log file as jenkin job name later
-            log_filename = g_failed_test_info_dict["1.jobName"]
-            log_pickle_filename = g_failed_test_info_dict["1.jobName"]
+        log_filename = g_failed_test_info_dict["1.jobName"]
+        log_pickle_filename = g_failed_test_info_dict["1.jobName"]
 
+        # pickle file that store bad Java messages that we can ignore.
+        g_java_message_pickle_filename = os.path.join(g_test_root_dir,g_java_message_pickle_filename)
         g_output_filename_failed_tests = os.path.join(g_test_root_dir,log_filename)
         g_output_filename_passed_tests = os.path.join(g_test_root_dir,log_filename)
         g_output_pickle_filename = os.path.join(g_test_root_dir,log_pickle_filename)
 
+        load_java_messages_to_ignore()          # load g_ok_
         extract_test_results(resource_url)      # grab the console text and stored the failed tests.
         extract_java_messages()     # grab dangerous java messages that we found for the various tests
         if ((len(g_failed_jobs) > 0) or (g_failed_test_info_dict["7.build_failure"]=='Yes')):
