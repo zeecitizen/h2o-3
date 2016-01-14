@@ -210,27 +210,27 @@ def find_java_filename(each_line,temp_func_list):
     return True
 
 
-# def find_build_id(each_line,temp_func_list):
-#     global g_before_java_file
-#     global g_java_filenames
-#     global g_build_id_text
-#     global g_jenkins_url
-#     global g_output_filename
-#     global g_output_pickle_filename
-#
-#
-#     if g_build_id_text in each_line:
-#         startStr,found,endStr = each_line.partition(g_build_id_text)
-#         g_failed_test_info_dict["2.build_id"] = endStr.strip()
-#
-#         temp_func_list.remove(find_build_id)
-#         g_jenkins_url = os.path.join('http://',g_jenkins_url,'view',g_view_name,'job',g_failed_test_info_dict["1.jobName"],g_failed_test_info_dict["2.build_id"],'artifact')
-#
-#
-#     return True
+def find_build_id(each_line,temp_func_list):
+    global g_before_java_file
+    global g_java_filenames
+    global g_build_id_text
+    global g_jenkins_url
+    global g_output_filename
+    global g_output_pickle_filename
+
+
+    if g_build_id_text in each_line:
+        startStr,found,endStr = each_line.partition(g_build_id_text)
+        g_failed_test_info_dict["2.build_id"] = endStr.strip()
+
+        temp_func_list.remove(find_build_id)
+        g_jenkins_url = os.path.join('http://',g_jenkins_url,'view',g_view_name,'job',g_failed_test_info_dict["1.jobName"],g_failed_test_info_dict["2.build_id"],'artifact')
+
+
+    return True
 
 # global list of all functions that are performed extracting new build information.
-g_build_func_list = [find_time,find_node_name,find_git_hash_branch,find_build_timeout,find_build_failure,find_java_filename]
+g_build_func_list = [find_time,find_node_name,find_build_id,find_git_hash_branch,find_build_timeout,find_build_failure,find_java_filename]
 
 
 def update_test_dict(each_line):
@@ -315,9 +315,6 @@ def extract_job_build_url(url_string):
         
     g_jenkins_url = tempString[2]
     g_view_name = tempString[4]
-
-    g_failed_test_info_dict["2.build_id"] = tempString[7]
-    g_jenkins_url = os.path.join('http://',g_jenkins_url,'view',g_view_name,'job',g_failed_test_info_dict["1.jobName"],g_failed_test_info_dict["2.build_id"],'artifact')
     
 
 def grab_java_message():
@@ -467,9 +464,14 @@ def save_dict():
     global g_failed_test_info_dict
 
 
-    g_output_filename_failed_tests = g_output_filename_failed_tests+'_build_'+g_failed_test_info_dict["2.build_id"]+'_failed_tests.log'
-    g_output_filename_passed_tests = g_output_filename_passed_tests+'_build_'+g_failed_test_info_dict["2.build_id"]+'_passed_tests.log'
-    g_output_pickle_filename = g_output_pickle_filename+'_build_'+g_failed_test_info_dict["2.build_id"]+'.pickle'
+    if "2.build_id" not in g_failed_test_info_dict.keys():
+        build_id = 'unknown'
+    else:
+        build_id = g_failed_test_info_dict["2.build_id"]
+
+    g_output_filename_failed_tests = g_output_filename_failed_tests+'_build_'+build_id+'_failed_tests.log'
+    g_output_filename_passed_tests = g_output_filename_passed_tests+'_build_'+build_id+'_passed_tests.log'
+    g_output_pickle_filename = g_output_pickle_filename+'_build_'+build_id+'.pickle'
 
     allKeys = sorted(g_failed_test_info_dict.keys())
     with open(g_output_pickle_filename,'wb') as test_file:
