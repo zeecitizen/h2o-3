@@ -524,7 +524,7 @@ def write_test_java_message(key,val,text_file):
             text_file.write(val[0][index])
             text_file.write('\n')
 
-        if (len(val[1][index]) > 0):
+        if (len(val[1][index]) > 0) and (len(val) >= 3):
             text_file.write("Java Message Type and Message: \n")
             for eleIndex in range(len(val[1][index])):
                 text_file.write(val[2][index][eleIndex]+" ")
@@ -540,7 +540,7 @@ def write_java_message(key,val,text_file):
     text_file.write(key)
     text_file.write('\n')
 
-    if (len(val[0]) > 0):
+    if (len(val[0]) > 0) and (len(val) >= 3):
         for index in range(len(val[0])):
             text_file.write("Java Message Type: ")
             text_file.write(val[1][index])
