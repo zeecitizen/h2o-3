@@ -47,6 +47,8 @@ g_save_java_message_filename = "bad_java_messages_to_exclude.pickle" # pickle fi
 g_new_messages_to_exclude = ""  # user file that stores the new java messages to ignore
 g_old_messages_to_remove = ""   # user file that stores java messages that are to be removed from the ignore list.
 g_dict_changed = False          # True if dictionary has changed and False otherwise
+g_java_messages_to_ignore_text_filename = "java_messages_to_ignore.txt" # store all rules for humans to read
+g_print_java_messages = False
 
 # store java bad messages that we can ignore.  The keys are "general",testnames that we
 # want to add exclude messages for.  The values will all be a list of java messages that we want to ignore.
@@ -167,6 +169,23 @@ def save_dict():
         with open(g_save_java_message_filename,'wb') as ofile:
             pickle.dump(g_ok_java_messages,ofile)
 
+def print_dict():
+    global g_ok_java_messages
+    global g_java_messages_to_ignore_text_filename
+
+    allKeys = sorted(g_ok_java_messages.keys())
+
+    with open(g_java_messages_to_ignore_text_filename,'w') as ofile:
+        for key in allKeys:
+
+            for mess in g_ok_java_messages[key]:
+                ofile.write('KeyName: '+key+'\n')
+                ofile.write('Message: '+mess+'\n')
+
+            print('KeyName: ',key)
+            print('Message: ',g_ok_java_messages[key])
+            print('\n')
+
 
 
 def parse_args(argv):
@@ -174,6 +193,7 @@ def parse_args(argv):
     global g_old_messages_to_remove
     global g_load_java_message_filename
     global g_save_java_message_filename
+    global g_print_java_messages
 
     i = 1
     while (i < len(argv)):
@@ -199,6 +219,8 @@ def parse_args(argv):
             if (i > len(argv)):
                 usage()
             g_save_java_message_filename = argv[i]
+        elif (s == '--printjavamessage'):   # will print java message out to console and save in a file
+            g_print_java_messages = True
         else:
             unknown_arg(s)
 
@@ -218,6 +240,8 @@ def usage():
     print("    --loadjavamessage   file name ending in .pickle that stores the dict structure that contains java messages to include.")
     print("")
     print("    --savejavamessage   file name ending in .pickle that save the final dict structure after update.")
+    print("")
+    print("    --printjavamessage   print java ignored java messages on console and save into a text file.")
     print("")
     sys.exit(1)
 
@@ -240,30 +264,33 @@ def main(argv):
     global g_old_messages_to_remove
     global g_load_java_message_filename
     global g_save_java_message_filename
+    global g_print_java_messages
+    global g_java_messages_to_ignore_text_filename
 
 
     g_script_name = os.path.basename(argv[0])   # get name of script being run.
 
+
     # Override any defaults with the user's choices.
     parse_args(argv)
 
-    if len(g_new_messages_to_exclude) == 0:
-        print "Must include filename that contains new Java messages to exclude."
-        usage()
-    else:
-        g_load_java_message_filename = os.path.join(g_test_root_dir,g_load_java_message_filename)
-        load_dict() # load previously stored java messages to exclude dictionary
+    g_load_java_message_filename = os.path.join(g_test_root_dir,g_load_java_message_filename)
+    load_dict() # load previously stored java messages to exclude dictionary
 
-        if len(g_new_messages_to_exclude) > 0:
-            g_new_messages_to_exclude = os.path.join(g_test_root_dir,g_new_messages_to_exclude)
-            add_new_message()   # add new java messages to exclude to dictionary
+    if len(g_new_messages_to_exclude) > 0:
+        g_new_messages_to_exclude = os.path.join(g_test_root_dir,g_new_messages_to_exclude)
+        add_new_message()   # add new java messages to exclude to dictionary
 
-        if len(g_old_messages_to_remove) > 0:
-            g_old_messages_to_remove = os.path.join(g_test_root_dir,g_old_messages_to_remove)
-            remove_old_message()    # remove java messages from ignored list if users desired it
+    if len(g_old_messages_to_remove) > 0:
+        g_old_messages_to_remove = os.path.join(g_test_root_dir,g_old_messages_to_remove)
+        remove_old_message()    # remove java messages from ignored list if users desired it
 
-        g_save_java_message_filename = os.path.join(g_test_root_dir,g_save_java_message_filename)
-        save_dict()
+    g_save_java_message_filename = os.path.join(g_test_root_dir,g_save_java_message_filename)
+    save_dict()
+
+    if g_print_java_messages:
+        g_java_messages_to_ignore_text_filename = os.path.join(g_test_root_dir,g_java_messages_to_ignore_text_filename)
+        print_dict()
 
 
 
