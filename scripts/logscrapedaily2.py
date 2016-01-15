@@ -560,7 +560,7 @@ def write_file_content(fhandle,file2read):
             fhandle.write('============ Content of '+ file2read)
             fhandle.write('\n')
             fhandle.write(tfile.read())
-            fhandle.write('============================================================================ \n\n')
+            fhandle.write('\n\n')
 
 
 
