@@ -646,7 +646,7 @@ def main(argv):
         if g_failure_occurred:
             save_dict() # save the dict structure in a pickle file and a text file when failure is detected
             update_summary_file()   # join together log files
-            print g_failed_test_info_dict["1.jobName"]+' build '+g_failed_test_info_dict["2.build_id"]
+            print g_failed_test_info_dict["1.jobName"]+' build '+g_failed_test_info_dict["2.build_id"]+', '
         else:
             print ""
 
