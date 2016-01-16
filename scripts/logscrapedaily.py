@@ -27,6 +27,8 @@ used to stored the bad Java messages to include.     --DONE 1/13/16.
 to exclude per test name;    --DONE 1/13/16.
 4. Implement the code to support loading Java messages to exclude from default or user
 specified files.     --DONE 1/13/16.
+5. Generate a consolidated log for all failed tests to send to user
+6. Come up with a better way to generate a mail message to inform user of failed tests.
 '''
 # --------------------------------------------------------------------
 # Main program
@@ -86,6 +88,7 @@ g_java_start_text = 'STARTING TEST:'    # test being started in java
 g_ok_java_messages = {} # store java bad messages that we can ignore
 g_java_message_pickle_filename = "bad_java_messages_to_exclude.pickle"  # pickle file that store the dictionary structure that include Java error message to exclude
 g_build_failed_message = ["Finished: FAILURE".lower(),'BUILD FAILED'.lower()]   # something has gone wrong.  No tests are performed.
+g_summary_text_filename = ""    # filename to store the summary file to be sent to user.
 
 '''
 The sole purpose of this function is to enable us to be able to call
@@ -539,6 +542,27 @@ def write_test_java_message(key,val,text_file):
     text_file.write('\n')
     text_file.write('\n')
 
+def update_summary_file():
+    global g_summary_text_filename
+    global g_output_filename_failed_tests
+    global g_output_filename_passed_tests
+
+    with open(g_summary_text_filename,'a') as tempfile:
+        write_file_content(tempfile,g_output_filename_failed_tests)
+        write_file_content(tempfile,g_output_filename_passed_tests)
+
+
+def write_file_content(fhandle,file2read):
+    if os.path.isfile(file2read):
+
+        # write summary of failed tests logs
+        with open(file2read,'r') as tfile:
+            fhandle.write('============ Content of '+ file2read)
+            fhandle.write('\n')
+            fhandle.write(tfile.read())
+            fhandle.write('\n\n')
+
+
 
 def write_java_message(key,val,text_file):
 
@@ -586,18 +610,20 @@ def main(argv):
     global g_failure_occurred
     global g_failed_test_info_dict
     global g_java_message_pickle_filename
+    global g_summary_text_filename
 
-    if len(argv) < 2:
-        print "Must resource url like http://mr-0xa1:8080/view/wendy_jenkins/job/h2o_regression_pyunit_medium_large/lastBuild/consoleFull, filename (optional ending in .pickle) to retrieve Java error messages to exclude.\n"
+    if len(argv) < 3:
+        print "Must resource url like http://mr-0xa1:8080/view/wendy_jenkins/job/h2o_regression_pyunit_medium_large/lastBuild/consoleFull, filename of summary text, filename (optional ending in .pickle) to retrieve Java error messages to exclude.\n"
         sys.exit(1)
     else:   # we may be in business
         g_script_name = os.path.basename(argv[0])   # get name of script being run.
         resource_url = argv[1]
 
         g_temp_filename = os.path.join(g_test_root_dir,'tempText')
+        g_summary_text_filename = os.path.join(g_test_root_dir,argv[2])
 
-        if len(argv) == 3:
-            g_java_message_pickle_filename  = argv[2]
+        if len(argv) == 4:
+            g_java_message_pickle_filename  = argv[3]
 
         get_console_out(resource_url)   # save remote console output in local directory
         extract_job_build_url(resource_url) # extract the job name of build id for identification purposes
@@ -619,6 +645,10 @@ def main(argv):
 
         if g_failure_occurred:
             save_dict() # save the dict structure in a pickle file and a text file when failure is detected
+            update_summary_file()   # join together log files
+            print g_failed_test_info_dict["1.jobName"]+' build '+g_failed_test_info_dict["2.build_id"]+','
+        else:
+            print ""
 
 
 if __name__ == "__main__":
