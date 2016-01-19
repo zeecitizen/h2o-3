@@ -18,7 +18,8 @@ def parametersKmeans():
     parameters = iris_km._model_json['parameters']
     param_dict = {}
     for p in range(len(parameters)):
-        param_dict[parameters[p]['label']] = parameters[p]['actual_value']
+        if (parameters[p]['label'] not in 'max_runtime_secs'):
+            param_dict[parameters[p]['label']] = parameters[p]['actual_value']
 
     iris_km_again = h2o.kmeans(x=iris[0:4], **param_dict)
 
