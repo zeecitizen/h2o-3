@@ -3,9 +3,9 @@ options(echo=FALSE)
 #' Check that the required packages are installed and it's the correct version
 #'
 
-H2O.S3.R.PACKAGE.REPO.OSX <- "https://s3.amazonaws.com/h2o-r/osx"
-H2O.S3.R.PACKAGE.REPO.LIN <- "https://s3.amazonaws.com/h2o-r/linux"
-H2O.S3.R.PACKAGE.REPO.WIN <- "https://s3.amazonaws.com/h2o-r/windows"
+H2O.S3.R.PACKAGE.REPO.OSX <- "http://s3.amazonaws.com/h2o-r/osx"
+H2O.S3.R.PACKAGE.REPO.LIN <- "http://s3.amazonaws.com/h2o-r/linux"
+H2O.S3.R.PACKAGE.REPO.WIN <- "http://s3.amazonaws.com/h2o-r/windows"
 JENKINS.R.PKG.VER.REQS.OSX <- paste0(H2O.S3.R.PACKAGE.REPO.OSX,"/package_version_requirements.osx")
 JENKINS.R.PKG.VER.REQS.LIN <- paste0(H2O.S3.R.PACKAGE.REPO.LIN,"/package_version_requirements.linux")
 JENKINS.R.PKG.VER.REQS.WIN <- paste0(H2O.S3.R.PACKAGE.REPO.WIN,"/package_version_requirements.windows")
@@ -19,14 +19,44 @@ orderByDependencies<-
 function(reqs) {
     # create character vector of package names in desired order
     pkgNames <- as.character(reqs[,1])
-    pkgNames <- pkgNames[-which(pkgNames %in% "fpc")]
-    pkgNames <- append(pkgNames,"fpc",after=which(pkgNames %in% "trimcluster"))
     pkgNames <- pkgNames[-which(pkgNames %in% "bit64")]
     pkgNames <- append(pkgNames,"bit64",after=which(pkgNames %in% "bit"))
-    pkgNames <- pkgNames[-which(pkgNames %in% "ggplot2")]
-    pkgNames <- append(pkgNames,"ggplot2",after=which(pkgNames %in% "scales"))
     pkgNames <- pkgNames[-which(pkgNames %in% "rversions")]
     pkgNames <- append(pkgNames,"rversions",after=which(pkgNames %in% "xml2"))
+    pkgNames <- pkgNames[-which(pkgNames %in% "foreach")]
+    pkgNames <- append(pkgNames,"foreach",after=which(pkgNames %in% "iterators"))
+    pkgNames <- pkgNames[-which(pkgNames %in% "Matrix")]
+    pkgNames <- append(pkgNames,"Matrix",after=which(pkgNames %in% "lattice"))
+    pkgNames <- pkgNames[-which(pkgNames %in% "flexclust")]
+    pkgNames <- append(pkgNames,"flexclust",after=which(pkgNames %in% "lattice"))
+    pkgNames <- pkgNames[-which(pkgNames %in% "modeltools")]
+    pkgNames <- append(pkgNames,"modeltools",after=which(pkgNames %in% "lattice"))
+    pkgNames <- pkgNames[-which(pkgNames %in% "flexmix")]
+    pkgNames <- append(pkgNames,"flexmix",after=which(pkgNames %in% "nnet"))
+    pkgNames <- pkgNames[-which(pkgNames %in% "e1071")]
+    pkgNames <- append(pkgNames,"e1071",after=which(pkgNames %in% "class"))
+    pkgNames <- pkgNames[-which(pkgNames %in% "survival")]
+    pkgNames <- append(pkgNames,"survival",after=which(pkgNames %in% "lattice"))
+    pkgNames <- pkgNames[-which(pkgNames %in% "gbm")]
+    pkgNames <- append(pkgNames,"gbm",after=which(pkgNames %in% "survival"))
+    pkgNames <- pkgNames[-which(pkgNames %in% "glmnet")]
+    pkgNames <- append(pkgNames,"glmnet",after=which(pkgNames %in% "Matrix"))
+    pkgNames <- pkgNames[-which(pkgNames %in% "KernSmooth")]
+    pkgNames <- append(pkgNames,"KernSmooth",after=which(pkgNames %in% "gtools"))
+    pkgNames <- pkgNames[-which(pkgNames %in% "gplots")]
+    pkgNames <- append(pkgNames,"gplots",after=which(pkgNames %in% "KernSmooth"))
+    pkgNames <- pkgNames[-which(pkgNames %in% "gdata")]
+    pkgNames <- append(pkgNames,"gdata",after=which(pkgNames %in% "KernSmooth"))
+    pkgNames <- pkgNames[-which(pkgNames %in% "caTools")]
+    pkgNames <- append(pkgNames,"caTools",after=which(pkgNames %in% "KernSmooth"))
+    pkgNames <- pkgNames[-which(pkgNames %in% "ROCR")]
+    pkgNames <- append(pkgNames,"ROCR",after=which(pkgNames %in% "gplots"))
+    pkgNames <- pkgNames[-which(pkgNames %in% "prabclus")]
+    pkgNames <- append(pkgNames,"prabclus",after=which(pkgNames %in% "MASS"))
+    pkgNames <- pkgNames[-which(pkgNames %in% "mclust")]
+    pkgNames <- append(pkgNames,"mclust",after=which(pkgNames %in% "MASS"))
+    pkgNames <- pkgNames[-which(pkgNames %in% "latticeExtra")]
+    pkgNames <- append(pkgNames,"latticeExtra",after=which(pkgNames %in% "lattice"))
     return(reqs[match(pkgNames,reqs[,1]),])
 }
 
@@ -95,13 +125,17 @@ function(args) {
     sysRMinor <- R.version$minor
     wrong_r <- !(sysRMajor == JENKINS.R.VERSION.MAJOR && sysRMinor == JENKINS.R.VERSION.MINOR)
     if (wrong_r) {
-        return_val <- 2
         write("",stdout())
-        write(paste0("WARNING: Jenkins has R version ",JENKINS.R.VERSION.MAJOR,".",JENKINS.R.VERSION.MINOR,
+        write(paste0("ERROR: Jenkins has R version ",JENKINS.R.VERSION.MAJOR,".",JENKINS.R.VERSION.MINOR,
                      ", but this system's R version is ",sysRMajor,".",sysRMinor),stdout())
-        write(paste0("INFO: Manually update your R version to match Jenkins'"),stdout()) }
+        write(paste0("ERROR: Manually update your R version to match Jenkins'"),stdout())
+        q("no",1,FALSE)
+    }
 
-    installed_packages <- rownames(installed.packages())
+    rLibsUser <- Sys.getenv("R_LIBS_USER")
+    if (rLibsUser == "" || !file.exists(rLibsUser)) { installed_packages <- rownames(installed.packages())
+    } else { installed_packages <- rownames(installed.packages(lib.loc=file.path(rLibsUser)))
+    }
 
     # download and install RCurl
     url <- tryCatch({
@@ -141,7 +175,7 @@ function(args) {
         num_get_packages <- length(get_packages)
         if (num_get_packages > 0) return_val <- return_val + 1
         write("",stdout())
-        if (return_val == 0 || return_val == 2) {
+        if (return_val == 0) {
             write("INFO: Check successful. All system R packages/versions are Jenkins-approved",stdout())
         } else {
             write("ERROR: Check unsuccessful",stdout()) }
@@ -172,12 +206,16 @@ function(args) {
         # follow-on check
         write("",stdout())
         write("INFO: R package sync complete. Conducting follow-on R package/version checks...",stdout())
-        installed_packages <- rownames(installed.packages())
+
+        if (rLibsUser == "" || !file.exists(rLibsUser)) { installed_packages <- rownames(installed.packages())
+        } else { installed_packages <- rownames(installed.packages(lib.loc=file.path(rLibsUser)))
+        }
         get_packages <- doCheck(installed_packages,reqs)
 
         if (length(get_packages) > 0) {
             write("",stdout())
-            write("INFO: If the above list of missing/incorrect R packages was unexpected, try manually installing",stdout())
+            write("ERROR: Above list of missing/incorrect R packages was unexpected.",stdout())
+            q("no",1,FALSE)
         } else {
             write("",stdout())
             write("INFO: R package sync successful",stdout())
