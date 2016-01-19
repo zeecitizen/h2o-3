@@ -18,6 +18,64 @@ import platform
 
 __H2O_REST_API_VERSION__ = 3  # const for the version of the rest api
 
+
+def load_java_messages_to_ignore():
+    global g_ok_java_messages
+    global g_java_message_pickle_filename
+
+    if os.path.isfile(g_java_message_pickle_filename):
+        with open(g_java_message_pickle_filename,'rb') as tfile:
+            g_ok_java_messages = pickle.load(tfile)
+    else:
+        g_ok_java_messages["general"] = []
+
+
+
+'''
+function grab_java_message() will look through the java text output and try to extract the
+error messages from Java side.
+'''
+def grab_java_message(cloud_list,curr_testname):
+    global g_java_start_text
+
+    java_messages = ""
+    startTest = False
+
+    #grab each java file and process
+    for each_cloud in cloud_list:
+        java_filename = each_cloud.output_file_name
+
+        if os.path.isfile(java_filename):
+            java_file = open(java_filename,'r')
+            for each_line in java_file:
+                if (g_java_start_text in each_line):
+                    startStr,found,endStr = each_line.partition(g_java_start_text)
+
+                    if len(found) > 0:   # a new test is being started.  Save old info and move on
+                        current_testname = endStr.strip()
+                        if (current_testname == curr_testname): # found the line starting with current test.  Grab everything
+                            startTest = True
+                            java_messages += "\n\n**********************************************************\n"
+                            java_messages += "**********************************************************\n"
+                            java_messages += "JAVA Messages\n"
+                            java_messages += "**********************************************************\n"
+                            java_messages += "**********************************************************\n\n"
+
+
+                        else:   # found a differnt test than our current tests, either ignore or be done!
+                            if startTest:   # found current test and was writting into it, can stop now
+                                break
+
+                # start loop to keep writing message into list
+                if startTest:
+                    java_messages += each_line
+            java_file.close()   # finished finding java messages
+
+        if startTest:   # found java message associate with our test already.
+            break
+
+    return java_messages    # java messages
+
 def is_rdemo(file_name):
     """
     Return True if file_name matches a regexp for an R demo.  False otherwise.
@@ -224,10 +282,7 @@ class H2OCloudNode:
             main_class = "water.H2OClientApp"
         else:
             main_class = "water.H2OApp"
-        if "JAVA_HOME" in os.environ and not sys.platform == "win32":
-            java = os.environ["JAVA_HOME"] + "/bin/java"
-        else:
-            java = "java"
+        java = os.environ["JAVA_HOME"] + "/bin/java"
         cmd = [java,
                # "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005",
                "-Xmx" + self.xmx,
@@ -772,17 +827,22 @@ class Test:
         return cmd
 
     def _pytest_cmd(self, test_name, ip, port, on_hadoop, hadoop_namenode):
+      if g_pycoverage:
+        pyver = "coverage" if g_py3 else "coverage-3.5"
+        cmd = [pyver,"run", "-a", g_py_test_setup, "--usecloud", ip + ":" + str(port), "--resultsDir", g_output_dir,
+               "--testName", test_name]
+      else:
         pyver = "python3.5" if g_py3 else "python"
         cmd = [pyver, g_py_test_setup, "--usecloud", ip + ":" + str(port), "--resultsDir", g_output_dir,
                "--testName", test_name]
-        if is_pyunit(test_name):
-            if on_hadoop:         cmd = cmd + ["--onHadoop"]
-            if hadoop_namenode:   cmd = cmd + ["--hadoopNamenode", hadoop_namenode]
-            cmd = cmd + ["--pyUnit"]
-        elif is_ipython_notebook(test_name): cmd = cmd + ["--ipynb"]
-        elif is_pydemo(test_name):           cmd = cmd + ["--pyDemo"]
-        else:                                cmd = cmd + ["--pyBooklet"]
-        return cmd
+      if is_pyunit(test_name):
+          if on_hadoop:         cmd = cmd + ["--onHadoop"]
+          if hadoop_namenode:   cmd = cmd + ["--hadoopNamenode", hadoop_namenode]
+          cmd = cmd + ["--pyUnit"]
+      elif is_ipython_notebook(test_name): cmd = cmd + ["--ipynb"]
+      elif is_pydemo(test_name):           cmd = cmd + ["--pyDemo"]
+      else:                                cmd = cmd + ["--pyBooklet"]
+      return cmd
 
     def _javascript_cmd(self, test_name, ip, port):
         return ["phantomjs", test_name, "--host", ip + ":" + str(port), "--timeout", str(g_phantomjs_to), "--packs",
@@ -1210,7 +1270,7 @@ class TestRunner:
         for all clouds, check if connection to h2o exists, and that h2o is healthy.
         """
         time.sleep(3)
-	print("Checking cloud health...")
+        print("Checking cloud health...")
         for c in self.clouds:
             self._h2o_exists_and_healthy(c.get_ip(), c.get_port())
             print("Node {} healthy.").format(c)
@@ -1530,7 +1590,7 @@ class TestRunner:
                     self._report_xunit_result("r_suite", test_name, duration, False, "TestFailure", "Test failed",
                                               "See {}".format(test.get_output_dir_file_name()))
                 else:
-                    self._report_xunit_result("r_suite", test_name, duration, True)
+                    self._report_xunit_result(test,"r_suite", test_name, duration, True)
             # Copy failed test output into directory failed
             if not test.get_nopass(nopass) and not test.get_nofeature(nopass):
                 shutil.copy(test.get_output_dir_file_name(), self.failed_output_dir)
@@ -1538,13 +1598,36 @@ class TestRunner:
     # XSD schema for xunit reports is here; http://windyroad.com.au/dl/Open%20Source/JUnit.xsd
     def _report_xunit_result(self, testsuite_name, testcase_name, testcase_runtime,
                              skipped=False, failure_type=None, failure_message=None, failure_description=None):
+        global g_use_xml2
         errors = 0
         failures = 1 if failure_type else 0
         skip = 1 if skipped else 0
-        failure = "" if not failure_type else """"<failure type="{}" message="{}">{}</failure>""" \
+        failure = "" if not failure_type else """<failure type="{}" message="{}">{}</failure>""" \
             .format(failure_type, failure_message, failure_description)
 
-        xml_report = """<?xml version="1.0" encoding="UTF-8"?>
+        if g_use_xml2:
+
+
+            # need to change the failure content when using new xml format.
+            # first get the output file that contains the python/R output error
+            if not(failure_description==None): # for tests that fail.
+                failure_file = failure_description.split()[1]
+                failure_message = open(failure_file,'r').read() # read the whole content in here.
+
+                # add the error message from Java side here, java filename is in self.clouds[].output_file_name
+                for each_cloud in self.clouds:
+                    java_errors = grab_java_message(each_cloud.nodes,testcase_name)
+                    if len(java_errors) > 0:    # found java message and can quit now
+                        failure_message += java_errors
+                        break;
+
+#                print "failure_message", failure_message
+
+                if failure_message:
+                    failure = "" if not failure_type else """<failure type="{}" message="{}"><![CDATA[{}]]></failure>""" \
+                    .format(failure_type, failure_description, failure_message)
+
+            xml_report2 = """<?xml version="1.0" encoding="UTF-8"?>
 <testsuite name="{testsuiteName}" tests="1" errors="{errors}" failures="{failures}" skip="{skip}">
   <testcase classname="{testcaseClassName}" name="{testcaseName}" time="{testcaseRuntime}">
   {failure}
@@ -1554,7 +1637,23 @@ class TestRunner:
            testcaseRuntime=testcase_runtime, failure=failure,
            errors=errors, failures=failures, skip=skip)
 
-        self._save_xunit_report(testsuite_name, testcase_name, xml_report)
+            self._save_xunit_report2(testsuite_name, testcase_name, xml_report2) # will write out the whole file execution content
+
+        else:
+            xml_report = """<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="{testsuiteName}" tests="1" errors="{errors}" failures="{failures}" skip="{skip}">
+  <testcase classname="{testcaseClassName}" name="{testcaseName}" time="{testcaseRuntime}">
+  {failure}
+  </testcase>
+</testsuite>
+""".format(testsuiteName=testsuite_name, testcaseClassName=testcase_name, testcaseName=testcase_name,
+           testcaseRuntime=testcase_runtime, failure=failure,
+           errors=errors, failures=failures, skip=skip)
+
+            self._save_xunit_report(testsuite_name, testcase_name, xml_report)
+
+
+
 
     def _report_perf(self, test, finish_seconds):
         f = open(self.perf_file, "a")
@@ -1564,7 +1663,21 @@ class TestRunner:
         f.close()
 
     def _save_xunit_report(self, testsuite, testcase, report):
+        print "********  Inside _save_xunit_report\n"
         f = self._get_testreport_filehandle(testsuite, testcase)
+        f.write(report)
+        f.close()
+
+    '''
+    Write out the python test results into the xml file.  Not just pointing to a file.
+    '''
+    def _save_xunit_report2(self, testsuite, testcase, report):
+
+        print "********  Inside _save_xunit_report2\n"
+        # get the file handle for the correct file.
+        f = self._get_testreport_filehandle(testsuite, testcase)
+
+        # report contains the report to write to the xml file.
         f.write(report)
         f.close()
 
@@ -1661,6 +1774,7 @@ g_use_client = False
 g_config = None
 g_use_ip = None
 g_use_port = None
+g_use_xml2 = False  # by default, use the original xml file output
 g_no_run = False
 g_jvm_xmx = "1g"
 g_nopass = False
@@ -1682,7 +1796,9 @@ g_git_branch = None
 g_build_id = None
 g_job_name= None
 g_py3 = False
+g_pycoverage = False
 
+g_java_start_text = 'STARTING TEST:'    # test being started in java
 
 # Global variables that are set internally.
 g_output_dir = None
@@ -1797,6 +1913,8 @@ def usage():
     print("                     pass, ncpus, os, and job name of each test to perf.csv in the results directory.")
     print("                     Takes three parameters: git hash, git branch, and build id, job name in that order.")
     print("")
+    print("    --xml2           Generate xml file that contains the actual unit test errors and the actual Java error.")
+    print("")
     print("    If neither --test nor --testlist is specified, then the list of tests is")
     print("    discovered automatically as files matching '*runit*.R'.")
     print("")
@@ -1897,6 +2015,9 @@ def parse_args(argv):
     global g_os
     global g_job_name
     global g_py3
+    global g_pycoverage
+    global g_use_xml2
+    global g_java_message_pickle_filename
 
     i = 1
     while (i < len(argv)):
@@ -1912,6 +2033,11 @@ def parse_args(argv):
             if i > len(argv):
                 usage()
             g_py3 = True
+        elif s == "--coverage":
+            i += 1
+            if i > len(argv):
+              usage()
+            g_pycoverage = True
         elif (s == "--numclouds"):
             i += 1
             if (i > len(argv)):
@@ -1927,6 +2053,8 @@ def parse_args(argv):
             g_wipe_output_dir = True
         elif (s == "--wipe"):
             g_wipe_output_dir = True
+        elif (s == "--xml2"):
+            g_use_xml2 = True
         elif (s == "--test"):
             i += 1
             if (i > len(argv)):
@@ -2022,6 +2150,16 @@ def parse_args(argv):
             if (i > len(argv)):
                 usage()
             g_hadoop_namenode = argv[i]
+        elif (s == "--useExcludeJavaFile"):
+            # pickle file that contains the java messages to be ignored per tests and
+            # for general cases as well.  If user does not specify this, we will use
+            # a default one for all.
+            i += 1
+            if (i > len(argv)):
+                usage()
+            # this file should be located in h2o-3/scripts directory.
+            g_java_message_pickle_filename = os.path.join(os.path.dirname(os.path.realpath(__file__)),argv[i])
+
         elif (s == "--perf"):
             g_perf = True
 
