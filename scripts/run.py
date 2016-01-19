@@ -19,18 +19,6 @@ import platform
 __H2O_REST_API_VERSION__ = 3  # const for the version of the rest api
 
 
-def load_java_messages_to_ignore():
-    global g_ok_java_messages
-    global g_java_message_pickle_filename
-
-    if os.path.isfile(g_java_message_pickle_filename):
-        with open(g_java_message_pickle_filename,'rb') as tfile:
-            g_ok_java_messages = pickle.load(tfile)
-    else:
-        g_ok_java_messages["general"] = []
-
-
-
 '''
 function grab_java_message() will look through the java text output and try to extract the
 error messages from Java side.
