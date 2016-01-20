@@ -23,15 +23,32 @@ __H2O_REST_API_VERSION__ = 3  # const for the version of the rest api
 function grab_java_message() will look through the java text output and try to extract the
 error messages from Java side.
 '''
-def grab_java_message(cloud_list,curr_testname):
-    global g_java_start_text
+def grab_java_message(node_list, curr_testname):
+    """scan through the java output text and extract the java messages related to running
+    test specified in curr_testname.
+
+    Parameters
+    ----------
+
+    node_list :  list of H2O nodes
+      List of H2o nodes associated with a H2OCloud that are performing the test specified in curr_testname.
+    curr_testname : str
+      Store the unit test name (can be R unit or Py unit) that has been completed and failed.
+
+
+    :return: a string object that is either empty or the java messages that associated with the test in curr_testname.
+     The java messages can usually be found in one of the java_*_0.out.txt
+    """
+
+
+    global g_java_start_text    # contains text that describe the start of a unit test.
 
     java_messages = ""
-    startTest = False
+    startTest = False           # denote when the current test was found in the java_*_0.out.txt file
 
-    #grab each java file and process
-    for each_cloud in cloud_list:
-        java_filename = each_cloud.output_file_name
+    # grab each java file and try to grab the java messages associated with curr_testname
+    for each_node in node_list:
+        java_filename = each_node.output_file_name  # find the java_*_0.out.txt file
 
         if os.path.isfile(java_filename):
             java_file = open(java_filename,'r')
@@ -39,10 +56,12 @@ def grab_java_message(cloud_list,curr_testname):
                 if (g_java_start_text in each_line):
                     startStr,found,endStr = each_line.partition(g_java_start_text)
 
-                    if len(found) > 0:   # a new test is being started.  Save old info and move on
-                        current_testname = endStr.strip()
-                        if (current_testname == curr_testname): # found the line starting with current test.  Grab everything
-                            startTest = True
+                    if len(found) > 0:   # a new test is being started.
+                        current_testname = endStr.strip()   # grab the test name and check if it is curr_testname
+                        if (current_testname == curr_testname): # found the line starting with current test.  Grab everything now
+                            startTest = True    # found text in java_*_0.out.txt that describe curr_testname
+
+                            # add header to make JAVA messages visible.
                             java_messages += "\n\n**********************************************************\n"
                             java_messages += "**********************************************************\n"
                             java_messages += "JAVA Messages\n"
@@ -50,19 +69,20 @@ def grab_java_message(cloud_list,curr_testname):
                             java_messages += "**********************************************************\n\n"
 
 
-                        else:   # found a differnt test than our current tests, either ignore or be done!
-                            if startTest:   # found current test and was writting into it, can stop now
+                        else:   # found a differnt test than our curr_testname.  We are done!
+                            if startTest:   # in the middle of curr_testname but found a new test starting, can quit now.
                                 break
 
-                # start loop to keep writing message into list
+                # store java message associated with curr_testname into java_messages
                 if startTest:
                     java_messages += each_line
+
             java_file.close()   # finished finding java messages
 
-        if startTest:   # found java message associate with our test already.
+        if startTest:       # found java message associate with our test already. No need to continue the loop.
             break
 
-    return java_messages    # java messages
+    return java_messages    # java messages associated with curr_testname
 
 def is_rdemo(file_name):
     """
@@ -1586,7 +1606,8 @@ class TestRunner:
     # XSD schema for xunit reports is here; http://windyroad.com.au/dl/Open%20Source/JUnit.xsd
     def _report_xunit_result(self, testsuite_name, testcase_name, testcase_runtime,
                              skipped=False, failure_type=None, failure_message=None, failure_description=None):
-        global g_use_xml2
+        global g_use_xml2   # True if we want to write more info into the xml file like unit test output and the corresponing Java message.
+
         errors = 0
         failures = 1 if failure_type else 0
         skip = 1 if skipped else 0
@@ -1595,14 +1616,13 @@ class TestRunner:
 
         if g_use_xml2:
 
-
             # need to change the failure content when using new xml format.
             # first get the output file that contains the python/R output error
             if not(failure_description==None): # for tests that fail.
                 failure_file = failure_description.split()[1]
                 failure_message = open(failure_file,'r').read() # read the whole content in here.
 
-                # add the error message from Java side here, java filename is in self.clouds[].output_file_name
+                # add the error message from Java side here, java filename is in self.clouds[].nodes[].output_file_name
                 for each_cloud in self.clouds:
                     java_errors = grab_java_message(each_cloud.nodes,testcase_name)
                     if len(java_errors) > 0:    # found java message and can quit now
@@ -1786,7 +1806,7 @@ g_job_name= None
 g_py3 = False
 g_pycoverage = False
 
-g_java_start_text = 'STARTING TEST:'    # test being started in java
+g_java_start_text = 'STARTING TEST:'    # text denote a test being started in java
 
 # Global variables that are set internally.
 g_output_dir = None
