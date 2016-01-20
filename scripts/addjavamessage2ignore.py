@@ -8,10 +8,14 @@ import copy
 import subprocess
 
 
-'''
-This script is written to a user to add new java messages that we can ignore during a log
-scraping session.  In addition, the user can choose to remove old java messages that are okay
-to ignore in the past but cannot be ignored anymore.  The user can edit a text file in the format of
+"""
+This script is written for a user
+1. to add new java messages that we can ignore during a log scraping session;
+2. to remove old java messages that are okay to ignore in the past but cannot be ignored anymore.
+
+To see how to call this script correctly, see usage().
+
+To exclude java messages, the user can edit a text file that contains the following:
 keyName = general
 Message = nfolds: nfolds cannot be larger than the number of rows (406).
 KeyName = pyunit_cv_cars_gbm.py
@@ -35,7 +39,33 @@ Values: {"messages":[{"_log_level":1,"_field_name":"_nfolds","_message":"nfolds 
 "_seed":-1,"_nbins_top_level":1024,"_build_tree_one_node":false,"_initial_score_interval":4000,"_score_interval":4000,"_sample_rate":1.0,\
 "_col_sample_rate_per_tree":1.0,"_learn_rate":0.1,"_col_sample_rate":1.0}, "error_count":1}
 
-'''
+Given the above text file, this script will build a dict structure (g_ok_java_message_dict) that contains the
+following key/value pairs:
+g_ok_java_message_dict["general"] = ["nfolds: nfolds cannot be larger than the number of rows (406)."]
+g_ok_java_message_dict["pyunit_cv_cars_gbm.py"] = ["Caught exception: Illegal argument(s) for GBM model: GBM_model_python_1452503348770_2586.  \
+    Details: ERRR on field: _nfolds: nfolds must be either 0 or >1.","Stacktrace: [water.exceptions.H2OModelBuilderIllegalArgumentException.makeFromBuilder(H2OModelBuilderIllegalArgumentException.java:19), \
+water.api.ModelBuilderHandler.handle(ModelBuilderHandler.java:45), water.api.RequestServer.handle(RequestServer.java:617), \
+water.api.RequestServer.serve(RequestServer.java:558), water.JettyHTTPD$H2oDefaultServlet.doGeneric(JettyHTTPD.java:616), \
+water.JettyHTTPD$H2oDefaultServlet.doPost(JettyHTTPD.java:564), javax.servlet.http.HttpServlet.service(HttpServlet.java:755), \
+javax.servlet.http.HttpServlet.service(HttpServlet.java:848), org.eclipse.jetty.servlet.ServletHolder.handle(ServletHolder.java:684)]; \
+Values: {"messages":[{"_log_level":1,"_field_name":"_nfolds","_message":"nfolds must be either 0 or >1."},\
+{"_log_level":5,"_field_name":"_tweedie_power","_message":"Only for Tweedie Distribution."},{"_log_level":5,"_field_name":"_max_after_balance_size",\
+"_message":"Balance classes is false, hide max_after_balance_size"},{"_log_level":5,"_field_name":"_max_after_balance_size","_message":"Only used with balanced classes"},\
+{"_log_level":5,"_field_name":"_class_sampling_factors","_message":"Class sampling factors is only applicable if balancing classes."}], "algo":"GBM", \
+"parameters":{"_train":{"name":"py_3","type":"Key"},"_valid":null,"_nfolds":-1,"_keep_cross_validation_predictions":false,"_fold_assignment":"AUTO",\
+"_distribution":"multinomial","_tweedie_power":1.5,"_ignored_columns":["economy_20mpg","fold_assignments","name","economy"],"_ignore_const_cols":true,\
+"_weights_column":null,"_offset_column":null,"_fold_column":null,"_score_each_iteration":false,"_stopping_rounds":0,"_stopping_metric":"AUTO",\
+"_stopping_tolerance":0.001,"_response_column":"cylinders","_balance_classes":false,"_max_after_balance_size":5.0,"_class_sampling_factors":null,\
+"_max_confusion_matrix_size":20,"_checkpoint":null,"_ntrees":5,"_max_depth":5,"_min_rows":10.0,"_nbins":20,"_nbins_cats":1024,"_r2_stopping":0.999999,\
+"_seed":-1,"_nbins_top_level":1024,"_build_tree_one_node":false,"_initial_score_interval":4000,"_score_interval":4000,"_sample_rate":1.0,\
+"_col_sample_rate_per_tree":1.0,"_learn_rate":0.1,"_col_sample_rate":1.0}, "error_count":1"]
+
+The key value "general" implies that the java message stored in g_ok_java_message_dict["general"] will be ignored
+for all unit tests.  The java messages stored by the specific unit test name is only ignored for that particular tests.
+
+For each key value in the g_ok_java_message_dict, the values are stored as a list.
+
+"""
 
 # --------------------------------------------------------------------
 # Main program
@@ -43,11 +73,11 @@ Values: {"messages":[{"_log_level":1,"_field_name":"_nfolds","_message":"nfolds 
 
 g_test_root_dir = os.path.dirname(os.path.realpath(__file__)) # directory where we are running out code from
 g_load_java_message_filename = "bad_java_messages_to_exclude.pickle" # default pickle filename that store previous java messages that we wanted to exclude
-g_save_java_message_filename = "bad_java_messages_to_exclude.pickle" # pickle filename that we are going to store our java messages to
+g_save_java_message_filename = "bad_java_messages_to_exclude.pickle" # pickle filename that we are going to store our added java messages to
 g_new_messages_to_exclude = ""  # user file that stores the new java messages to ignore
 g_old_messages_to_remove = ""   # user file that stores java messages that are to be removed from the ignore list.
 g_dict_changed = False          # True if dictionary has changed and False otherwise
-g_java_messages_to_ignore_text_filename = "java_messages_to_ignore.txt" # store all rules for humans to read
+g_java_messages_to_ignore_text_filename = "java_messages_to_ignore.txt"     # store all rules for humans to read
 g_print_java_messages = False
 
 # store java bad messages that we can ignore.  The keys are "general",testnames that we
@@ -55,37 +85,77 @@ g_print_java_messages = False
 g_ok_java_messages = {}
 
 def load_dict():
+    """
+    Load java messages that can be ignored pickle file into a dict structure g_ok_java_messages.
+
+    :return: none
+    """
     global g_load_java_message_filename
     global g_ok_java_messages
 
     if os.path.isfile(g_load_java_message_filename):
+            # only load dict from file if it exists.
         with open(g_load_java_message_filename,'rb') as ofile:
             g_ok_java_messages = pickle.load(ofile)
     else:   # no previous java messages to be excluded are found
         g_ok_java_messages = {}
 
 def add_new_message():
-    global g_new_messages_to_exclude
-    global g_dict_changed
+    """
+    Add new java messages to ignore from user text file.  It first reads in the new java ignored messages
+    from the user text file and generate a dict structure to out of the new java ignored messages.  This
+    is achieved by function extract_message_to_dict.  Next, new java messages will be added to the original
+    ignored java messages dict g_ok_java_messages.  Again, this is achieved by function update_message_dict.
+
+    :return: none
+    """
+    global g_new_messages_to_exclude    # filename containing text file from user containing new java ignored messages
+    global g_dict_changed               # True if new ignored java messages are added.
 
     new_message_dict = extract_message_to_dict(g_new_messages_to_exclude)
+
     if new_message_dict:
         g_dict_changed = True
         update_message_dict(new_message_dict,1) # update g_ok_java_messages with new message_dict, 1 to add, 2 to remove
 
 
-def remove_old_message():    # remove java messages from ignored list if users desired it
+def remove_old_message():
+    """
+    Remove java messages from ignored list if users desired it.  It first reads in the java ignored messages
+    from user stored in g_old_messages_to_remove and build a dict structure (old_message_dict) out of it.  Next, it removes the
+    java messages contained in old_message_dict from g_ok_java_messages.
+    :return: none
+    """
     global g_old_messages_to_remove
     global g_dict_changed
 
+    # extract old java ignored messages to be removed in old_message_dict
     old_message_dict = extract_message_to_dict(g_old_messages_to_remove)
 
     if old_message_dict:
         g_dict_changed = True
-        update_message_dict(old_message_dict,2)
+        update_message_dict(old_message_dict,2) # remove the java messages stored in old_message_dict from g_ok_java_messages
 
 
 def update_message_dict(message_dict,action):
+    """
+    Update the g_ok_java_messages dict structure by
+    1. add the new java ignored messages stored in message_dict if action == 1
+    2. remove the java ignored messages stired in message_dict if action == 2.
+
+    Parameters
+    ----------
+
+    message_dict :  Python dict
+      key: unit test name or "general"
+      value: list of java messages that are to be ignored if they are found when running the test stored as the key.  If
+        the key is "general", the list of java messages are to be ignored when running all tests.
+    action : int
+      if 1: add java ignored messages stored in message_dict to g_ok_java_messages dict;
+      if 2: remove java ignored messages stored in message_dict from g_ok_java_messages dict.
+
+    :return: none
+    """
     global g_ok_java_messages
 
     allKeys = g_ok_java_messages.keys()
@@ -106,13 +176,30 @@ def update_message_dict(message_dict,action):
                 g_ok_java_messages[key] = message_dict[key]
 
 
-'''
-Function extract_message_to_dict is written to read in a file and generate a dictionary
-structure out of it with key and value pairs.  The keys are test names and the values
-are lists of java message strings associated with that test name where we are either
-going to on to the existing java messages to ignore or remove them.
-'''
 def extract_message_to_dict(filename):
+    """
+    Read in a text file that java messages to be ignored and generate a dictionary structure out of
+    it with key and value pairs.  The keys are test names and the values are lists of java message
+    strings associated with that test name where we are either going to add to the existing java messages
+    to ignore or remove them from g_ok_java_messages.
+
+    Parameters
+    ----------
+
+    filename :  Str
+       filename that contains ignored java messages.  The text file shall contain something like this:
+        keyName = general
+        Message = nfolds: nfolds cannot be larger than the number of rows (406).
+        KeyName = pyunit_cv_cars_gbm.py
+        Message = Caught exception: Illegal argument(s) for GBM model: GBM_model_python_1452503348770_2586.  \
+            Details: ERRR on field: _nfolds: nfolds must be either 0 or >1.
+        ...
+
+    :return:
+    message_dict : dict
+        contains java message to be ignored with key as unit test name or "general" and values as list of ignored java
+        messages.
+    """
     message_dict = {}
 
     if os.path.isfile(filename):
@@ -161,6 +248,11 @@ def extract_message_to_dict(filename):
 
 
 def save_dict():
+    """
+    Save the ignored java message dict stored in g_ok_java_messages into a pickle file for future use.
+
+    :return: none
+    """
     global g_ok_java_messages
     global g_save_java_message_filename
     global g_dict_changed
@@ -170,6 +262,11 @@ def save_dict():
             pickle.dump(g_ok_java_messages,ofile)
 
 def print_dict():
+    """
+    Write the java ignored messages in g_ok_java_messages into a text file for humans to read.
+
+    :return: none
+    """
     global g_ok_java_messages
     global g_java_messages_to_ignore_text_filename
 
@@ -189,6 +286,18 @@ def print_dict():
 
 
 def parse_args(argv):
+    """
+    Parse user inputs and set the corresponing global variables to perform the
+    necessary tasks.
+
+    Parameters
+    ----------
+
+    argv : string array
+        contains flags and input options from users
+
+    :return:
+    """
     global g_new_messages_to_exclude
     global g_old_messages_to_remove
     global g_load_java_message_filename
@@ -199,27 +308,27 @@ def parse_args(argv):
     while (i < len(argv)):
         s = argv[i]
 
-        if (s == "--inputfileadd"):    # input text file where new java messages are stored
+        if (s == "--inputfileadd"):         # input text file where new java messages are stored
             i += 1
             if (i > len(argv)):
                 usage()
             g_new_messages_to_exclude = argv[i]
-        elif (s == "--inputfilerm"):     # input text file containing java messages to be removed from the ignored list
+        elif (s == "--inputfilerm"):        # input text file containing java messages to be removed from the ignored list
             i += 1
             if (i > len(argv)):
                 usage()
             g_old_messages_to_remove = argv[i]
-        elif (s == "--loadjavamessage"): # load previously saved java message pickle file before performing update
-            i += 1
+        elif (s == "--loadjavamessage"):    # load previously saved java message pickle file from file other than
+            i += 1                          # the default one before performing update
             if i > len(argv):
                 usage()
             g_load_java_message_filename = argv[i]
-        elif (s == "--savejavamessage"):    # save updated java message in this file
+        elif (s == "--savejavamessage"):    # save updated java message in this file instead of default file
             i += 1
             if (i > len(argv)):
                 usage()
             g_save_java_message_filename = argv[i]
-        elif (s == '--printjavamessage'):   # will print java message out to console and save in a file
+        elif (s == '--printjavamessage'):   # will print java message out to console and save in a text file
             g_print_java_messages = True
         else:
             unknown_arg(s)
@@ -228,18 +337,23 @@ def parse_args(argv):
 
 
 def usage():
-    global g_script_name
+    """
+    Illustrate what the various input flags are and the options should be.
+
+    :return: none
+    """
+    global g_script_name    # name of the script being run.
 
     print("")
     print("Usage:  " + g_script_name + " [...options...]")
     print("")
-    print("    --inputfileadd      file name where the new java messages to ignore are stored in  Must present.")
+    print("    --inputfileadd filename where the new java messages to ignore are stored in  Must present.")
     print("")
-    print("    --inputfilerm       file name where the java messages are removed from the ignored list.")
+    print("    --inputfilerm filename where the java messages are removed from the ignored list.")
     print("")
-    print("    --loadjavamessage   file name ending in .pickle that stores the dict structure that contains java messages to include.")
+    print("    --loadjavamessage filename ending in .pickle that stores the dict structure that contains java messages to include.")
     print("")
-    print("    --savejavamessage   file name ending in .pickle that save the final dict structure after update.")
+    print("    --savejavamessage filename ending in .pickle that save the final dict structure after update.")
     print("")
     print("    --printjavamessage   print java ignored java messages on console and save into a text file.")
     print("")
@@ -275,7 +389,7 @@ def main(argv):
     parse_args(argv)
 
     g_load_java_message_filename = os.path.join(g_test_root_dir,g_load_java_message_filename)
-    load_dict() # load previously stored java messages to exclude dictionary
+    load_dict() # load previously stored java messages to g_ok_java_messages
 
     if len(g_new_messages_to_exclude) > 0:
         g_new_messages_to_exclude = os.path.join(g_test_root_dir,g_new_messages_to_exclude)
@@ -286,14 +400,11 @@ def main(argv):
         remove_old_message()    # remove java messages from ignored list if users desired it
 
     g_save_java_message_filename = os.path.join(g_test_root_dir,g_save_java_message_filename)
-    save_dict()
+    save_dict()                 # save the updated dict g_ok_java_messages to pickle file
 
-    if g_print_java_messages:
+    if g_print_java_messages:   # print java ignored messages to console and text file
         g_java_messages_to_ignore_text_filename = os.path.join(g_test_root_dir,g_java_messages_to_ignore_text_filename)
         print_dict()
-
-
-
 
 
 

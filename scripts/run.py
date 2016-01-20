@@ -19,10 +19,6 @@ import platform
 __H2O_REST_API_VERSION__ = 3  # const for the version of the rest api
 
 
-'''
-function grab_java_message() will look through the java text output and try to extract the
-error messages from Java side.
-'''
 def grab_java_message(node_list, curr_testname):
     """scan through the java output text and extract the java messages related to running
     test specified in curr_testname.

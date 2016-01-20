@@ -9,45 +9,41 @@ import copy
 import subprocess
 
 
-'''
-This version is different from the other ones in the sense that it will take the name of the file
-but will save the file in the directory where this script is run from.  In addition, we added in the view
-name in which the jenkin job is located.  This is needed in order to reliably access the console output for
-some reason.  I was able to run without it before if I ran it from my own computer.  But once I am in the git
-tracked repos, I was not able to get the correct console output for some reason.
-'''
+"""
+In summary, this script given a jenkins job full console url and a summary log filename will
+1. scrape the console output log, all unit tests outputs and all java_*_0.out.txt of the
+   latest build.
+2. From all the logs, it will generate potentially two log files: jenkins_job_name_build_number_failed_tests.log
+   and jenkins_job_name_build_number_passed_tests.log.  Inside each log file, it contains the job name, build number,
+   timestamp, git hash, git branch, node name, build failure and build timeout information.  In addition, it will list
+   unit tests that failed/passed with the corresponding java WARN/ERRR/FATAL/STACKTRACE messages associated with the unit tests.
+3. Users can choose to ignore certain java messages that are deemed okay.  These ignored java messages are stored in a pickle
+   file with a default name and location.  However, if the user wants to use their own ignored java messages, they can do
+   so by specifying a third optional argument to this script as the name to where their own personal pickle file name.
+4. If there are okay ignored java messages stored in a pickle file, this script will not grab them and store them in
+   any log files.
+5. For details on how to generate ignore java messages and save them to a pickle file, please see addjavamessage2ignore.py.
+"""
 
-'''
-TODOs:
-1. separately write the java messages for failed tests and tests that passed. --DONE 1/13/16.
-2. add option to argument list so that users can choose to upload personalized
-bad Java messages to exclude.  If options not specified, default files will be
-used to stored the bad Java messages to include.     --DONE 1/13/16.
-3. Implement the code to support general Java messages to exclude and support Java messages
-to exclude per test name;    --DONE 1/13/16.
-4. Implement the code to support loading Java messages to exclude from default or user
-specified files.     --DONE 1/13/16.
-5. Generate a consolidated log for all failed tests to send to user
-6. Come up with a better way to generate a mail message to inform user of failed tests.
-'''
 # --------------------------------------------------------------------
 # Main program
 # --------------------------------------------------------------------
 
 g_test_root_dir = os.path.dirname(os.path.realpath(__file__)) # directory where we are running out code from
-g_script_name = ''
+g_script_name = ''  # store script name.
 
 g_node_name = "Building remotely on"   # the very next string is the name of the computer node that ran the test
 g_git_hash_branch = "Checking out Revision"    # next string is git hash, and the next one is (origin/branch)
 g_build_timeout = "Build timed out"             # phrase when tests run too long
-g_build_success = ["Finished: SUCCESS",'BUILD SUCCESSFUL']           # sentence at the end that guarantee build success
+g_build_success = ["Finished: SUCCESS",'BUILD SUCCESSFUL']   # sentence at the end that guarantee build success
 
 g_build_success_tests = ['generate_rest_api_docs.py','generate_java_bindings.py'] # two functions that are usually performed after build success
 g_build_id_text = 'Build id is'
 g_view_name = ''
 
-g_temp_filename = os.path.join(g_test_root_dir,'tempText')
+g_temp_filename = os.path.join(g_test_root_dir,'tempText')  # temp file to store data curled from Jenkins
 
+# generate file names to store the final logs.
 g_output_filename_failed_tests = os.path.join(g_test_root_dir,'failedMessage_failed_tests.log')
 g_output_filename_passed_tests = os.path.join(g_test_root_dir,'failedMessage_passed_tests.log')
 g_output_pickle_filename = os.path.join(g_test_root_dir,'failedMessage.pickle.log')
@@ -55,40 +51,41 @@ g_output_pickle_filename = os.path.join(g_test_root_dir,'failedMessage.pickle.lo
 g_failed_test_info_dict = {}
 g_failed_test_info_dict["7.build_failure"] = "No"   # initialize build_failure with no by default
 
+# info used to generate timestamp
 g_weekdays = 'Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday'
-
 g_months = 'January, Feburary, March, May, April, May, June, July, August, September, October, November, December'
 
 g_failure_occurred = False  # denote when failure actually occurred
 
-g_failed_jobs = []  # record job names of failed jobs
+g_failed_jobs = []                      # record job names of failed jobs
 g_failed_job_java_message_types = []    # java bad message types (can be WARN:, ERRR:, FATAL:, TRACE:)
-g_failed_job_java_messages = []  # record failed job java message
+g_failed_job_java_messages = []         # record failed job java message
 
-g_success_jobs = []  # record job names of passed jobs
+g_success_jobs = []                     # record job names of passed jobs
 g_success_job_java_message_types = []
-g_success_job_java_messages = [] # record of successful jobs bad java messages
+g_success_job_java_messages = []        # record of successful jobs bad java messages
 
 # text you will find before you can find your java_*_*.out.txt 
 g_before_java_file = ["H2O Cloud", "Node", "started with output file"]
 
 g_java_filenames = []   # contains all java filenames for us to mine
-g_java_message_type = ["WARN:", "ERRR:", "FATAL:", "TRACE:"]
+g_java_message_type = ["WARN:", ":WARN:", "ERRR:", "FATAL:", "TRACE:"]    # bad java message types
+g_all_java_message_type = ["WARN:", ":WARN:", "ERRR:", "FATAL:", "TRACE:", "DEBUG:","INFO:"]    # all java message types
 
 g_java_general_bad_message_types = []
-g_java_general_bad_messages = []    # store java messages that are not associated with any tests
+g_java_general_bad_messages = []        # store java messages that are not associated with any tests
 
 g_jenkins_url = ''
+g_toContinue = False
 
-# denote when we are in a test during java text scanning
-g_current_testname = ''
+g_current_testname = ''                 # denote when we are in a test during java text scanning
 
 g_java_start_text = 'STARTING TEST:'    # test being started in java
 
-g_ok_java_messages = {} # store java bad messages that we can ignore
+g_ok_java_messages = {} # dict that stores java bad messages that we can ignore
 g_java_message_pickle_filename = "bad_java_messages_to_exclude.pickle"  # pickle file that store the dictionary structure that include Java error message to exclude
 g_build_failed_message = ["Finished: FAILURE".lower(),'BUILD FAILED'.lower()]   # something has gone wrong.  No tests are performed.
-g_summary_text_filename = ""    # filename to store the summary file to be sent to user.
+g_summary_text_filename = ""     # filename to store the summary file (contains all logs) sent to user via email.
 
 '''
 The sole purpose of this function is to enable us to be able to call
@@ -96,6 +93,19 @@ any function that is specified as the first argument using the argument
 list specified in second argument.
 '''
 def perform(function_name, *arguments):
+    """
+
+    Parameters
+    ----------
+
+    function_name :  python function handle
+        name of functio we want to call and run
+    *arguments :  Python list
+        list of arguments to be passed to function_name
+
+
+    :return: bool
+    """
     return function_name(*arguments)
 
 
@@ -106,6 +116,23 @@ redirect function can only encode using ASCII.  I have googled for half a day wi
 results to how.  Hence, we are going to the heat and just manually get rid of the junk.
 '''
 def extract_true_string(string_content):
+    """
+    remove extra characters before the actual string we are
+    looking for.  The Jenkins console output is encoded using utf-8.  However, the stupid
+    redirect function can only encode using ASCII.  I have googled for half a day with no
+    results to how to resolve the issue.  Hence, we are going to the heat and just manually
+    get rid of the junk.
+
+    Parameters
+    ----------
+
+    string_content :  str
+        contains a line read in from jenkins console
+
+    :return: str: contains the content of the line after the string '[0m'
+
+    """
+
     startL,found,endL = string_content.partition('[0m')
 
     if found:
@@ -117,6 +144,23 @@ def extract_true_string(string_content):
 Function find_time is written to extract the timestamp when a job is built.
 """
 def find_time(each_line,temp_func_list):
+    """
+    calculate the approximate date/time from the timestamp about when the job
+    was built.  This information was then saved in dict g_failed_test_info_dict.
+    In addition, it will delete this particular function handle off the temp_func_list
+    as we do not need to perform this action again.
+
+    Parameters
+    ----------
+
+    each_line :  str
+        contains a line read in from jenkins console
+    temp_func_list :  list of Python function handles
+        contains a list of functions that we want to invoke to extract information from
+        the Jenkins console text.
+
+    :return: bool to determine if text mining should continue on the jenkins console text
+    """
     global g_weekdays
     global g_months
     global g_failed_test_info_dict
@@ -132,6 +176,23 @@ def find_time(each_line,temp_func_list):
             
    
 def find_node_name(each_line,temp_func_list):
+    """
+    Find the slave machine where a Jenkins job was executed on.  It will save this
+    information in g_failed_test_info_dict.  In addition, it will
+    delete this particular function handle off the temp_func_list as we do not need
+    to perform this action again.
+
+    Parameters
+    ----------
+
+    each_line :  str
+        contains a line read in from jenkins console
+    temp_func_list :  list of Python function handles
+        contains a list of functions that we want to invoke to extract information from
+        the Jenkins console text.
+
+    :return: bool to determine if text mining should continue on the jenkins console text
+    """
     global g_node_name
     global g_failed_test_info_dict
 
@@ -145,6 +206,22 @@ def find_node_name(each_line,temp_func_list):
 
 
 def find_git_hash_branch(each_line,temp_func_list):
+    """
+    Find the git hash and branch info that  a Jenkins job was taken from.  It will save this
+    information in g_failed_test_info_dict.  In addition, it will delete this particular
+    function handle off the temp_func_list as we do not need to perform this action again.
+
+    Parameters
+    ----------
+
+    each_line :  str
+        contains a line read in from jenkins console
+    temp_func_list :  list of Python function handles
+        contains a list of functions that we want to invoke to extract information from
+        the Jenkins console text.
+
+    :return: bool to determine if text mining should continue on the jenkins console text
+    """
     global g_git_hash_branch
     global g_failed_test_info_dict
 
@@ -159,6 +236,21 @@ def find_git_hash_branch(each_line,temp_func_list):
 
 
 def find_build_timeout(each_line,temp_func_list):
+    """
+    Find if a Jenkins job has taken too long to finish and was killed.  It will save this
+    information in g_failed_test_info_dict.
+
+    Parameters
+    ----------
+
+    each_line :  str
+        contains a line read in from jenkins console
+    temp_func_list :  list of Python function handles
+        contains a list of functions that we want to invoke to extract information from
+        the Jenkins console text.
+
+    :return: bool to determine if text mining should continue on the jenkins console text
+"""
     global g_build_timeout
     global g_failed_test_info_dict
     global g_failure_occurred
@@ -166,19 +258,32 @@ def find_build_timeout(each_line,temp_func_list):
     if g_build_timeout in each_line:
         g_failed_test_info_dict["8.build_timeout"] = 'Yes'
         g_failure_occurred = True
-        return False
+        return False    # build timeout was found, no need to continue mining the console text
     else:
         return True
 
 def find_build_failure(each_line,temp_func_list):
+    """
+    Find if a Jenkins job has failed to build.  It will save this
+    information in g_failed_test_info_dict.  In addition, it will delete this particular
+    function handle off the temp_func_list as we do not need to perform this action again.
+
+    Parameters
+    ----------
+
+    each_line :  str
+        contains a line read in from jenkins console
+    temp_func_list :  list of Python function handles
+        contains a list of functions that we want to invoke to extract information from
+        the Jenkins console text.
+
+    :return: bool to determine if text mining should continue on the jenkins console text
+    """
     global g_build_success
     global g_build_success_tests
     global g_failed_test_info_dict
     global g_failure_occurred
     global g_build_failed_message
-    # if ((g_build_success[0] in each_line) or (g_build_success[1] in each_line) or (g_build_success_tests[0] in each_line) or (g_build_success_tests[1] in each_line)):
-    #     g_failed_test_info_dict["7.build_failure"] = 'No'
-    #     temp_func_list.remove(find_build_failure)
 
     for ind in range(0,len(g_build_failed_message)):
         if g_build_failed_message[ind] in each_line.lower():
@@ -193,12 +298,22 @@ def find_build_failure(each_line,temp_func_list):
     return True
 
 
-"""
-Function find_java_filename will go through the console output and find the
-java filename that we need to comb through and find all the error/warning
-messages.
-"""
 def find_java_filename(each_line,temp_func_list):
+    """
+    Find if all the java_*_0.out.txt files that were mentioned in the console output.
+    It will save this information in g_java_filenames as a list of strings.
+
+    Parameters
+    ----------
+
+    each_line :  str
+        contains a line read in from jenkins console
+    temp_func_list :  list of Python function handles
+        contains a list of functions that we want to invoke to extract information from
+        the Jenkins console text.
+
+    :return: bool to determine if text mining should continue on the jenkins console text
+"""
     global g_before_java_file
     global g_java_filenames
 
@@ -214,6 +329,22 @@ def find_java_filename(each_line,temp_func_list):
 
 
 def find_build_id(each_line,temp_func_list):
+    """
+    Find the build id of a jenkins job.  It will save this
+    information in g_failed_test_info_dict.  In addition, it will delete this particular
+    function handle off the temp_func_list as we do not need to perform this action again.
+
+    Parameters
+    ----------
+
+    each_line :  str
+        contains a line read in from jenkins console
+    temp_func_list :  list of Python function handles
+        contains a list of functions that we want to invoke to extract information from
+        the Jenkins console text.
+
+    :return: bool to determine if text mining should continue on the jenkins console text
+    """
     global g_before_java_file
     global g_java_filenames
     global g_build_id_text
@@ -237,9 +368,21 @@ g_build_func_list = [find_time,find_node_name,find_build_id,find_git_hash_branch
 
 
 def update_test_dict(each_line):
+    """
+    Extract unit tests information from the jenkins job console output.  It will save this
+    information in g_failed_jobs list and setup a place holder for saving the bad java
+    messages/message types in g_failed_job_java_messages, g_failed_job_java_message_types.
+
+    Parameters
+    ----------
+
+    each_line :  str
+        contains a line read in from jenkins console
+
+    :return: bool to determine if text mining should continue on the jenkins console text
+    """
     global g_ignore_test_names
     global g_failed_jobs
-    global g_failed_job_durations
     global g_failed_job_java_messages
     global g_failure_occurred
 
@@ -260,7 +403,27 @@ This function is written to extract the error messages from console output and
 possible from the java_*_*.out to warn users of potentially bad runs.
 
 '''
-def extract_test_results(resource_url):
+def extract_test_results():
+    """
+    Extract error messages from jenkins console output and from java_*_0.out.txt if they exist to
+    warn users of potentially bad tests.  In addition, it will grab the following info about the jenkins
+    job from the console output and saved it into g_failed_test_info_dict:
+    1.jobName
+    2.build_id
+    3.timestamp
+    4.git_hash
+    5.git_branch
+    6.node_name
+    7.build_failure
+    8.build_timeout
+    9.general_bad_java_messages
+    failed_tests_info *********: list of failed tests and their associated bad java messages
+    passed_tests_info *********: list of passed tests and their associated bad java messages
+
+    This is achieved by calling various functions.
+
+    :return: none
+    """
     global g_test_root_dir
     global g_temp_filename
     global g_output_filename
@@ -269,9 +432,9 @@ def extract_test_results(resource_url):
     temp_func_list = copy.copy(g_build_func_list)
 
     if os.path.isfile(g_temp_filename):
-        console_file = open(g_temp_filename,'r')  # open file for business
+        console_file = open(g_temp_filename,'r')  # open temp file that stored jenkins job console output
 
-        for each_line in console_file:
+        for each_line in console_file:  # go through each line of console output to extract build ID, data/time ...
             each_line.strip()
 
             for each_function in temp_func_list:
@@ -297,6 +460,17 @@ in a text file in a remote place and saved it in a local directory that we have 
 to.  We want to be able to read in the local text file and proces it.
 '''
 def get_console_out(url_string):
+    """
+    Grab the console output from Jenkins and save the content into a temp file
+     (g_temp_filename).
+
+    Parameters
+    ----------
+    url_string :  str
+        contains information on the jenkins job whose console output we are interested in.
+
+    :return: none
+    """
     global g_temp_filename
 
     full_command = 'curl ' + url_string + ' > ' + g_temp_filename
@@ -304,6 +478,18 @@ def get_console_out(url_string):
 
 
 def extract_job_build_url(url_string):
+    """
+    From user input, grab the jenkins job name and saved it in g_failed_test_info_dict.
+    In addition, it will grab the jenkins url and the view name into g_jenkins_url, and
+    g_view_name.
+
+    Parameters
+    ----------
+    url_string :  str
+        contains information on the jenkins job whose console output we are interested in.
+
+    :return: none
+    """
     global g_failed_test_info_dict
     global g_jenkins_url
     global g_view_name
@@ -321,29 +507,38 @@ def extract_job_build_url(url_string):
     
 
 def grab_java_message():
+    """scan through the java output text and extract the bad java messages that may or may not happened when
+    unit tests are run.  It will not record any bad java messages that are stored in g_ok_java_messages.
+
+    :return: none
+    """
+
     global g_temp_filename
     global g_current_testname
     global g_java_start_text
     global g_ok_java_messages
-    global g_java_general_bad_messages
+    global g_java_general_bad_messages  # store bad java messages not associated with running a unit test
     global g_java_general_bad_message_types
     global g_failure_occurred
-    global  g_java_message_type
+    global g_java_message_type
+    global g_all_java_message_type
+    global g_toContinue
 
-    java_messages = []
-    java_message_types = []
+    java_messages = []      # store all bad java messages associated with running a unit test
+    java_message_types = [] # store all bad java message types associated with running a unit test
 
-    if os.path.isfile(g_temp_filename):
+    if os.path.isfile(g_temp_filename): # open temp file containing content of some java_*_0.out.txt
         java_file = open(g_temp_filename,'r')
 
-#        linecount = 0
+        g_toContinue = False    # denote if a multi-line message starts
+
         for each_line in java_file:
-#            linecount=linecount+1
+
             if (g_java_start_text in each_line):
                 startStr,found,endStr = each_line.partition(g_java_start_text)
 
-                if len(found) > 0:   # a new test is being started.  Save old info and move on
-                    if len(g_current_testname) > 0:
+                if len(found) > 0:
+                    if len(g_current_testname) > 0: # a new unit test is being started.  Save old info and move on
                         associate_test_with_java(g_current_testname,java_messages,java_message_types)
         
                     g_current_testname = endStr.strip() # record the test name
@@ -351,47 +546,99 @@ def grab_java_message():
                     java_messages = []
                     java_message_types = []
         
-            temp_strings = each_line.strip().split()   # grab each line and process
+            temp_strings = each_line.strip().split()
 
-            if ((len(temp_strings) > 5) and (temp_strings[5] in g_java_message_type)):  # find one of the strings of interest
+            if (len(temp_strings) >= 6) and (temp_strings[5] in g_all_java_message_type):
+                g_toContinue = False
+            else: # non standard output.  Continuation of last java message, add it to bad java message list
+                if g_toContinue:
+                    if len(g_current_testname) == 0:
+                        addJavaMessages(each_line.strip(),"",java_messages,java_message_types)
+                    else:
+                        addJavaMessages(each_line.strip(),"",java_messages,java_message_types)
 
+            if ((len(temp_strings) > 5) and (temp_strings[5] in g_java_message_type)):  # find a bad java message
                 startStr,found,endStr = each_line.strip().partition(temp_strings[5])    # can be WARN,ERRR,FATAL,TRACE
 
                 if found and (len(endStr.strip()) > 0):
                     tempMessage = endStr.strip()
-                    if (tempMessage not in g_ok_java_messages["general"]):  # found new bad messages
+                    if (tempMessage not in g_ok_java_messages["general"]):  # found new bad messages that cannot be ignored
+                        g_toContinue = True
 
-                        if (len(g_current_testname) == 0):    # java message not associated with any test name
-                            g_java_general_bad_messages.append(tempMessage)
-                            g_java_general_bad_message_types.append(temp_strings[5])
-                            g_failure_occurred = True
-                        else:   # java message found during a test
-                            write_test = False  # do not include java message for test if False
-                            if g_current_testname in g_ok_java_messages.keys(): # test name associated with ignored Java messages
-                                if tempMessage not in g_ok_java_messages[g_current_testname]:
-                                    write_test = True
-                            else:
-                                write_test = True
+                        # add tempMessage to bad java message list
+                        addJavaMessages(tempMessage,temp_strings[5],java_messages,java_message_types)
 
-                            if write_test:
-                                java_messages.append(tempMessage)
-                                java_message_types.append(temp_strings[5])
-                                g_failure_occurred = True
-#        print "line read ",linecount
                             
 
+def addJavaMessages(tempMessage,messageType,java_messages,java_message_types):
+    """
+    Insert Java messages into java_messages and java_message_types if they are associated
+    with a unit test or into g_java_general_bad_messages/g_java_general_bad_message_types
+    otherwise.
 
-'''
-Function associate_test_with_java is written to associate bad java messages
-with failed or sucessful jobs.
-'''
+    Parameters
+    ----------
+    tempMessage :  str
+        contains the bad java messages
+    messageType :  str
+        contains the bad java message type
+    java_messages : list of str
+        contains the bad java message list associated with a unit test
+    java_message_tuypes :  list of str
+        contains the bad java message type list associated with a unit test.
+
+    :return: none
+    """
+    global g_current_testname
+    global g_java_general_bad_messages
+    global g_java_general_bad_message_types
+    global g_failure_occurred
+
+    if (len(g_current_testname) == 0):    # java message not associated with any test name
+        g_java_general_bad_messages.append(tempMessage)
+        g_java_general_bad_message_types.append(messageType)
+        g_failure_occurred = True
+    else:   # java message found during a test
+        write_test = False  # do not include java message for test if False
+        if g_current_testname in g_ok_java_messages.keys(): # test name associated with ignored Java messages
+            if tempMessage not in g_ok_java_messages[g_current_testname]:
+                write_test = True
+            else:
+                g_toContinue = False
+        else:
+            write_test = True
+
+        if write_test:
+            java_messages.append(tempMessage)
+            java_message_types.append(messageType)
+            g_failure_occurred = True
+
+
 def associate_test_with_java(testname, java_message,java_message_type):
-    global g_failed_jobs  # record job names of failed jobs
-    global g_failed_job_java_messages # record failed job java message
+    """
+    When a new unit test is started as indicated in the java_*_0.out.txt file,
+    update the data structures that are keeping track of unit tests being run and
+    bad java messages/messages types associated with each unit test.  Since a new
+    unit test is being started, save all the bad java messages associated with
+    the previous unit test and start a new set for the new unit test.
+
+    Parameters
+    ----------
+    testname :  str
+        previous unit test testname
+    java_message :  list of str
+        bad java messages associated with testname
+    java_message_type :  list of str
+        bad java message types associated with testname
+
+    :return :  none
+    """
+    global g_failed_jobs                # record job names of failed jobs
+    global g_failed_job_java_messages   # record failed job java message
     global g_failed_job_java_message_types
 
-    global g_success_jobs # record job names of passed jobs
-    global g_success_job_java_messages # record of successful jobs bad java messages
+    global g_success_jobs               # record job names of passed jobs
+    global g_success_job_java_messages  # record of successful jobs bad java messages
     global g_success_job_java_message_types
 
     if len(java_message) > 0:
@@ -404,12 +651,15 @@ def associate_test_with_java(testname, java_message,java_message_type):
             g_success_job_java_messages.append(java_message)
             g_success_job_java_message_types.append(java_message_type)
 
-"""
-Function extract_java_messages is written to loop through java.out.txt and
-extract potentially dangerous WARN/ERRR/FATAL messages associated with a test.
-The test may even pass but something terrible has actually happened.
-"""
+
 def extract_java_messages():
+    """
+    loop through java_*_0.out.txt and extract potentially dangerous WARN/ERRR/FATAL
+    messages associated with a test.  The test may even pass but something terrible
+    has actually happened.
+
+    :return: none
+    """
     global g_jenkins_url
     global g_failed_test_info_dict
     global g_java_filenames
@@ -453,12 +703,14 @@ def extract_java_messages():
         g_failed_test_info_dict["9.general_bad_java_messages"] = [g_java_general_bad_messages,g_java_general_bad_message_types]
 
 
-'''
-This file is written to load the dictionary structure that we have stored before from a file and potentially updated it with
-new build information as time goes by.
 
-'''
 def save_dict():
+    """
+    Save the log scraping results into logs denoted by g_output_filename_failed_tests and
+    g_output_filename_passed_tests.
+
+    :return: none
+    """
 
     global g_test_root_dir
     global g_output_filename_failed_tests
@@ -467,6 +719,7 @@ def save_dict():
     global g_failed_test_info_dict
 
 
+    # some build can fail really early that no buid id info is stored in the console text.
     if "2.build_id" not in g_failed_test_info_dict.keys():
         build_id = 'unknown'
     else:
@@ -477,6 +730,8 @@ def save_dict():
     g_output_pickle_filename = g_output_pickle_filename+'_build_'+build_id+'.pickle'
 
     allKeys = sorted(g_failed_test_info_dict.keys())
+
+    # write out the jenkins job info into log files.
     with open(g_output_pickle_filename,'wb') as test_file:
         pickle.dump(g_failed_test_info_dict,test_file)
         test_file.close()
@@ -514,11 +769,42 @@ def save_dict():
         text_file_passed_tests.close()
 
 def write_general_build_message(key,val,text_file):
+    """
+    Write key/value into log file when the value is a string and not a list.
+
+    Parameters
+    ----------
+    key :  str
+        key value in g_failed_test_info_dict
+    value :  str
+        corresponding value associated with the key in key
+    text_file : file handle
+        file handle of log file to write the info to.
+
+
+    :return: none
+    """
     text_file.write(key+": ")
     text_file.write(val)
     text_file.write('\n\n')
 
 def write_test_java_message(key,val,text_file):
+    """
+   Write key/value into log file when the value is a list of strings
+   or even a list of list of string.  These lists are associated with
+   unit tests that are executed in the jenkins job.
+
+    Parameters
+    ----------
+    key :  str
+        key value in g_failed_test_info_dict
+    value :  list of str or list of list of str
+        corresponding value associated with the key in key
+    text_file : file handle
+        file handle of log file to write the info to.
+
+   :return: none
+   """
     global g_failed_jobs
 
     text_file.write(key)
@@ -543,6 +829,12 @@ def write_test_java_message(key,val,text_file):
     text_file.write('\n')
 
 def update_summary_file():
+    """
+    Concatecate all log file into a summary text file to be sent to users
+    at the end of a daily log scraping.
+
+    :return: none
+    """
     global g_summary_text_filename
     global g_output_filename_failed_tests
     global g_output_filename_passed_tests
@@ -553,6 +845,18 @@ def update_summary_file():
 
 
 def write_file_content(fhandle,file2read):
+    """
+    Write one log file into the summary text file.
+
+    Parameters
+    ----------
+    fhandle :  Python file handle
+        file handle to the summary text file
+    file2read : Python file handle
+        file handle to log file where we want to add its content to the summary text file.
+
+    :return: none
+    """
     if os.path.isfile(file2read):
 
         # write summary of failed tests logs
@@ -565,6 +869,20 @@ def write_file_content(fhandle,file2read):
 
 
 def write_java_message(key,val,text_file):
+    """
+    Loop through all java messages that are not associated with a unit test and
+    write them into a log file.
+
+    Parameters
+    ----------
+    key :  str
+        9.general_bad_java_messages
+    val : list of list of str
+        contains the bad java messages and the message types.
+
+
+    :return: none
+    """
 
     text_file.write(key)
     text_file.write('\n')
@@ -585,6 +903,12 @@ def write_java_message(key,val,text_file):
 
 
 def load_java_messages_to_ignore():
+    """
+    Load in pickle file that contains dict structure with bad java messages to ignore per unit test
+    or for all cases.  The ignored bad java info is stored in g_ok_java_messages dict.
+
+    :return:
+    """
     global g_ok_java_messages
     global g_java_message_pickle_filename
 
@@ -593,6 +917,7 @@ def load_java_messages_to_ignore():
             g_ok_java_messages = pickle.load(tfile)
     else:
         g_ok_java_messages["general"] = []
+
 
 
 def main(argv):
@@ -625,7 +950,7 @@ def main(argv):
         if len(argv) == 4:
             g_java_message_pickle_filename  = argv[3]
 
-        get_console_out(resource_url)   # save remote console output in local directory
+        get_console_out(resource_url)       # save remote console output in local directory
         extract_job_build_url(resource_url) # extract the job name of build id for identification purposes
 
         log_filename = g_failed_test_info_dict["1.jobName"]
@@ -637,15 +962,17 @@ def main(argv):
         g_output_filename_passed_tests = os.path.join(g_test_root_dir,log_filename)
         g_output_pickle_filename = os.path.join(g_test_root_dir,log_pickle_filename)
 
-        load_java_messages_to_ignore()          # load g_ok_
-        extract_test_results(resource_url)      # grab the console text and stored the failed tests.
-        extract_java_messages()     # grab dangerous java messages that we found for the various tests
+        load_java_messages_to_ignore()          # load in bad java messages to ignore and store in g_ok_java_messages
+        extract_test_results()      # grab the console text and stored the failed tests.
+        extract_java_messages()     # grab dangerous java messages that we found for the various unit tests
         if ((len(g_failed_jobs) > 0) or (g_failed_test_info_dict["7.build_failure"]=='Yes')):
             g_failure_occurred = True
 
         if g_failure_occurred:
             save_dict() # save the dict structure in a pickle file and a text file when failure is detected
-            update_summary_file()   # join together log files
+            update_summary_file()   # join together all log files into one giant summary text.
+
+            # output this info to console to form the list of failed jenkins jobs.
             print g_failed_test_info_dict["1.jobName"]+' build '+g_failed_test_info_dict["2.build_id"]+','
         else:
             print ""
