@@ -1633,11 +1633,11 @@ class TestRunner:
 
             xml_report2 = """<?xml version="1.0" encoding="UTF-8"?>
 <testsuite name="{testsuiteName}" tests="1" errors="{errors}" failures="{failures}" skip="{skip}">
-  <testcase classname="{testcaseClassName}" name="{testcaseName}" time="{testcaseRuntime}">
+  <testcase name="{testcaseName}" time="{testcaseRuntime}">
   {failure}
   </testcase>
 </testsuite>
-""".format(testsuiteName=testsuite_name, testcaseClassName=testcase_name, testcaseName=testcase_name,
+""".format(testsuiteName=testsuite_name, testcaseName=testcase_name,
            testcaseRuntime=testcase_runtime, failure=failure,
            errors=errors, failures=failures, skip=skip)
 
@@ -1646,11 +1646,11 @@ class TestRunner:
         else:
             xml_report = """<?xml version="1.0" encoding="UTF-8"?>
 <testsuite name="{testsuiteName}" tests="1" errors="{errors}" failures="{failures}" skip="{skip}">
-  <testcase classname="{testcaseClassName}" name="{testcaseName}" time="{testcaseRuntime}">
+  <testcase name="{testcaseName}" time="{testcaseRuntime}">
   {failure}
   </testcase>
 </testsuite>
-""".format(testsuiteName=testsuite_name, testcaseClassName=testcase_name, testcaseName=testcase_name,
+""".format(testsuiteName=testsuite_name, testcaseName=testcase_name,
            testcaseRuntime=testcase_runtime, failure=failure,
            errors=errors, failures=failures, skip=skip)
 
