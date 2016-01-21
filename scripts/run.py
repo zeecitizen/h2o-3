@@ -1611,48 +1611,38 @@ class TestRunner:
             .format(failure_type, failure_message, failure_description)
 
         if g_use_xml2:
-
             # need to change the failure content when using new xml format.
             # first get the output file that contains the python/R output error
             if not(failure_description==None): # for tests that fail.
                 failure_file = failure_description.split()[1]
                 failure_message = open(failure_file,'r').read() # read the whole content in here.
 
-                # add the error message from Java side here, java filename is in self.clouds[].nodes[].output_file_name
+                # add the error message from Java side here, java filename is in self.clouds[].output_file_name
                 for each_cloud in self.clouds:
                     java_errors = grab_java_message(each_cloud.nodes,testcase_name)
                     if len(java_errors) > 0:    # found java message and can quit now
                         failure_message += java_errors
-                        break;
+                        break
+
+                        #                print "failure_message", failure_message
 
                 if failure_message:
                     failure = "" if not failure_type else """<failure type="{}" message="{}"><![CDATA[{}]]></failure>""" \
-                    .format(failure_type, failure_description, failure_message)
+                        .format(failure_type, failure_description, failure_message)
 
-            xml_report2 = """<?xml version="1.0" encoding="UTF-8"?>
+
+        xml_report = """<?xml version="1.0" encoding="UTF-8"?>
 <testsuite name="{testsuiteName}" tests="1" errors="{errors}" failures="{failures}" skip="{skip}">
-  <testcase name="{testcaseName}" time="{testcaseRuntime}">
+  <testcase classname="{testcaseClassName}" name="{testcaseName}" time="{testcaseRuntime}">
   {failure}
   </testcase>
 </testsuite>
-""".format(testcaseName=testcase_name,
+""".format(testsuiteName=testsuite_name, testcaseClassName=testcase_name, testcaseName=testcase_name,
            testcaseRuntime=testcase_runtime, failure=failure,
            errors=errors, failures=failures, skip=skip)
 
-            self._save_xunit_report2(testcase_name, xml_report2) # will write out the whole file execution content
 
-        else:
-            xml_report = """<?xml version="1.0" encoding="UTF-8"?>
-<testsuite tests="1" errors="{errors}" failures="{failures}" skip="{skip}">
-  <testcase name="{testcaseName}" time="{testcaseRuntime}">
-  {failure}
-  </testcase>
-</testsuite>
-""".format(testcaseName=testcase_name,
-           testcaseRuntime=testcase_runtime, failure=failure,
-           errors=errors, failures=failures, skip=skip)
-
-            self._save_xunit_report(testsuite_name, testcase_name, xml_report)
+        self._save_xunit_report(testsuite_name, testcase_name, xml_report)
 
 
 
@@ -1667,20 +1657,6 @@ class TestRunner:
     def _save_xunit_report(self, testsuite, testcase, report):
 
         f = self._get_testreport_filehandle(testsuite, testcase)
-        f.write(report)
-        f.close()
-
-    def _save_xunit_report2(self, testsuite, testcase, report):
-        """
-        Write out python test results into the xml file, not just the filename and path.
-
-        :return: none
-        """
-
-        # get the file handle for the correct file.
-        f = self._get_testreport_filehandle(testsuite, testcase)
-
-        # report contains the report to write to the xml file.
         f.write(report)
         f.close()
 
