@@ -721,9 +721,9 @@ def save_dict():
 
     # some build can fail really early that no buid id info is stored in the console text.
     if "2.build_id" not in g_failed_test_info_dict.keys():
-        build_id = 'unknown'
-    else:
-        build_id = g_failed_test_info_dict["2.build_id"]
+        g_failed_test_info_dict["2.build_id"] = "unknown"
+
+    build_id = g_failed_test_info_dict["2.build_id"]
 
     g_output_filename_failed_tests = g_output_filename_failed_tests+'_build_'+build_id+'_failed_tests.log'
     g_output_filename_passed_tests = g_output_filename_passed_tests+'_build_'+build_id+'_passed_tests.log'
