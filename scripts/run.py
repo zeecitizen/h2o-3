@@ -1625,8 +1625,6 @@ class TestRunner:
                         failure_message += java_errors
                         break;
 
-#                print "failure_message", failure_message
-
                 if failure_message:
                     failure = "" if not failure_type else """<failure type="{}" message="{}"><![CDATA[{}]]></failure>""" \
                     .format(failure_type, failure_description, failure_message)
@@ -1637,20 +1635,20 @@ class TestRunner:
   {failure}
   </testcase>
 </testsuite>
-""".format(testsuiteName=testsuite_name, testcaseName=testcase_name,
+""".format(testcaseName=testcase_name,
            testcaseRuntime=testcase_runtime, failure=failure,
            errors=errors, failures=failures, skip=skip)
 
-            self._save_xunit_report2(testsuite_name, testcase_name, xml_report2) # will write out the whole file execution content
+            self._save_xunit_report2(testcase_name, xml_report2) # will write out the whole file execution content
 
         else:
             xml_report = """<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="{testsuiteName}" tests="1" errors="{errors}" failures="{failures}" skip="{skip}">
+<testsuite tests="1" errors="{errors}" failures="{failures}" skip="{skip}">
   <testcase name="{testcaseName}" time="{testcaseRuntime}">
   {failure}
   </testcase>
 </testsuite>
-""".format(testsuiteName=testsuite_name, testcaseName=testcase_name,
+""".format(testcaseName=testcase_name,
            testcaseRuntime=testcase_runtime, failure=failure,
            errors=errors, failures=failures, skip=skip)
 
@@ -1667,17 +1665,18 @@ class TestRunner:
         f.close()
 
     def _save_xunit_report(self, testsuite, testcase, report):
-        print "********  Inside _save_xunit_report\n"
+
         f = self._get_testreport_filehandle(testsuite, testcase)
         f.write(report)
         f.close()
 
-    '''
-    Write out the python test results into the xml file.  Not just pointing to a file.
-    '''
     def _save_xunit_report2(self, testsuite, testcase, report):
+        """
+        Write out python test results into the xml file, not just the filename and path.
 
-        print "********  Inside _save_xunit_report2\n"
+        :return: none
+        """
+
         # get the file handle for the correct file.
         f = self._get_testreport_filehandle(testsuite, testcase)
 
