@@ -532,6 +532,9 @@ def grab_java_message():
 
         g_toContinue = False    # denote if a multi-line message starts
 
+        tempMessage = ""
+        messageType = ""
+
         for each_line in java_file:
 
             if (g_java_start_text in each_line):
@@ -549,25 +552,34 @@ def grab_java_message():
             temp_strings = each_line.strip().split()
 
             if (len(temp_strings) >= 6) and (temp_strings[5] in g_all_java_message_type):
+                if g_toContinue == True:    # at the end of last message fragment
+                    addJavaMessages(tempMessage,messageType,java_messages,java_message_types)
+                    tempMessage = ""
+                    messageType = ""
+
+                # start of new message fragment
                 g_toContinue = False
             else: # non standard output.  Continuation of last java message, add it to bad java message list
                 if g_toContinue:
-                    if len(g_current_testname) == 0:
-                        addJavaMessages(each_line.strip(),"",java_messages,java_message_types)
-                    else:
-                        addJavaMessages(each_line.strip(),"",java_messages,java_message_types)
+
+                    tempMessage += each_line    # add more java message here
+                    # if len(g_current_testname) == 0:
+                    #     addJavaMessages(each_line.strip(),"",java_messages,java_message_types)
+                    # else:
+                    #     addJavaMessages(each_line.strip(),"",java_messages,java_message_types)
 
             if ((len(temp_strings) > 5) and (temp_strings[5] in g_java_message_type)):  # find a bad java message
-                startStr,found,endStr = each_line.strip().partition(temp_strings[5])    # can be WARN,ERRR,FATAL,TRACE
+                startStr,found,endStr = each_line.partition(temp_strings[5])    # can be WARN,ERRR,FATAL,TRACE
 
                 if found and (len(endStr.strip()) > 0):
-                    tempMessage = endStr.strip()
-                    if (tempMessage not in g_ok_java_messages["general"]):  # found new bad messages that cannot be ignored
-                        g_toContinue = True
+                    tempMessage += endStr
+                    messageType = temp_strings[5]
+#                    if (tempMessage not in g_ok_java_messages["general"]):  # found new bad messages that cannot be ignored
+                    g_toContinue = True
 
                         # add tempMessage to bad java message list
-                        addJavaMessages(tempMessage,temp_strings[5],java_messages,java_message_types)
-
+#                        addJavaMessages(tempMessage,temp_strings[5],java_messages,java_message_types)
+        java_file.close()
                             
 
 def addJavaMessages(tempMessage,messageType,java_messages,java_message_types):
@@ -594,27 +606,27 @@ def addJavaMessages(tempMessage,messageType,java_messages,java_message_types):
     global g_java_general_bad_message_types
     global g_failure_occurred
 
-    if (len(g_current_testname) == 0):    # java message not associated with any test name
-        g_java_general_bad_messages.append(tempMessage)
-        g_java_general_bad_message_types.append(messageType)
-        g_failure_occurred = True
-    else:   # java message found during a test
-        write_test = False  # do not include java message for test if False
-        if g_current_testname in g_ok_java_messages.keys(): # test name associated with ignored Java messages
-            if tempMessage not in g_ok_java_messages[g_current_testname]:
-                write_test = True
-            else:
-                g_toContinue = False
-        else:
-            write_test = True
+    tempMess = tempMessage.strip()
 
-        if write_test:
-            java_messages.append(tempMessage)
-            java_message_types.append(messageType)
+    if (tempMess not in g_ok_java_messages["general"]):
+        if (len(g_current_testname) == 0):    # java message not associated with any test name
+            g_java_general_bad_messages.append(tempMess)
+            g_java_general_bad_message_types.append(messageType)
             g_failure_occurred = True
+        else:   # java message found during a test
+            write_test = False  # do not include java message for test if False
+            if (g_current_testname in g_ok_java_messages.keys()) and (tempMess in g_ok_java_messages[g_current_testname]): # test name associated with ignored Java messages
+                write_test = False
+            else:   # not java ignored message for current unit test
+                write_test = True
+
+            if write_test:
+                java_messages.append(tempMess)
+                java_message_types.append(messageType)
+                g_failure_occurred = True
 
 
-def associate_test_with_java(testname, java_message,java_message_type):
+def associate_test_with_java(testname,java_message,java_message_type):
     """
     When a new unit test is started as indicated in the java_*_0.out.txt file,
     update the data structures that are keeping track of unit tests being run and
@@ -675,8 +687,6 @@ def extract_java_messages():
     global g_java_general_bad_messages  # store java error messages when no job is running
     global g_java_general_bad_message_types # store java error message types when no job is running.
 
-
-
     if (len(g_failed_jobs) > 0):  # artifacts available only during failure of some sort
         for fname in g_java_filenames:  # grab java message from each java_*_*_.out file
             temp_strings = fname.split('/')
@@ -690,8 +700,6 @@ def extract_java_messages():
                 grab_java_message()         # actually process the java text output and see if we found offensive stuff
             except:
                 pass
-
-
 
     # build up the dict structure that we are storing our data in
     if len(g_failed_jobs) > 0:
@@ -734,7 +742,6 @@ def save_dict():
     # write out the jenkins job info into log files.
     with open(g_output_pickle_filename,'wb') as test_file:
         pickle.dump(g_failed_test_info_dict,test_file)
-        test_file.close()
 
     # write out the failure report as text into a text file
     text_file_failed_tests = open(g_output_filename_failed_tests,'w')
@@ -823,7 +830,7 @@ def write_test_java_message(key,val,text_file):
             for eleIndex in range(len(val[1][index])):
                 text_file.write(val[2][index][eleIndex]+" ")
                 text_file.write(val[1][index][eleIndex])
-                text_file.write('\n')
+                text_file.write('\n\n')
 
     text_file.write('\n')
     text_file.write('\n')

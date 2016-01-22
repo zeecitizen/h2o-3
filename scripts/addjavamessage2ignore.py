@@ -17,12 +17,12 @@ To see how to call this script correctly, see usage().
 
 To exclude java messages, the user can edit a text file that contains the following:
 keyName = general
-Message = nfolds: nfolds cannot be larger than the number of rows (406).
+IgnoredMessage = nfolds: nfolds cannot be larger than the number of rows (406).
 KeyName = pyunit_cv_cars_gbm.py
-Message = Caught exception: Illegal argument(s) for GBM model: GBM_model_python_1452503348770_2586.  Details: ERRR on field: _nfolds: nfolds must be either 0 or >1.
+IgnoredMessage = Caught exception: Illegal argument(s) for GBM model: GBM_model_python_1452503348770_2586.  Details: ERRR on field: _nfolds: nfolds must be either 0 or >1.
 ...
 KeyName = pyunit_cv_cars_gbm.py
-Message = Stacktrace: [water.exceptions.H2OModelBuilderIllegalArgumentException.makeFromBuilder(H2OModelBuilderIllegalArgumentException.java:19), \
+IgnoredMessage = Stacktrace: [water.exceptions.H2OModelBuilderIllegalArgumentException.makeFromBuilder(H2OModelBuilderIllegalArgumentException.java:19), \
 water.api.ModelBuilderHandler.handle(ModelBuilderHandler.java:45), water.api.RequestServer.handle(RequestServer.java:617), \
 water.api.RequestServer.serve(RequestServer.java:558), water.JettyHTTPD$H2oDefaultServlet.doGeneric(JettyHTTPD.java:616), \
 water.JettyHTTPD$H2oDefaultServlet.doPost(JettyHTTPD.java:564), javax.servlet.http.HttpServlet.service(HttpServlet.java:755), \
@@ -98,7 +98,7 @@ def load_dict():
         with open(g_load_java_message_filename,'rb') as ofile:
             g_ok_java_messages = pickle.load(ofile)
     else:   # no previous java messages to be excluded are found
-        g_ok_java_messages = {}
+        g_ok_java_messages["general"] = []
 
 def add_new_message():
     """
@@ -205,46 +205,69 @@ def extract_message_to_dict(filename):
     if os.path.isfile(filename):
         # open file to read in new exclude messages if it exists
         with open(filename,'r') as wfile:
-            eof_reached = False
-            while  not eof_reached:
+
+            key = ""
+            val = ""
+            startMess = False
+
+            while 1:
                 each_line = wfile.readline()
 
-                if not each_line:
-                    break;
-
-                allKeys = message_dict.keys()
-                key = ""
+                if not each_line:   # reached EOF
+                    if startMess:
+                        add_to_dict(val.strip(),key,message_dict)
+                    break
 
                 # found a test name or general with values to follow
                 if "keyname" in each_line.lower():  # name of test file or the word "general"
                     temp_strings = each_line.strip().split('=')
 
                     if (len(temp_strings) > 1): # make sure the line is formatted sort of correctly
+                        if startMess:   # this is the start of a new key/value pair
+                            add_to_dict(val.strip(),key,message_dict)
+                            val = ""
+
                         key = temp_strings[1].strip()
+                        startMess = False
 
-                        # next line or so should contain the messages for the key we just found.
-                        val = ""
-                        while not eof_reached:
-                            next_line = wfile.readline()
+                if (len(each_line) > 1) and startMess:
+                    val += each_line
 
-                            if not next_line:
-                                eof_reached = True
-                                break
+                if "ignoredmessage" in each_line.lower():
+                    startMess = True    # start of a Java message.
+                    temp_mess = each_line.split('=')
+
+                    if (len(temp_mess) > 1):
+                        val = temp_mess[1]
 
 
-                            if "message" in next_line.lower():
-                                temp_mess = next_line.strip().split('=')
 
-                                if (len(temp_mess) > 1):
-                                    val = temp_mess[1].strip()
-                                    break  # found the message and quit for now
-
-                        if (len(val) > 0):    # got a valid message here
-                            if (key in allKeys) and (val not in message_dict[key]):
-                                message_dict[key].append(val)   # only include this message if it has not been added before
-                            else:
-                                message_dict[key] = [val]
     return message_dict
+
+
+def add_to_dict(val,key,message_dict):
+    """
+    Add new key, val (ignored java message) to dict message_dict.
+
+    Parameters
+    ----------
+
+    val :  Str
+       contains ignored java messages.
+    key :  Str
+        key for the ignored java messages.  It can be "general" or any R or Python unit
+        test names
+    message_dict :  dict
+        stored ignored java message for key ("general" or any R or Python unit test names)
+
+    :return: none
+    """
+    allKeys = message_dict.keys()
+    if (len(val) > 0):    # got a valid message here
+        if (key in allKeys) and (val not in message_dict[key]):
+            message_dict[key].append(val)   # only include this message if it has not been added before
+        else:
+            message_dict[key] = [val]
 
 
 def save_dict():
@@ -277,10 +300,10 @@ def print_dict():
 
             for mess in g_ok_java_messages[key]:
                 ofile.write('KeyName: '+key+'\n')
-                ofile.write('Message: '+mess+'\n')
+                ofile.write('IgnoredMessage: '+mess+'\n')
 
             print('KeyName: ',key)
-            print('Message: ',g_ok_java_messages[key])
+            print('IgnoredMessage: ',g_ok_java_messages[key])
             print('\n')
 
 
@@ -347,7 +370,7 @@ def usage():
     print("")
     print("Usage:  " + g_script_name + " [...options...]")
     print("")
-    print("    --inputfileadd filename where the new java messages to ignore are stored in  Must present.")
+    print("    --inputfileadd filename where the new java messages to ignore are stored in.")
     print("")
     print("    --inputfilerm filename where the java messages are removed from the ignored list.")
     print("")
