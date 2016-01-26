@@ -327,6 +327,10 @@ def parse_args(argv):
     global g_save_java_message_filename
     global g_print_java_messages
 
+
+    if len(argv) < 2:   # print out help menu if user did not enter any arguments.
+        usage()
+
     i = 1
     while (i < len(argv)):
         s = argv[i]
@@ -353,6 +357,8 @@ def parse_args(argv):
             g_save_java_message_filename = argv[i]
         elif (s == '--printjavamessage'):   # will print java message out to console and save in a text file
             g_print_java_messages = True
+        elif (s == '--help'):               # print help menu and exit
+            usage()
         else:
             unknown_arg(s)
 
@@ -370,13 +376,15 @@ def usage():
     print("")
     print("Usage:  " + g_script_name + " [...options...]")
     print("")
+    print("     --help print out this help menu and show all the valid flags and inputs.")
+    print("")
     print("    --inputfileadd filename where the new java messages to ignore are stored in.")
     print("")
     print("    --inputfilerm filename where the java messages are removed from the ignored list.")
     print("")
-    print("    --loadjavamessage filename ending in .pickle that stores the dict structure that contains java messages to include.")
+    print("    --loadjavamessage filename pickle file that stores the dict structure containing java messages to include.")
     print("")
-    print("    --savejavamessage filename ending in .pickle that save the final dict structure after update.")
+    print("    --savejavamessage filename pickle file that saves the final dict structure after update.")
     print("")
     print("    --printjavamessage   print java ignored java messages on console and save into a text file.")
     print("")
