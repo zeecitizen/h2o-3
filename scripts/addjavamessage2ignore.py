@@ -356,7 +356,9 @@ def parse_args(argv):
                 usage()
             g_save_java_message_filename = argv[i]
         elif (s == '--printjavamessage'):   # will print java message out to console and save in a text file
+            i += 1
             g_print_java_messages = True
+            g_load_java_message_filename = argv[i]
         elif (s == '--help'):               # print help menu and exit
             usage()
         else:
@@ -386,7 +388,7 @@ def usage():
     print("")
     print("    --savejavamessage filename pickle file that saves the final dict structure after update.")
     print("")
-    print("    --printjavamessage   print java ignored java messages on console and save into a text file.")
+    print("    --printjavamessage filename print java ignored java messages stored in pickle file filenam onto console and save into a text file.")
     print("")
     sys.exit(1)
 
