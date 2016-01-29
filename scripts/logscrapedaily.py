@@ -388,8 +388,9 @@ def update_test_dict(each_line):
 
     temp_strings = each_line.split()
 
-    if (len(temp_strings) >= 5) and ("FAIL" in temp_strings[0]) and ("FAILURE" not in temp_strings[0]):   # found failed test
-        test_name = temp_strings[3]
+    if (len(temp_strings) >= 5) and ("FAIL" in each_line) and ("FAILURE" not in each_line):   # found failed test
+
+        test_name = temp_strings[-2]
         g_failed_jobs.append(test_name)
         g_failed_job_java_messages.append([]) # insert empty java messages for now
         g_failed_job_java_message_types.append([])
