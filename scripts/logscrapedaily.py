@@ -168,7 +168,7 @@ def find_time(each_line,temp_func_list):
     temp_strings = each_line.strip().split()
 
     if (len(temp_strings) > 2):
-        if (temp_strings[0] in g_weekdays) and (temp_strings[1] in g_months):
+        if ((temp_strings[0] in g_weekdays) or (temp_strings[1] in g_weekdays)) and ((temp_strings[1] in g_months) or (temp_strings[2] in g_months)):
             g_failed_test_info_dict["3.timestamp"] = each_line.strip()
             temp_func_list.remove(find_time)    # found timestamp, don't need to look again for it
 
@@ -198,9 +198,12 @@ def find_node_name(each_line,temp_func_list):
 
     if g_node_name in each_line:
         temp_strings = each_line.split()
+        [start,found,endstr] = each_line.partition(g_node_name)
 
-        g_failed_test_info_dict["6.node_name"] = extract_true_string(temp_strings[4])
-        temp_func_list.remove(find_node_name)
+        if found:
+            temp_strings = endstr.split()
+            g_failed_test_info_dict["6.node_name"] = extract_true_string(temp_strings[1])
+            temp_func_list.remove(find_node_name)
 
     return True
 
@@ -226,9 +229,12 @@ def find_git_hash_branch(each_line,temp_func_list):
     global g_failed_test_info_dict
 
     if g_git_hash_branch in each_line:
-        temp_strings = each_line.split()
-        g_failed_test_info_dict["4.git_hash"] = temp_strings[3]
-        g_failed_test_info_dict["5.git_branch"] = temp_strings[4]
+        [start,found,endstr] = each_line.partition(g_git_hash_branch)
+        temp_strings = endstr.strip().split()
+
+        if len(temp_strings) > 1:
+            g_failed_test_info_dict["4.git_hash"] = temp_strings[0]
+            g_failed_test_info_dict["5.git_branch"] = temp_strings[1]
 
         temp_func_list.remove(find_git_hash_branch)
 
@@ -354,7 +360,7 @@ def find_build_id(each_line,temp_func_list):
 
 
     if g_build_id_text in each_line:
-        startStr,found,endStr = each_line.partition(g_build_id_text)
+        [startStr,found,endStr] = each_line.partition(g_build_id_text)
         g_failed_test_info_dict["2.build_id"] = endStr.strip()
 
         temp_func_list.remove(find_build_id)
