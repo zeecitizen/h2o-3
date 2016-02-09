@@ -3,14 +3,14 @@
 from __future__ import print_function
 from __future__ import absolute_import
 
-from six import iteritems, itervalues, PY3
+import requests
+from six import iteritems, itervalues
 import collections
 from io import StringIO
 import csv
 import imp
 import os
 import tempfile
-from datetime import datetime
 import sys
 import traceback
 from .utils.shared_utils import _quoted, can_use_pandas, _handle_python_lists, _is_list, _is_str_list, _handle_python_dicts, quote
@@ -22,6 +22,8 @@ from .group_by import GroupBy
 import h2o
 from past.builtins import basestring
 from functools import reduce
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="pandas", lineno=7)
 
 
 # TODO: Automatically convert column names into Frame properties!
@@ -406,7 +408,7 @@ class H2OFrame(object):
     # cached, so must be pulled.  While we're at it, go ahead and fill in
     # the default caches if they are not already filled in
 
-    res = H2OConnection.get_json("Frames/"+quote(self.frame_id)+"?row_count="+str(10))["frames"][0]
+    res = H2OConnection.get_json("Frames/"+self.frame_id+"?row_count="+str(10))["frames"][0]
     self._ex._cache._fill_data(res)
     print("Rows:{:,}".format(self.nrow), "Cols:{:,}".format(self.ncol))
     res["chunk_summary"].show()
@@ -586,7 +588,7 @@ class H2OFrame(object):
     lol = H2OFrame._expr(expr=ExprNode("levels", self)).as_data_frame(False)
     lol.pop(0)  # Remove column headers
     lol = list(zip(*lol))
-    lol = [[ll for ll in l if ll!=''] for l in lol]
+    lol = [[ll for ll in l] for l in lol]
     
     return lol
 
@@ -878,39 +880,23 @@ class H2OFrame(object):
       use_pandas=False, otherwise a pandas DataFrame) containing this H2OFrame instance's
       data.
     """
-    url = "http://{}:{}/3/DownloadDataset?frame_id={}&hex_string=false".format(H2OConnection.ip(), H2OConnection.port(), quote(self.frame_id))
-    if PY3:
-      from urllib import request
-      response = StringIO(request.urlopen(url).read().decode())
-    else:
-      import urllib2
-      response = urllib2.urlopen(url)
     if can_use_pandas() and use_pandas:
       import pandas
-      df = pandas.read_csv(response, low_memory=False)
-      time_cols = []
-      # category_cols = []
-      if self.types is not None:
-        for col_name in self.names:
-          xtype = self.type(col_name)
-          if xtype.lower() == 'time': time_cols.append(col_name)
-          # elif xtype.lower() == 'enum': category_cols.append(col_name)
-        #change Time to pandas datetime
-        if time_cols:
-          #hacky way to get the utc offset
-          sample_timestamp = 1380610868
-          utc_offset = 1000 * ((datetime.utcfromtimestamp(sample_timestamp) - datetime.fromtimestamp(sample_timestamp)).total_seconds())
-          try:
-            df[time_cols] = (df[time_cols] - utc_offset).astype('datetime64[ms]')
-          except pandas.tslib.OutOfBoundsDatetime:
-            pass
-        #change Enum to pandas category
-        # for cat_col in category_cols: #for loop is required
-        #   df[cat_col] = df[cat_col].astype('category')
-      return df
-    else:
-      cr = csv.reader(response)
-      return [[''] if row == [] else row for row in cr]
+      return pandas.read_csv(StringIO(self.get_frame_data()), low_memory=False)
+    return [row for row in csv.reader(StringIO(self.get_frame_data()))]
+
+  def get_frame_data(self):
+    """Get frame data as str in csv format
+    
+    Returns
+    -------
+      A local python string, each line is a row and each element separated by commas, containing this H2OFrame 
+      instance's data.
+    """
+    url = H2OConnection.make_url("DownloadDataset",3) + "?frame_id={}&hex_string=false".format(self.frame_id)
+    return requests.get(url, headers = {'User-Agent': 'H2O Python client/'+sys.version.replace('\n','')},
+                        auth = (H2OConnection.username(), H2OConnection.password()),
+                        verify = not H2OConnection.insecure(), stream = True).text
 
   def flatten(self):
     return ExprNode("flatten",self)._eager_scalar()
@@ -1203,15 +1189,24 @@ class H2OFrame(object):
       For even samples, how to combine quantiles.
       Should be one of ["interpolate", "average", "low", "hi"]
     weights_column : str, default=None
-      Name of column with optional observation weights in this H2OFrame
+      Name of column with optional observation weights in this H2OFrame or a 1-column H2OFrame of observation weights.
 
     Returns
     -------
       A new H2OFrame containing the quantiles and probabilities.
     """
     if len(self) == 0: return self
-    if not prob: prob=[0.01,0.1,0.25,0.333,0.5,0.667,0.75,0.9,0.99]
-    if not weights_column: weights_column="_"
+    if prob is None: prob=[0.01,0.1,0.25,0.333,0.5,0.667,0.75,0.9,0.99]
+    if weights_column is None: weights_column="_"
+    else:
+      if not (isinstance(weights_column, basestring) or (isinstance(weights_column, H2OFrame) 
+                                                        and weights_column.ncol == 1 
+                                                        and weights_column.nrow == self.nrow)):
+        raise ValueError("`weights_column` must be a column name in x or an H2OFrame object with 1 column and same row count as x")
+      if isinstance(weights_column, H2OFrame):
+        merged = self.cbind(weights_column)
+        weights_column = merged.names[-1]
+        return H2OFrame._expr(expr=ExprNode("quantile",merged,prob,combine_method,weights_column))
     return H2OFrame._expr(expr=ExprNode("quantile",self,prob,combine_method,weights_column))
 
   def cbind(self,data):
@@ -1420,6 +1415,7 @@ class H2OFrame(object):
     job = {}
     job['job'] = H2OConnection.post_json("MissingInserter", **kwargs)
     H2OJob(job, job_type=("Insert Missing Values")).poll()
+    self._ex._cache.flush()
     return self
 
   def min(self):
@@ -1483,27 +1479,36 @@ class H2OFrame(object):
     """
     return ExprNode("median", self, na_rm)._eager_scalar()
 
-  def var(self,y=None,use="everything"):
-    """Compute the variance, or co-variance matrix.
+  def var(self,y=None,na_rm=False, use=None):
+    """Compute the variance or covariance matrix of one or two H2OFrames.
 
     Parameters
     ----------
     y : H2OFrame, default=None
-      If y is None, then the variance is computed for self. If self has more than one
-      column, then the covariance matrix is returned.
-      If y is not None, then the covariance between self and y is computed (self and y
-      must therefore both be single columns).
-    use : str
-      One of "everything", "complete.obs", or "all.obs"
+      If y is None and self is a single column, then the variance is computed for self. If self has 
+      multiple columns, then its covariance matrix is returned. Single rows are treated as single columns. 
+      If y is not None, then a covariance matrix between the columns of self and the columns of y is computed. 
+    na_rm : bool, default=False
+      Remove NAs from the computation.
+    use : str, default=None, which acts as "everything" if na_rm is False, and "complete.obs" if na_rm is True
+      A string indicating how to handle missing values. This must be one of the following: 
+        "everything"            - outputs NaNs whenever one of its contributing observations is missing
+        "all.obs"               - presence of missing observations will throw an error
+        "complete.obs"          - discards missing values along with all observations in their rows so that only complete observations are used
+        "pairwise.complete.obs" - uses all complete pairs of observations
 
     Returns
     -------
-      The covariance matrix of the columns in this H2OFrame if y is given, or a eagerly
-      computed scalar if y is not given.
+      An H2OFrame of the covariance matrix of the columns of this H2OFrame with itself (if y is not given), or with the columns of y 
+      (if y is given). If self and y are single rows or single columns, the variance or covariance is given as a scalar.
     """
-    if y is None: y = self
-    if self.nrow==1 or (self.ncol==1 and y.ncol==1): return ExprNode("var",self,y,use)._eager_scalar()
-    return H2OFrame._expr(expr=ExprNode("var",self,y,use))._frame()
+    symmetric = False
+    if y is None: 
+      y = self
+      if self.ncol > 1 and self.nrow > 1: symmetric = True
+    if use is None: use = "complete.obs" if na_rm else "everything"
+    if self.nrow==1 or (self.ncol==1 and y.ncol==1): return ExprNode("var",self,y,use,symmetric)._eager_scalar()
+    return H2OFrame._expr(expr=ExprNode("var",self,y,use,symmetric))._frame()
 
   def sd(self, na_rm=False):
     """Compute the standard deviation.
@@ -1606,6 +1611,28 @@ class H2OFrame(object):
     fr._ex._cache.nrows = self.nrow
     fr._ex._cache.ncol = self.ncol
     return fr
+  
+  def substring(self, start_index, end_index=None):
+    """For each string, return a new string that is a substring of the original string. If end_index is not 
+    specified, then the substring extends to the end of the original string. If the start_index is longer than
+    the length of the string, or is greater than or equal to the end_index, an empty string is returned. Negative
+    start_index is coerced to 0. 
+
+    Parameters
+    ----------
+    start_index : int
+      The index of the original string at which to start the substring, inclusive.
+    end_index: int, optional
+      The index of the original string at which to end the substring, exclusive. 
+
+    Returns
+    -------
+      An H2OFrame containing the specified substrings.
+    """
+    fr = H2OFrame._expr(expr=ExprNode("substring", self, start_index, end_index)) 
+    fr._ex._cache.nrows = self.nrow
+    fr._ex._cache.ncol = self.ncol
+    return fr
 
   def nchar(self):
     """Count the number of characters in each string of single-column H2OFrame.
@@ -1624,6 +1651,9 @@ class H2OFrame(object):
     ----------
       data2 : H2OFrame
         Default is None, can be an optional single column to aggregate counts by.
+      dense : bool
+        Default is True, for dense representation, which lists only non-zero counts, 1 combination per row. Set to False 
+        to expand counts across all combinations.  
 
     Returns
     -------
@@ -1819,12 +1849,15 @@ class H2OFrame(object):
     return H2OFrame._expr(expr=ExprNode("signif", self, digits), cache=self._ex._cache)
 
   def round(self, digits=0):
-    """Round doubles/floats to the given number of digits.
+    """Round doubles/floats to the given number of decimal places.
 
     Parameters
     ----------
-    digits : int
-
+    digits : int, default=0
+      Number of decimal places to round doubles/floats. Rounding to a negative number of decimal places is not 
+      supported. For rounding off a 5, the IEC 60559 standard is used, ‘go to the even digit’. Therefore rounding 2.5 
+      gives 2 and rounding 3.5 gives 4.
+      
     Returns
     -------
       H2OFrame
@@ -1865,7 +1898,7 @@ class H2OFrame(object):
     fr = H2OFrame._expr(expr=ExprNode("na.omit", self), cache=self._ex._cache)
     fr._ex._cache.nrows=-1
     return fr
-
+ 
   def isna(self):
     """For each element in an H2OFrame, determine if it is NA or not.
 
