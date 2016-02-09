@@ -46,7 +46,6 @@ class H2OFrame(object):
   @columns.setter
   def columns(self, value):
     """Set the column names of this H2OFrame.
-
     Parameters
     ----------
       value : list
@@ -65,7 +64,6 @@ class H2OFrame(object):
   @col_names.setter
   def col_names(self, value):
     """Set the column names of this H2OFrame.
-
     Parameters
     ----------
       value : list
@@ -75,7 +73,6 @@ class H2OFrame(object):
   @property
   def names(self):
     """Retrieve the column names (one name per H2OVec) for this H2OFrame.
-
     Returns
     -------
       A str list of column names
@@ -88,7 +85,6 @@ class H2OFrame(object):
   @names.setter
   def names(self,value):
     """Set the column names of this H2OFrame.
-
     Parameters
     ----------
       value : list
@@ -178,7 +174,6 @@ class H2OFrame(object):
   @staticmethod
   def get_frame(frame_id):
     """Create an H2OFrame mapped to an existing id in the cluster.
-
     Returns
     -------
       H2OFrame that points to a pre-existing big data H2OFrame in the cluster
@@ -235,7 +230,6 @@ class H2OFrame(object):
     """
     Properly handle native python data types. For a discussion of the rules and
     permissible data types please refer to the main documentation for H2OFrame.
-
     Parameters
     ----------
       python_obj : tuple, list, dict, collections.OrderedDict
@@ -278,11 +272,9 @@ class H2OFrame(object):
       na_strings : list or dict, optional
         A list of strings, or a list of lists of strings (one list per column), or a
         dictionary of column names to strings which are to be interpreted as missing values.
-
     Returns
     -------
     A new H2OFrame instance.
-
     Examples
     --------
       >>> l = [[1,2,3,4,5], [99,123,51233,321]]
@@ -327,12 +319,10 @@ class H2OFrame(object):
 
   def filter_na_cols(self, frac=0.2):
     """Filter columns with proportion of NAs >= frac.
-
     Parameters
     ----------
     frac : float
       Fraction of NAs in the column.
-
     Returns
     -------
       A list of column indices that have a fewer count of NAs.
@@ -356,7 +346,7 @@ class H2OFrame(object):
       row_string = ' rows x ' if self.nrow != 1 else ' row x '
       column_string = ' columns]' if self.ncol != 1 else ' column]'
       return self._frame()._ex._cache._tabulate("simple",False) + '\n\n[' + str(self.nrow) \
-    + row_string + str(self.ncol) + column_string
+             + row_string + str(self.ncol) + column_string
     return ""
   def __len__(self):
     return self.nrow
@@ -375,7 +365,7 @@ class H2OFrame(object):
     If called from IPython, displays an html'ized result
     Else prints a tabulate'd result
     """
-    if self._ex is None: 
+    if self._ex is None:
       print("This H2OFrame has been removed.")
       return
     if not self._ex._cache.is_valid(): self._frame()._ex._cache.fill()
@@ -420,14 +410,12 @@ class H2OFrame(object):
 
   def head(self,rows=10,cols=200):
     """Analogous to Rs `head` call on a data.frame.
-
     Parameters
     ----------
     rows : int, default=10
       Number of rows starting from the topmost
     cols : int, default=200
       Number of columns starting from the leftmost
-
     Returns
     -------
       An H2OFrame.
@@ -438,14 +426,12 @@ class H2OFrame(object):
 
   def tail(self, rows=10, cols=200):
     """Analogous to Rs `tail` call on a data.frame.
-
     Parameters
     ----------
     rows : int, default=10
       Number of rows starting from the bottommost
     cols: int, default=200
       Number of columns starting from the leftmost
-
     Returns
     -------
       An H2OFrame.
@@ -493,8 +479,8 @@ class H2OFrame(object):
   # unops
   def __abs__ (self):    return H2OFrame._expr(expr=ExprNode("abs",self), cache=self._ex._cache)
   def __invert__(self):  return H2OFrame._expr(expr=ExprNode("!!", self), cache=self._ex._cache)
-  def __nonzero__(self): 
-    if self.nrow > 1 or self.ncol > 1: 
+  def __nonzero__(self):
+    if self.nrow > 1 or self.ncol > 1:
       raise ValueError('This operation is not supported on an H2OFrame. Try using parantheses. Did you mean & (logical and), | (logical or), or ~ (logical not)?')
     else:
       return self.__len__()
@@ -502,12 +488,10 @@ class H2OFrame(object):
 
   def mult(self, matrix):
     """Perform matrix multiplication.
-
     Parameters
     ----------
       matrix : H2OFrame
         The right-hand-side matrix
-
     Returns
     -------
       H2OFrame result of the matrix multiplication
@@ -551,7 +535,6 @@ class H2OFrame(object):
   def mktime(year=1970,month=0,day=0,hour=0,minute=0,second=0,msec=0):
     """All units are zero-based (including months and days).
     Missing year is 1970.
-
     Parameters
     ----------
       year : int, H2OFrame
@@ -561,17 +544,14 @@ class H2OFrame(object):
       minute : int, H2OFrame
       second : int, H2OFrame
       msec : int, H2OFrame
-
     Returns
     -------
       H2OFrame of one column containing the date in millis since the epoch.
-
     """
     return ExprNode("mktime", year,month,day,hour,minute,second,msec)._eager_frame()
 
   def unique(self):
     """Extract the unique values in the column.
-
     Returns
     -------
       H2OFrame of just the unique values in the column.
@@ -580,36 +560,32 @@ class H2OFrame(object):
 
   def levels(self):
     """Get the factor levels.
-
     Returns
     -------
-      A list of lists, one list per column, of levels. 
+      A list of lists, one list per column, of levels.
     """
     lol = H2OFrame._expr(expr=ExprNode("levels", self)).as_data_frame(False)
     lol.pop(0)  # Remove column headers
     lol = list(zip(*lol))
     lol = [[ll for ll in l] for l in lol]
-    
+
     return lol
 
   def nlevels(self):
     """Get the number of factor levels for this frame.
-
     Returns
     -------
-      A list of the number of levels per column. 
+      A list of the number of levels per column.
     """
     levels = self.levels()
     return [len(l) for l in levels] if levels else 0
 
   def set_level(self, level):
     """A method to set all column values to one of the levels.
-
     Parameters
     ----------
     level : str
       The level at which the column will be set (a string)
-
     Returns
     -------
       H2OFrame with entries set to the desired level.
@@ -619,13 +595,11 @@ class H2OFrame(object):
   def set_levels(self, levels):
     """Works on a single categorical column.
     New domains must be aligned with the old domains. This call has copy-on-write semantics.
-
     Parameters
     ----------
     levels : list
       A list of strings specifying the new levels. The number of new levels must match
       the number of old levels.
-
     Returns
     -------
       A single-column H2OFrame with the desired levels.
@@ -634,7 +608,6 @@ class H2OFrame(object):
 
   def set_names(self,names):
     """Change all of this H2OFrame instance's column names.
-
     Parameters
     ----------
       names : list
@@ -645,14 +618,12 @@ class H2OFrame(object):
 
   def set_name(self,col=None,name=None):
     """Set the name of the column at the specified index.
-
     Parameters
     ----------
     col : int, str
       Index of the column whose name is to be set; may be skipped for 1-column frames
     name : str
       The new name of the column to set
-
     Returns
     -------
       Returns self.
@@ -670,12 +641,10 @@ class H2OFrame(object):
 
   def as_date(self, format):
     """Return the column with all elements converted to millis since the epoch.
-
     Parameters
     ----------
       format : str
         A datetime format string (e.g. "YYYY-mm-dd")
-
     Returns
     -------
       An H2OFrame instance.
@@ -723,7 +692,6 @@ class H2OFrame(object):
     ----------
       na_rm : bool, default=False
         True or False to remove NAs from computation.
-
     Returns
     -------
       The product of the column.
@@ -779,25 +747,24 @@ class H2OFrame(object):
       True if the column is a character column, otherwise False (same as isstring)
     """
     return self.isstring()
-  
+
   def isin(self, item):
     """Test whether elements of an H2OFrame are contained in the item.
-    
+
     Parameters
     ----------
       items : any element or a list of elements
         An item or a list of items to compare the H2OFrame against.
-        
+
     Returns
     -------
       An H2OFrame of 0s and 1s showing whether each element in the original H2OFrame is contained in item.
     """
     return reduce(H2OFrame.__or__, (self == i for i in item)) if _is_list(item) else self == item
-  
+
   def kfold_column(self, n_folds=3, seed=-1):
     """Build a fold assignments column for cross-validation. This call will produce a
     column having the same data layout as the calling object.
-
     Parameters
     ----------
       n_folds : int
@@ -805,7 +772,6 @@ class H2OFrame(object):
         into.
       seed : int, optional
         Seed for random numbers as fold IDs are randomly assigned.
-
     Returns
     -------
       A single column H2OFrame with the fold assignments.
@@ -815,13 +781,11 @@ class H2OFrame(object):
   def modulo_kfold_column(self, n_folds=3):
     """Build a fold assignments column for cross-validation. Rows are assigned a fold
     according to the current row number modulo n_folds.
-
     Parameters
     ----------
       n_folds : int
         An integer specifying the number of validation sets to split the training data
         into.
-
     Returns
     -------
       A single column H2OFrame with the fold assignments.
@@ -832,14 +796,12 @@ class H2OFrame(object):
     """
     Build a fold assignment column with the constraint that each fold has the same class
     distribution as the fold column.
-
     Parameters
     ----------
       n_folds: int
         The number of folds to build.
       seed: int
         A random seed.
-
     Returns
     -------
       A single column H2OFrame with the fold assignments.
@@ -868,12 +830,10 @@ class H2OFrame(object):
 
   def as_data_frame(self, use_pandas=False):
     """Obtain the dataset as a python-local object.
-
     Parameters
     ----------
       use_pandas : bool, default=False
         A flag specifying whether or not to return a pandas DataFrame.
-
     Returns
     -------
       A local python object (a list of lists of strings, each list is a row, if
@@ -887,10 +847,10 @@ class H2OFrame(object):
 
   def get_frame_data(self):
     """Get frame data as str in csv format
-    
+
     Returns
     -------
-      A local python string, each line is a row and each element separated by commas, containing this H2OFrame 
+      A local python string, each line is a row and each element separated by commas, containing this H2OFrame
       instance's data.
     """
     url = H2OConnection.make_url("DownloadDataset",3) + "?frame_id={}&hex_string=false".format(self.frame_id)
@@ -903,7 +863,6 @@ class H2OFrame(object):
 
   def __getitem__(self, item):
     """Frame slicing. Supports R-like row and column slicing.
-
     Parameters
     ----------
       item : tuple, list, string, int
@@ -912,12 +871,9 @@ class H2OFrame(object):
          If a list, then this indicates column selection.
          If a int, the this indicates a single column to be retrieved at the index.
          If a string, then slice on the column with this name.
-
-
     Returns
     -------
       An instance of H2OFrame.
-
     Examples
     --------
       fr[2]              # All rows, column 2
@@ -1048,14 +1004,12 @@ class H2OFrame(object):
 
   def __setitem__(self, b, c):
     """Replace or update column(s) in an H2OFrame.
-
     Parameters
     ----------
       b : int, str
         A 0-based index or a column name.
       c :
         The value replacing 'b'
-
     Returns
     -------
       Returns this H2OFrame.
@@ -1091,9 +1045,9 @@ class H2OFrame(object):
       self._ex = ExprNode(":=",self,src,col_expr,row_expr)
       self._ex._cache.fill_from(old_cache)
       if isinstance(src, H2OFrame)    and \
-        src._ex._cache.types_valid()  and \
-        self._ex._cache.types_valid():
-          self._ex._cache._types.update(src._ex._cache.types)
+              src._ex._cache.types_valid()  and \
+              self._ex._cache.types_valid():
+        self._ex._cache._types.update(src._ex._cache.types)
       else:
         self._ex._cache.types = None
     else:
@@ -1101,14 +1055,14 @@ class H2OFrame(object):
       self._ex._cache.fill_from(old_cache)
       self._ex._cache.names = self.names + [colname]
       if not self._ex._cache.types_valid() or \
-         not isinstance(src, H2OFrame)     or \
-         not src._ex._cache.types_valid():
-          self._ex._cache.types = None
+              not isinstance(src, H2OFrame)     or \
+              not src._ex._cache.types_valid():
+        self._ex._cache.types = None
       else:
         self._ex._cache._types[colname] = list(itervalues(src._ex._cache.types))[0]
     if isinstance(src, H2OFrame) and src_in_self:
       src._ex=None  # wipe out to keep ref counts correct
-    # self._frame()  # setitem is eager
+      # self._frame()  # setitem is eager
 
   def is_src_in_self(self,src):
     # src._ex._children[0]._children[0] is self._ex
@@ -1137,12 +1091,10 @@ class H2OFrame(object):
 
   def drop(self, i):
     """Drop a column from the current H2OFrame.
-
     Parameters
     ----------
       i : str, int
         The column to be dropped
-
     Returns
     -------
       H2OFrame with the column at index i dropped. Returns a new H2OFrame.
@@ -1156,12 +1108,10 @@ class H2OFrame(object):
 
   def pop(self,i):
     """Pop a column from the H2OFrame at index i
-
     Parameters
     ----------
     i : int, str
       The index or name of the column to pop.
-
     Returns
     -------
       The column dropped from the frame; the frame is side-effected to lose the column.
@@ -1180,7 +1130,6 @@ class H2OFrame(object):
 
   def quantile(self, prob=None, combine_method="interpolate", weights_column=None):
     """Compute quantiles.
-
     Parameters
     ----------
     prob : list, default=[0.01,0.1,0.25,0.333,0.5,0.667,0.75,0.9,0.99]
@@ -1190,7 +1139,6 @@ class H2OFrame(object):
       Should be one of ["interpolate", "average", "low", "hi"]
     weights_column : str, default=None
       Name of column with optional observation weights in this H2OFrame or a 1-column H2OFrame of observation weights.
-
     Returns
     -------
       A new H2OFrame containing the quantiles and probabilities.
@@ -1199,9 +1147,9 @@ class H2OFrame(object):
     if prob is None: prob=[0.01,0.1,0.25,0.333,0.5,0.667,0.75,0.9,0.99]
     if weights_column is None: weights_column="_"
     else:
-      if not (isinstance(weights_column, basestring) or (isinstance(weights_column, H2OFrame) 
-                                                        and weights_column.ncol == 1 
-                                                        and weights_column.nrow == self.nrow)):
+      if not (isinstance(weights_column, basestring) or (isinstance(weights_column, H2OFrame)
+                                                         and weights_column.ncol == 1
+                                                         and weights_column.nrow == self.nrow)):
         raise ValueError("`weights_column` must be a column name in x or an H2OFrame object with 1 column and same row count as x")
       if isinstance(weights_column, H2OFrame):
         merged = self.cbind(weights_column)
@@ -1211,12 +1159,10 @@ class H2OFrame(object):
 
   def cbind(self,data):
     """Append data to this H2OFrame column-wise.
-
     Parameters
     ----------
     data : H2OFrame
       H2OFrame to be column bound to the right of this H2OFrame.
-
     Returns
     -------
       H2OFrame of the combined datasets.
@@ -1230,11 +1176,9 @@ class H2OFrame(object):
   def rbind(self, data):
     """Combine H2O Datasets by rows.
     Takes a sequence of H2O data sets and combines them by rows.
-
     Parameters
     ----------
       data : H2OFrame
-
     Returns
     -------
       Returns this H2OFrame with data appended row-wise.
@@ -1247,7 +1191,6 @@ class H2OFrame(object):
   def split_frame(self, ratios=None, destination_frames=None, seed=None):
     """Split a frame into distinct subsets of size determined by the given ratios.
     The number of subsets is always 1 more than the number of ratios given.
-
     Parameters
     ----------
       ratios : list
@@ -1256,7 +1199,6 @@ class H2OFrame(object):
         The names of the split frames.
       seed : int
         Used for selecting which H2OFrame a row will belong to.
-
     Returns
     -------
       A list of H2OFrame instances
@@ -1324,45 +1266,53 @@ class H2OFrame(object):
   def group_by(self,by):
     """Returns a new GroupBy object using this frame and the desired grouping columns.
        The returned groups are sorted by the natural group-by column sort.
-
     Parameters
     ----------
     by : list
         The columns to group on.
-
     Returns
     -------
       A new GroupBy object.
     """
     return GroupBy(self,by)
 
-  def impute(self, column, method="mean", combine_method="interpolate", by=None):
-    """Impute a column in this H2OFrame
-
+  def impute(self, column=-1, method="mean", combine_method="interpolate", by=None, group_by_frame=None, values=None):
+    """Impute in place.
     Parameters
     ----------
-    column : int, str
-      The column to impute
-    method: str, default="mean"
-      How to compute the imputation value.
-    combine_method: str, default="interpolate"
-      For even samples and method="median", how to combine quantiles.
-    by : list
-      Columns to group-by for computing imputation value per groups of columns.
-
+    column: int, default=-1
+        The column to impute, if -1 then impute the whole frame
+    method : str, default="mean"
+        The method of imputation: mean, median, mode
+    combine_method : str, default="interpolate"
+        When method is "median", dictates how to combine quantiles for even samples.
+    by : list, default=None
+        The columns to group on.
+    group_by_frame : H2OFrame, default=None
+        Impute the column col with this pre-computed grouped frame.
+    values : list
+        A list of impute values (one per column). NaN indicates to skip the column.
     Returns
     -------
-      An H2OFrame with the desired column's NAs filled with imputed values.
-      Note that the returned Frame is in conceptually a new Frame, but due 
-      to back-end optimizations is frequently not actually a copy.
+      A list of values used in the imputation or the group by result used in imputation.
     """
     if isinstance(column, basestring): column = self.names.index(column)
     if isinstance(by, basestring):     by     = self.names.index(by)
-    return H2OFrame._expr(expr=ExprNode("h2o.impute", self, column, method, combine_method, by), cache=self._ex._cache)
+
+
+    if values is None: values="_"
+    if group_by_frame is None: group_by_frame="_"
+
+    if by is not None or group_by_frame is not "_":
+      res = H2OFrame._expr(expr=ExprNode("h2o.impute", self, column, method, combine_method, by, group_by_frame, values))._frame()
+    else:
+      res = ExprNode("h2o.impute", self, column, method, combine_method, by, group_by_frame, values)._eager_scalar()
+
+    self._ex._cache.flush(); self._ex._cache.fill(10)
+    return res
 
   def merge(self, other, all_x=False, all_y=False, by_x=None, by_y=None, method="auto"):
     """Merge two datasets based on common column names
-
     Parameters
     ----------
     other: H2OFrame
@@ -1374,7 +1324,6 @@ class H2OFrame(object):
       If True, include all rows from the left/self frame
     all_y: bool, default=False
       If True, include all rows from the right/other frame
-
     Returns
     -------
       Original self frame enhanced with merged columns and rows
@@ -1390,20 +1339,16 @@ class H2OFrame(object):
   def insert_missing_values(self, fraction=0.1, seed=None):
     """Inserting Missing Values into an H2OFrame.
     *This is primarily used for testing*.
-
     Randomly replaces a user-specified fraction of entries in a H2O dataset with missing
     values.
-
     WARNING: This will modify the original dataset.  Unless this is intended, this
     function should only be called on a subset of the original.
-
     Parameters
     ----------
     fraction : float
       A number between 0 and 1 indicating the fraction of entries to replace with missing.
     seed : int
       A random number used to select which entries to replace with missing values.
-
     Returns
     -------
       H2OFrame with missing values inserted.
@@ -1444,12 +1389,10 @@ class H2OFrame(object):
 
   def mean(self,na_rm=False):
     """Compute the mean.
-
     Parameters
     ----------
       na_rm: bool, default=False
         If True, then remove NAs from the computation.
-
     Returns
     -------
       A list containing the mean for each column (NaN for non-numeric columns).
@@ -1458,7 +1401,6 @@ class H2OFrame(object):
 
   def nacnt(self):
     """Count of NAs for each column in this H2OFrame.
-
       Returns
       -------
         A list of the na cnts (one entry per column).
@@ -1467,12 +1409,10 @@ class H2OFrame(object):
 
   def median(self, na_rm=False):
     """Compute the median.
-
     Parameters
     ----------
       na_rm: bool, default=False
         If True, then remove NAs from the computation.
-
     Returns
     -------
       A list containing the median for each column (NaN for non-numeric columns).
@@ -1481,29 +1421,27 @@ class H2OFrame(object):
 
   def var(self,y=None,na_rm=False, use=None):
     """Compute the variance or covariance matrix of one or two H2OFrames.
-
     Parameters
     ----------
     y : H2OFrame, default=None
-      If y is None and self is a single column, then the variance is computed for self. If self has 
-      multiple columns, then its covariance matrix is returned. Single rows are treated as single columns. 
-      If y is not None, then a covariance matrix between the columns of self and the columns of y is computed. 
+      If y is None and self is a single column, then the variance is computed for self. If self has
+      multiple columns, then its covariance matrix is returned. Single rows are treated as single columns.
+      If y is not None, then a covariance matrix between the columns of self and the columns of y is computed.
     na_rm : bool, default=False
       Remove NAs from the computation.
     use : str, default=None, which acts as "everything" if na_rm is False, and "complete.obs" if na_rm is True
-      A string indicating how to handle missing values. This must be one of the following: 
+      A string indicating how to handle missing values. This must be one of the following:
         "everything"            - outputs NaNs whenever one of its contributing observations is missing
         "all.obs"               - presence of missing observations will throw an error
         "complete.obs"          - discards missing values along with all observations in their rows so that only complete observations are used
         "pairwise.complete.obs" - uses all complete pairs of observations
-
     Returns
     -------
-      An H2OFrame of the covariance matrix of the columns of this H2OFrame with itself (if y is not given), or with the columns of y 
+      An H2OFrame of the covariance matrix of the columns of this H2OFrame with itself (if y is not given), or with the columns of y
       (if y is given). If self and y are single rows or single columns, the variance or covariance is given as a scalar.
     """
     symmetric = False
-    if y is None: 
+    if y is None:
       y = self
       if self.ncol > 1 and self.nrow > 1: symmetric = True
     if use is None: use = "complete.obs" if na_rm else "everything"
@@ -1512,12 +1450,10 @@ class H2OFrame(object):
 
   def sd(self, na_rm=False):
     """Compute the standard deviation.
-
     Parameters
     ----------
     na_rm : bool, default=False
       Remove NAs from the computation.
-
     Returns
     -------
       A list containing the standard deviation for each column (NaN for non-numeric
@@ -1550,7 +1486,6 @@ class H2OFrame(object):
 
   def anyfactor(self):
     """Test if H2OFrame has any factor columns.
-
     Returns
     -------
       True if there are any categorical columns; False otherwise.
@@ -1559,7 +1494,6 @@ class H2OFrame(object):
 
   def transpose(self):
     """Transpose rows and columns of H2OFrame.
-
     Returns
     -------
       The transpose of the input frame.
@@ -1568,12 +1502,10 @@ class H2OFrame(object):
 
   def strsplit(self, pattern):
     """Split the strings in the target column on the given pattern
-
     Parameters
     ----------
     pattern : str
       The split pattern.
-
     Returns
     -------
       H2OFrame containing columns of the split strings.
@@ -1584,12 +1516,10 @@ class H2OFrame(object):
 
   def countmatches(self, pattern):
     """For each string in the column, count the occurrences of pattern.
-
     Parameters
     ----------
     pattern : str
       The pattern to count matches on in each string.
-
     Returns
     -------
       A single-column H2OFrame containing the counts for the per-row occurrences of
@@ -1602,7 +1532,6 @@ class H2OFrame(object):
 
   def trim(self):
     """Trim white space on the left and right of strings in a single-column H2OFrame.
-
     Returns
     -------
       H2OFrame with trimmed strings.
@@ -1611,32 +1540,29 @@ class H2OFrame(object):
     fr._ex._cache.nrows = self.nrow
     fr._ex._cache.ncol = self.ncol
     return fr
-  
+
   def substring(self, start_index, end_index=None):
-    """For each string, return a new string that is a substring of the original string. If end_index is not 
+    """For each string, return a new string that is a substring of the original string. If end_index is not
     specified, then the substring extends to the end of the original string. If the start_index is longer than
     the length of the string, or is greater than or equal to the end_index, an empty string is returned. Negative
-    start_index is coerced to 0. 
-
+    start_index is coerced to 0.
     Parameters
     ----------
     start_index : int
       The index of the original string at which to start the substring, inclusive.
     end_index: int, optional
-      The index of the original string at which to end the substring, exclusive. 
-
+      The index of the original string at which to end the substring, exclusive.
     Returns
     -------
       An H2OFrame containing the specified substrings.
     """
-    fr = H2OFrame._expr(expr=ExprNode("substring", self, start_index, end_index)) 
+    fr = H2OFrame._expr(expr=ExprNode("substring", self, start_index, end_index))
     fr._ex._cache.nrows = self.nrow
     fr._ex._cache.ncol = self.ncol
     return fr
 
   def nchar(self):
     """Count the number of characters in each string of single-column H2OFrame.
-
     Returns
     -------
       A single-column H2OFrame containing the per-row character count.
@@ -1646,15 +1572,13 @@ class H2OFrame(object):
   def table(self, data2=None, dense=True):
     """Compute the counts of values appearing in a column, or co-occurence counts between
     two columns.
-
     Parameters
     ----------
       data2 : H2OFrame
         Default is None, can be an optional single column to aggregate counts by.
       dense : bool
-        Default is True, for dense representation, which lists only non-zero counts, 1 combination per row. Set to False 
-        to expand counts across all combinations.  
-
+        Default is True, for dense representation, which lists only non-zero counts, 1 combination per row. Set to False
+        to expand counts across all combinations.
     Returns
     -------
       H2OFrame of the counts at each combination of factor levels
@@ -1663,7 +1587,6 @@ class H2OFrame(object):
 
   def hist(self, breaks="Sturges", plot=True, **kwargs):
     """Compute a histogram over a numeric column.
-
     Parameters
     ----------
     breaks: str, int, list
@@ -1673,7 +1596,6 @@ class H2OFrame(object):
       If breaks is "FD", the MAD is used over the IQR in computing bin width.
     plot : bool, default=True
       If True, then a plot is generated
-
     Returns
     -------
       If plot is False, return H2OFrame with these columns: breaks, counts, mids_true,
@@ -1718,18 +1640,14 @@ class H2OFrame(object):
 
   def sub(self, pattern, replacement, ignore_case=False):
     """Substitute the first occurrence of pattern in a string with replacement.
-
     Parameters
     ----------
     pattern : str
       A regular expression.
-
     replacement : str
       A replacement string.
-
     ignore_case : bool
       If True then pattern will match against upper and lower case.
-
     Returns
     -------
       H2OFrame
@@ -1738,18 +1656,14 @@ class H2OFrame(object):
 
   def gsub(self, pattern, replacement, ignore_case=False):
     """Globally substitute occurrences of pattern in a string with replacement.
-
     Parameters
     ----------
     pattern : str
       A regular expression.
-
     replacement : str
       A replacement string.
-
     ignore_case : bool
       If True then pattern will match against upper and lower case.
-
     Returns
     -------
       H2OFrame
@@ -1760,7 +1674,6 @@ class H2OFrame(object):
     """Categorical Interaction Feature Creation in H2O.
     Creates a frame in H2O with n-th order interaction features between categorical columns, as specified by
     the user.
-
     Parameters
     ----------
     factors : list
@@ -1775,7 +1688,6 @@ class H2OFrame(object):
       Min. occurrence threshold for factor levels in pair-wise interaction terms
     destination_frame: str, optional
       A string indicating the destination key.
-
     Returns
     -------
       H2OFrame
@@ -1785,7 +1697,6 @@ class H2OFrame(object):
 
   def toupper(self):
     """Translate characters from lower to upper case for a particular column
-
     Returns
     -------
       H2OFrame
@@ -1794,7 +1705,6 @@ class H2OFrame(object):
 
   def tolower(self):
     """Translate characters from upper to lower case for a particular column
-
     Returns
     -------
       H2OFrame
@@ -1803,12 +1713,10 @@ class H2OFrame(object):
 
   def rep_len(self, length_out):
     """Replicates the values in `data` in the H2O backend
-
     Parameters
     ----------
     length_out : int
       Number of columns of the resulting H2OFrame
-
     Returns
     -------
       H2OFrame
@@ -1817,7 +1725,6 @@ class H2OFrame(object):
 
   def scale(self, center=True, scale=True):
     """Centers and/or scales the columns of the self._newExpr
-
     Parameters
     ----------
     center : bool, list
@@ -1827,7 +1734,6 @@ class H2OFrame(object):
       If True, then scale the data by the column standard deviation. If False, no scaling
       is done.
       If a list, then scale each column by the given amount in the list.
-
     Returns
     -------
       H2OFrame
@@ -1836,12 +1742,10 @@ class H2OFrame(object):
 
   def signif(self, digits=6):
     """Round doubles/floats to the given number of significant digits.
-
     Parameters
     ----------
     digits : int, default=6
       Number of significant digits to round doubles/floats.
-
     Returns
     -------
       H2OFrame
@@ -1850,14 +1754,13 @@ class H2OFrame(object):
 
   def round(self, digits=0):
     """Round doubles/floats to the given number of decimal places.
-
     Parameters
     ----------
     digits : int, default=0
-      Number of decimal places to round doubles/floats. Rounding to a negative number of decimal places is not 
-      supported. For rounding off a 5, the IEC 60559 standard is used, ‘go to the even digit’. Therefore rounding 2.5 
+      Number of decimal places to round doubles/floats. Rounding to a negative number of decimal places is not
+      supported. For rounding off a 5, the IEC 60559 standard is used, ‘go to the even digit’. Therefore rounding 2.5
       gives 2 and rounding 3.5 gives 4.
-      
+
     Returns
     -------
       H2OFrame
@@ -1866,7 +1769,6 @@ class H2OFrame(object):
 
   def asnumeric(self):
     """All factor columns converted to numeric.
-
     Returns
     -------
       H2OFrame
@@ -1878,7 +1780,6 @@ class H2OFrame(object):
 
   def ascharacter(self):
     """All columns converted to String columns
-
     Returns
     -------
       H2OFrame
@@ -1890,7 +1791,6 @@ class H2OFrame(object):
 
   def na_omit(self):
     """Remove rows with NAs from the H2OFrame.
-
     Returns
     -------
       H2OFrame
@@ -1898,10 +1798,9 @@ class H2OFrame(object):
     fr = H2OFrame._expr(expr=ExprNode("na.omit", self), cache=self._ex._cache)
     fr._ex._cache.nrows=-1
     return fr
- 
+
   def isna(self):
     """For each element in an H2OFrame, determine if it is NA or not.
-
     Returns
     -------
       H2OFrame of 1s and 0s. 1 means the value was NA.
@@ -1979,12 +1878,10 @@ class H2OFrame(object):
   def runif(self, seed=None):
     """Generate a column of random numbers drawn from a uniform distribution [0,1) and
     having the same data layout as the calling H2OFrame instance.
-
     Parameters
     ----------
     seed : int, optional
       A random seed. If None, then one will be generated.
-
     Returns
     -------
       Single-column H2OFrame filled with doubles sampled uniformly from [0,1).
@@ -1996,24 +1893,20 @@ class H2OFrame(object):
 
   def stratified_split(self,test_frac=0.2,seed=-1):
     """Construct a column that can be used to perform a random stratified split.
-
     Parameters
     ----------
       test_frac : float, default=0.2
         The fraction of rows that will belong to the "test".
       seed      : int
         For seeding the random splitting.
-
     Returns
     -------
       A categorical column of two levels "train" and "test".
-
     Examples
     --------
       >>> my_stratified_split = my_frame["response"].stratified_split(test_frac=0.3,seed=12349453)
       >>> train = my_frame[my_stratified_split=="train"]
       >>> test  = my_frame[my_stratified_split=="test"]
-
       # check the distributions among the initial frame, and the train/test frames match
       >>> my_frame["response"].table()["Count"] / my_frame["response"].table()["Count"].sum()
       >>> train["response"].table()["Count"] / train["response"].table()["Count"].sum()
@@ -2024,17 +1917,14 @@ class H2OFrame(object):
   def match(self, table, nomatch=0):
     """
     Makes a vector of the positions of (first) matches of its first argument in its second.
-
     :param table:
     :param nomatch:
-
     :return: H2OFrame of one boolean column
     """
     return H2OFrame._expr(expr=ExprNode("match", self, table, nomatch, None))
 
   def cut(self, breaks, labels=None, include_lowest=False, right=True, dig_lab=3):
     """Cut a numeric vector into factor "buckets". Similar to R's cut method.
-
     Parameters
     ----------
     breaks : list
@@ -2047,7 +1937,6 @@ class H2OFrame(object):
       Include the high value: (lo,hi]. If False, get (lo,hi).
     dig_lab: int
       Number of digits following the decimal point to consider.
-
     Returns
     -------
       Single-column H2OFrame of categorical data.
@@ -2060,7 +1949,6 @@ class H2OFrame(object):
 
   def which(self):
     """Equivalent to [ index for index,value in enumerate(self) if value ]
-
     Returns
     -------
     Single-column H2OFrame filled with 0-based indices for which the elements are not
@@ -2070,12 +1958,10 @@ class H2OFrame(object):
 
   def ifelse(self,yes,no):
     """Equivalent to [y if t else n for t,y,n in zip(self,yes,no)]
-
     Based on the booleans in the test vector, the output has the values of the
     yes and no vectors interleaved (or merged together).  All Frames must have
     the same row count.  Single column frames are broadened to match wider
     Frames.  Scalars are allowed, and are also broadened to match wider frames.
-
     Parameters
     ----------
     test : H2OFrame (self)
@@ -2084,7 +1970,6 @@ class H2OFrame(object):
       Frame to use if [test] is true ; may be a scalar or single column
     no : H2OFrame
       Frame to use if [test] is false; may be a scalar or single column
-
     Returns
     -------
       H2OFrame of the merged yes/no Frames/scalars according to the test input frame.
@@ -2093,14 +1978,12 @@ class H2OFrame(object):
 
   def apply(self, fun=None, axis=0):
     """Apply a lambda expression to an H2OFrame.
-
     Parameters
     ----------
       fun: lambda
         A lambda expression to be applied per row or per column
     axis: int
       0: apply to each column; 1: apply to each row
-
     Returns
     -------
       H2OFrame

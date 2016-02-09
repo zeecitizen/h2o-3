@@ -8,7 +8,6 @@ import imp
 class MetricsBase(object):
   """
   A parent class to house common metrics available for the various Metrics types.
-
   The methods here are available across different model categories, and so appear here.
   """
   def __init__(self, metric_json,on=None,algo=""):
@@ -77,11 +76,11 @@ class MetricsBase(object):
       self.confusion_matrix().show()
       self._metric_json["max_criteria_and_metric_scores"].show()
       if self.gains_lift():
-          print(self.gains_lift())
+        print(self.gains_lift())
 
     if metric_type in types_w_mult:
-                                                               self.confusion_matrix().show()
-                                                               self.hit_ratio_table().show()
+      self.confusion_matrix().show()
+      self.hit_ratio_table().show()
     if metric_type in types_w_clustering:
       print("Total Within Cluster Sum of Square Error: "      + str(self.tot_withinss()))
       print("Total Sum of Square Error to Grand Mean: "       + str(self.totss()))
@@ -89,8 +88,8 @@ class MetricsBase(object):
       self._metric_json['centroid_stats'].show()
 
     if metric_type in types_w_dim:
-        print("Sum of Squared Error (Numeric): "              + str(self.num_err()))
-        print("Misclassification Error (Categorical): "       + str(self.cat_err()))
+      print("Sum of Squared Error (Numeric): "              + str(self.num_err()))
+      print("Misclassification Error (Categorical): "       + str(self.cat_err()))
 
 
   def r2(self):
@@ -170,7 +169,6 @@ class MetricsBase(object):
 class H2ORegressionModelMetrics(MetricsBase):
   """
   This class provides an API for inspecting the metrics returned by a regression model.
-
   It is possible to retrieve the R^2 (1 - MSE/variance) and MSE
   """
   def __init__(self,metric_json,on=None,algo=""):
@@ -232,7 +230,6 @@ class H2OBinomialModelMetrics(MetricsBase):
   def __init__(self, metric_json, on=None, algo=""):
     """
       Create a new Binomial Metrics object (essentially a wrapper around some json)
-
       :param metric_json: A blob of json holding all of the needed information
       :param on_train: Metrics built on training data (default is False)
       :param on_valid: Metrics built on validation data (default is False)
@@ -411,7 +408,6 @@ class H2OBinomialModelMetrics(MetricsBase):
   def fprs(self):
     """
     Return all false positive rates for all threshold values.
-
     :return: a list of false positive rates.
     """
 
@@ -423,7 +419,6 @@ class H2OBinomialModelMetrics(MetricsBase):
   def tprs(self):
     """
     Return all true positive rates for all threshold values.
-
     :return: a list of true positive rates.
     """
     tpr_idx = self._metric_json["thresholds_and_metric_scores"].col_header.index("tpr")
@@ -434,7 +429,6 @@ class H2OBinomialModelMetrics(MetricsBase):
   def confusion_matrix(self, metrics=None, thresholds=None):
     """
     Get the confusion matrix for the specified metric
-
     :param metrics: A string (or list of strings) in {"min_per_class_accuracy", "absolute_MCC", "tnr", "fnr", "fpr", "tpr", "precision", "accuracy", "f0point5", "f2", "f1"}
     :param thresholds: A value (or list of values) between 0 and 1
     :return: a list of ConfusionMatrix objects (if there are more than one to return), or a single ConfusionMatrix (if there is only one)
@@ -455,7 +449,7 @@ class H2OBinomialModelMetrics(MetricsBase):
             not all(t >= 0 or t <= 1 for t in thresholds_list):
       raise ValueError("All thresholds must be numbers between 0 and 1 (inclusive).")
 
-    if not all(m in ["min_per_class_accuracy", "absolute_MCC", "precision", "accuracy", "f0point5", "f2", "f1"] for m in metrics_list):
+    if not all(m in ["min_per_class_accuracy", "absolute_MCC", "precision", "recall", "specificity", "accuracy", "f0point5", "f2", "f1"] for m in metrics_list):
       raise ValueError("The only allowable metrics are min_per_class_accuracy, absolute_MCC, precision, accuracy, f0point5, f2, f1")
 
     # make one big list that combines the thresholds and metric-thresholds
@@ -469,10 +463,10 @@ class H2OBinomialModelMetrics(MetricsBase):
     for t in thresholds_list:
       idx = self.find_idx_by_threshold(t)
       row = thresh2d.cell_values[idx]
-      tns = row[8]
-      fns = row[9]
-      fps = row[10]
-      tps = row[11]
+      tns = row[10]
+      fns = row[11]
+      fps = row[12]
+      tps = row[13]
       p = tps + fns
       n = tns + fps
       c0  = n - fps
@@ -489,7 +483,7 @@ class H2OBinomialModelMetrics(MetricsBase):
 
   def find_threshold_by_max_metric(self,metric):
     """
-    :param metric: A string in {"min_per_class_accuracy", "absolute_MCC", "precision", "accuracy", "f0point5", "f2", "f1"}
+    :param metric: A string in {"min_per_class_accuracy", "absolute_MCC", "precision", "recall", "specificity", "accuracy", "f0point5", "f2", "f1"}
     :return: the threshold at which the given metric is maximum.
     """
     crit2d = self._metric_json['max_criteria_and_metric_scores']
@@ -502,7 +496,6 @@ class H2OBinomialModelMetrics(MetricsBase):
   def find_idx_by_threshold(self,threshold):
     """
     Retrieve the index in this metric's threshold list at which the given threshold is located.
-
     :param threshold: Find the index of this input threshold.
     :return: Return the index or throw a ValueError if no such index can be found.
     """
@@ -519,7 +512,7 @@ class H2OBinomialModelMetrics(MetricsBase):
       closest_idx = threshold_diffs.index(min(threshold_diffs))
       closest_threshold = thresholds[closest_idx]
       print("Could not find exact threshold {0}; using closest threshold found {1}." \
-      .format(threshold, closest_threshold))
+            .format(threshold, closest_threshold))
       return closest_idx
     raise ValueError("Threshold must be between 0 and 1, but got {0} ".format(threshold))
 

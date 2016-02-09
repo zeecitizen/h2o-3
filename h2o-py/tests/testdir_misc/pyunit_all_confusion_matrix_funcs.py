@@ -10,10 +10,10 @@ from tests import pyunit_utils
 import random
 
 def all_confusion_matrix_funcs():
-    
-    
 
-    metrics = ["min_per_class_accuracy", "absolute_MCC", "precision", "accuracy", "f0point5", "f2", "f1"]
+
+
+    metrics = ["recall", "specificity", "min_per_class_accuracy", "absolute_MCC", "precision", "accuracy", "f0point5", "f2", "f1"]
     train = [True, False]
     valid = [True, False]
 
@@ -29,7 +29,7 @@ def all_confusion_matrix_funcs():
     gbm_bin = h2o.gbm(x=air_train[["Origin", "Dest", "Distance", "UniqueCarrier", "fMonth", "fDayofMonth","fDayOfWeek"]],
                       y=air_train["IsDepDelayed"].asfactor(),
                       validation_x=air_test[["Origin", "Dest", "Distance", "UniqueCarrier", "fMonth", "fDayofMonth",
-                                         "fDayOfWeek"]],
+                                             "fDayOfWeek"]],
                       validation_y=air_test["IsDepDelayed"].asfactor(),
                       distribution="bernoulli")
 
@@ -38,11 +38,11 @@ def all_confusion_matrix_funcs():
     print()
     gbm_mult = h2o.gbm(x=air_train[["Origin", "Dest", "Distance", "UniqueCarrier", "IsDepDelayed", "fDayofMonth",
                                     "fMonth"]],
-                      y=air_train["fDayOfWeek"].asfactor(),
-                      validation_x=air_test[["Origin", "Dest", "Distance", "UniqueCarrier", "IsDepDelayed", "fDayofMonth",
-                                             "fMonth"]],
-                      validation_y=air_test["fDayOfWeek"].asfactor(),
-                      distribution="multinomial")
+                       y=air_train["fDayOfWeek"].asfactor(),
+                       validation_x=air_test[["Origin", "Dest", "Distance", "UniqueCarrier", "IsDepDelayed", "fDayofMonth",
+                                              "fMonth"]],
+                       validation_y=air_test["fDayOfWeek"].asfactor(),
+                       distribution="multinomial")
 
     def dim_check(cm, m, t, v):
         assert len(cm) == 2 and len(cm[0]) == 2 and len(cm[1]) == 2, "incorrect confusion matrix dimensions " \
@@ -61,12 +61,12 @@ def all_confusion_matrix_funcs():
             assert cm[0][0] + cm[0][1] + cm[1][0] + cm[1][1] == air_test.nrow, \
                 "incorrect confusion matrix elements: {0}, {1}, {2}, {3}. Should sum " \
                 "to {4}. metric/thresh: {5}, train: {6}, valid: {7}".format(cm[0][0], cm[0][1], cm[1][0], cm[1][1],
-                                                                     air_test.nrow, m, t, v)
+                                                                            air_test.nrow, m, t, v)
         else:
             assert cm[0][0] + cm[0][1] + cm[1][0] + cm[1][1] == air_train.nrow, \
                 "incorrect confusion matrix elements: {0}, {1}, {2}, {3}. Should sum " \
                 "to {4}. metric/thresh: {5}, train: {6}, valid: {7}".format(cm[0][0], cm[0][1], cm[1][0], cm[1][1],
-                                                                     air_train.nrow, m, t, v)
+                                                                            air_train.nrow, m, t, v)
 
     # H2OBinomialModel.confusion_matrix()
     for m in metrics:
@@ -101,7 +101,7 @@ def all_confusion_matrix_funcs():
     for r in range(7):
         for c in range(7):
             cm_count += cm.cell_values[r][c]
-    assert cm_count == air_test.nrow, "incorrect confusion matrix elements. Should sum to {0}, but got {1}".\
+    assert cm_count == air_test.nrow, "incorrect confusion matrix elements. Should sum to {0}, but got {1}". \
         format(air_test.nrow, cm_count)
 
     # H2OBinomialModelMetrics.confusion_matrix()

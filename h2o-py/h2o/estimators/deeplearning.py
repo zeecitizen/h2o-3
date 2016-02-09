@@ -3,14 +3,14 @@ from .estimator_base import H2OEstimator
 
 class H2ODeepLearningEstimator(H2OEstimator):
   def __init__(self, model_id=None, overwrite_with_best_model=None, checkpoint=None,
-               use_all_factor_levels=None, activation=None, hidden=None, epochs=None,
+               use_all_factor_levels=None, standardize=None, activation=None, hidden=None, epochs=None,
                train_samples_per_iteration=None, seed=None, adaptive_rate=None, rho=None,
                epsilon=None, rate=None, rate_annealing=None, rate_decay=None,
                momentum_start=None, momentum_ramp=None, momentum_stable=None,
                nesterov_accelerated_gradient=None, input_dropout_ratio=None,
                hidden_dropout_ratios=None, l1=None, l2=None, max_w2=None,
                initial_weight_distribution=None, initial_weight_scale=None, loss=None,
-               distribution=None, tweedie_power=None, score_interval=None,
+               distribution=None, quantile_alpha=None, tweedie_power=None, score_interval=None,
                score_training_samples=None, score_validation_samples=None,
                score_duty_cycle=None, classification_stop=None, regression_stop=None,
                quiet_mode=None, max_confusion_matrix_size=None, max_hit_ratio_k=None,
@@ -25,9 +25,8 @@ class H2ODeepLearningEstimator(H2OEstimator):
                fold_assignment=None, keep_cross_validation_predictions=None,
                stopping_rounds=None, stopping_metric=None, stopping_tolerance=None):
     """
-    Build a supervised Deep Learning model
-    Performs Deep Learning neural networks on an H2OFrame
-
+    Build a supervised Deep Neural Network model
+    Builds a feed-forward multilayer artificial neural network on an H2OFrame
     Parameters
     ----------
     model_id : str, optional
@@ -42,6 +41,9 @@ class H2ODeepLearningEstimator(H2OEstimator):
       Use all factor levels of categorical variance. Otherwise the first factor level is
       omitted (without loss of accuracy). Useful for variable importances and auto-enabled
       for autoencoder.
+    standardize : bool
+      If enabled, automatically standardize the data. If disabled, the user must
+      provide properly scaled input data.
     activation : str
       A string indicating the activation function to use.
       Must be either "Tanh", "TanhWithDropout", "Rectifier", "RectifierWithDropout",
@@ -102,7 +104,9 @@ class H2ODeepLearningEstimator(H2OEstimator):
     distribution : str
        A character string. The distribution function of the response.
        Must be "AUTO", "bernoulli", "multinomial", "poisson", "gamma",
-       "tweedie", "laplace", "huber" or "gaussian"
+       "tweedie", "laplace", "huber", "quantile" or "gaussian"
+    quantile_alpha : float
+      Quantile (only for Quantile regression, must be between 0 and 1)
     tweedie_power : float
       Tweedie power (only for Tweedie distribution, must be between 1 and 2)
     score_interval : int
@@ -188,7 +192,6 @@ class H2ODeepLearningEstimator(H2OEstimator):
       Must be "AUTO", "Random" or "Modulo"
     keep_cross_validation_predictions : bool
       Whether to keep the predictions of the cross-validation models
-
     Examples
     --------
       >>> import h2o as ml
@@ -228,6 +231,14 @@ class H2ODeepLearningEstimator(H2OEstimator):
   @use_all_factor_levels.setter
   def use_all_factor_levels(self, value):
     self._parms["use_all_factor_levels"] = value
+
+  @property
+  def standardize(self):
+    return self._parms["standardize"]
+
+  @standardize.setter
+  def standardize(self, value):
+    self._parms["standardize"] = value
 
   @property
   def activation(self):
@@ -420,6 +431,14 @@ class H2ODeepLearningEstimator(H2OEstimator):
   @distribution.setter
   def distribution(self, value):
     self._parms["distribution"] = value
+
+  @property
+  def quantile_alpha(self):
+    return self._parms["quantile_alpha"]
+
+  @quantile_alpha.setter
+  def quantile_alpha(self, value):
+    self._parms["quantile_alpha"] = value
 
   @property
   def tweedie_power(self):

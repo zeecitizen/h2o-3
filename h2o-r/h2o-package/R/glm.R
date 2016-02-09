@@ -4,9 +4,9 @@
 #'
 #' @param x A vector containing the names or indices of the predictor variables to use in building the GLM model.
 #' @param y A character string or index that represent the response variable in the model.
-#' @param training_frame An H2O H2OFrame object containing the variables in the model.
+#' @param training_frame An H2OFrame object containing the variables in the model.
 #' @param model_id (Optional) The unique id assigned to the resulting model. If none is given, an id will automatically be generated.
-#' @param validation_frame An H2O H2OFrame object containing the variables in the model.  Defaults to NULL.
+#' @param validation_frame An H2OFrame object containing the variables in the model.  Defaults to NULL.
 #' @param max_iterations A non-negative integer specifying the maximum number of iterations.
 #' @param ignore_const_cols A logical value indicating whether or not to ignore all the constant columns in the training frame.
 #' @param beta_epsilon A non-negative number specifying the magnitude of the maximum difference between the coefficient estimates from successive iterations.
@@ -26,12 +26,12 @@
 #' @param tweedie_link_power A numeric specifying the power for the link function when \code{family = "tweedie"}.
 #' @param alpha A numeric in [0, 1] specifying the elastic-net mixing parameter.
 #'                The elastic-net penalty is defined to be:
-#'                \deqn{P(\alpha,\beta) = (1-\alpha)/2||\beta||_2^2 + \alpha||\beta||_1 = \sum_j [(1-\alpha)/2 \beta_j^2 + \alpha|\beta_j|]},
+#'                \deqn{P(\alpha,\beta) = (1-\alpha)/2||\beta||_2^2 + \alpha||\beta||_1 = \sum_j [(1-\alpha)/2 \beta_j^2 + \alpha|\beta_j|]}
 #'                making \code{alpha = 1} the lasso penalty and \code{alpha = 0} the ridge penalty.
 #' @param lambda A non-negative shrinkage parameter for the elastic-net, which multiplies \eqn{P(\alpha,\beta)} in the objective function.
 #'               When \code{lambda = 0}, no elastic-net penalty is applied and ordinary generalized linear models are fit.
 #' @param prior (Optional) A numeric specifying the prior probability of class 1 in the response when \code{family = "binomial"}.
-#'               The default prior is the observational frequency of class 1.
+#'               The default prior is the observational frequency of class 1. Must be from (0,1) exclusive range or NULL (no prior).
 #' @param lambda_search A logical value indicating whether to conduct a search over the space of lambda values starting from the lambda max, given
 #'                      \code{lambda} is interpreted as lambda min.
 #' @param nlambdas The number of lambda values to use when \code{lambda_search = TRUE}.
@@ -47,20 +47,21 @@
 #' @param offset_column Specify the offset column.
 #' @param weights_column Specify the weights column.
 #' @param nfolds (Optional) Number of folds for cross-validation. If \code{nfolds >= 2}, then \code{validation} must remain empty.
-#' @param fold_column (Optional) Column with cross-validation fold index assignment per observation
+#' @param fold_column (Optional) Column with cross-validation fold index assignment per observation.
 #' @param fold_assignment Cross-validation fold assignment scheme, if fold_column is not specified
-#'        Must be "AUTO", "Random" or "Modulo"
+#'        Must be "AUTO", "Random" or "Modulo".
 #' @param keep_cross_validation_predictions Whether to keep the predictions of the cross-validation models.
-#' @param ... (Currently Unimplemented)
-#'        coefficients.
-#' @param intercept Logical, include constant term (intercept) in the model
+#' @param intercept Logical, include constant term (intercept) in the model.
 #' @param max_active_predictors (Optional) Convergence criteria for number of predictors when using L1 penalty.
-
 #' @param objective_epsilon Convergence criteria. Converge if relative change in objective function is below this threshold.
 #' @param gradient_epsilon Convergence criteria. Converge if gradient l-infinity norm is below this threshold.
 #' @param non_negative Logical, allow only positive coefficients.
-#' @param compute_p_values (Optional)  Logical, compute p-values, only allowed with IRLSM solver and no regularization. May fail if there are co-linear predictors.
+#' @param compute_p_values (Optional)  Logical, compute p-values, only allowed with IRLSM solver and no regularization. May fail if there are collinear predictors.
 #' @param remove_collinear_columns (Optional)  Logical, valid only with no regularization. If set, co-linear columns will be automatically ignored (coefficient will be 0).
+#' @param missing_values_handling (Optional) Controls handling of missing values. Can be either "MeanImputation" or "Skip". MeanImputation replaces missing values with mean for numeric and most frequent level for categorical,  Skip ignores observations with any missing value. Applied both during model training *AND* scoring.
+#' @param max_runtime_secs Maximum allowed runtime in seconds for model training. Use 0 to disable.
+#' @param ... (Currently Unimplemented)
+#'        coefficients.
 #'
 #' @return A subclass of \code{\linkS4class{H2OModel}} is returned. The specific subclass depends on the machine learning task at hand
 #'         (if it's binomial classification, then an \code{\linkS4class{H2OBinomialModel}} is returned, if it's regression then a
@@ -102,19 +103,19 @@
 #'                  lambda_search=TRUE)
 #' }
 #' @export
-h2o.glm <- function(x, y, training_frame, model_id, 
+h2o.glm <- function(x, y, training_frame, model_id,
                     validation_frame = NULL,
                     ignore_const_cols = TRUE,
                     max_iterations = 50,
                     beta_epsilon = 0,
                     solver = c("IRLSM", "L_BFGS"),
                     standardize = TRUE,
-                    family = c("gaussian", "binomial", "poisson", "gamma", "tweedie"),
+                    family = c("gaussian", "binomial", "poisson", "gamma", "tweedie","multinomial"),
                     link = c("family_default", "identity", "logit", "log", "inverse", "tweedie"),
                     tweedie_variance_power = NaN,
                     tweedie_link_power = NaN,
                     alpha = 0.5,
-                    prior = 0.0,
+                    prior = NULL,
                     lambda = 1e-05,
                     lambda_search = FALSE,
                     nlambdas = -1,
@@ -132,7 +133,9 @@ h2o.glm <- function(x, y, training_frame, model_id,
                     gradient_epsilon = -1,
                     non_negative = FALSE,
                     compute_p_values = FALSE,
-                    remove_collinear_columns = FALSE)
+                    remove_collinear_columns = FALSE,
+                    max_runtime_secs = 0,
+                    missing_values_handling = c("Skip", "MeanImputation"))
 {
   # if (!is.null(beta_constraints)) {
   #     if (!inherits(beta_constraints, "data.frame") && !is.H2OFrame(beta_constraints))
@@ -189,6 +192,7 @@ h2o.glm <- function(x, y, training_frame, model_id,
   if( !missing(non_negative) )              parms$non_negative           <- non_negative
   if( !missing(compute_p_values) )          parms$compute_p_values       <- compute_p_values
   if( !missing(remove_collinear_columns) )  parms$remove_collinear_columns<- remove_collinear_columns
+  if( !missing(max_runtime_secs))           parms$max_runtime_secs       <- max_runtime_secs
   # For now, accept nfolds in the R interface if it is 0 or 1, since those values really mean do nothing.
   # For any other value, error out.
   # Expunge nfolds from the message sent to H2O, since H2O doesn't understand it.
@@ -196,6 +200,8 @@ h2o.glm <- function(x, y, training_frame, model_id,
     parms$nfolds <- nfolds
   if(!missing(beta_constraints))
     parms$beta_constraints <- beta_constraints
+    if(!missing(missing_values_handling))
+        parms$missing_values_handling <- missing_values_handling
   m <- .h2o.modelJob('glm', parms)
   m@model$coefficients <- m@model$coefficients_table[,2]
   names(m@model$coefficients) <- m@model$coefficients_table[,1]

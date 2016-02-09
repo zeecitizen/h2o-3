@@ -15,7 +15,9 @@ class H2OGradientBoostingEstimator(H2OEstimator):
     automatically be generated.
   distribution : str
      The distribution function of the response. Must be "AUTO", "bernoulli",
-     "multinomial", "poisson", "gamma", "tweedie", "laplace" or "gaussian"
+     "multinomial", "poisson", "gamma", "tweedie", "laplace", "quantile" or "gaussian"
+  quantile_alpha : float
+    Quantile (only for Quantile regression, must be between 0 and 1)
   tweedie_power : float
     Tweedie power (only for Tweedie distribution, must be between 1 and 2)
   ntrees : int
@@ -63,6 +65,8 @@ class H2OGradientBoostingEstimator(H2OEstimator):
     Whether to keep the predictions of the cross-validation models
   score_each_iteration : bool
     Attempts to score each tree.
+  score_tree_interval : int
+    Score the model after every so many trees. Disabled if set to 0.
   stopping_rounds : int
     Early stopping based on convergence of stopping_metric.
     Stop if simple moving average of length k of the stopping_metric does not improve
@@ -78,14 +82,14 @@ class H2OGradientBoostingEstimator(H2OEstimator):
   -------
     A new H2OGradientBoostedEstimator object.
   """
-  def __init__(self, model_id=None, distribution=None, tweedie_power=None, ntrees=None,
+  def __init__(self, model_id=None, distribution=None, quantile_alpha=None, tweedie_power=None, ntrees=None,
                max_depth=None, min_rows=None, learn_rate=None, nbins=None,
                sample_rate=None, col_sample_rate=None, col_sample_rate_per_tree=None,
                nbins_top_level=None, nbins_cats=None, balance_classes=None,
                max_after_balance_size=None, seed=None, build_tree_one_node=None,
                nfolds=None, fold_assignment=None, keep_cross_validation_predictions=None,
                stopping_rounds=None, stopping_metric=None, stopping_tolerance=None,
-               score_each_iteration=None, checkpoint=None):
+               score_each_iteration=None, score_tree_interval=None, checkpoint=None):
     super(H2OGradientBoostingEstimator, self).__init__()
     self._parms = locals()
     self._parms = {k:v for k,v in self._parms.items() if k!="self"}
@@ -97,6 +101,14 @@ class H2OGradientBoostingEstimator(H2OEstimator):
   @distribution.setter
   def distribution(self, value):
     self._parms["distribution"] = value
+
+  @property
+  def quantile_alpha(self):
+      return self._parms["quantile_alpha"]
+
+  @quantile_alpha.setter
+  def quantile_alpha(self, value):
+      self._parms["quantile_alpha"] = value
 
   @property
   def tweedie_power(self):
@@ -249,6 +261,14 @@ class H2OGradientBoostingEstimator(H2OEstimator):
   @score_each_iteration.setter
   def score_each_iteration(self, value):
     self._parms["score_each_iteration"] = value
+
+  @property
+  def score_tree_interval(self):
+      return self._parms["score_tree_interval"]
+
+  @score_tree_interval.setter
+  def score_tree_interval(self, value):
+      self._parms["score_tree_interval"] = value
 
   @property
   def stopping_rounds(self):
