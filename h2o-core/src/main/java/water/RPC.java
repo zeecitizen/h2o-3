@@ -92,7 +92,7 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
   static final byte CLIENT_UDP_SEND = 12;
   static final byte CLIENT_TCP_SEND = 13;
   static final private String[] COOKIES = new String[] {
-    "SERVER_UDP","SERVER_TCP","CLIENT_UDP","CLIENT_TCP" };
+          "SERVER_UDP","SERVER_TCP","CLIENT_UDP","CLIENT_TCP" };
 
 
   final static int MAX_TIMEOUT = 60000; // 5 sec max timeout cap on exponential decay of retries
@@ -136,26 +136,26 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
   private RPC<V> handleLocal() {
     assert _dt.getCompleter()==null;
     _dt.setCompleter(new H2O.H2OCallback<DTask>() {
-        @Override public void callback(DTask dt) {
-          synchronized(RPC.this) {
-            _done = true;
-            RPC.this.notifyAll();
-          }
-          doAllCompletions();
+      @Override public void callback(DTask dt) {
+        synchronized(RPC.this) {
+          _done = true;
+          RPC.this.notifyAll();
         }
-        @Override public boolean onExceptionalCompletion(Throwable ex, CountedCompleter dt) {
-          synchronized(RPC.this) { // Might be called several times
-            if( _done ) return true; // Filter down to 1st exceptional completion
-            _dt.setException(ex);
-            // must be the last set before notify call cause the waiting thread
-            // can wake up at any moment independently on notify
-            _done = true; 
-            RPC.this.notifyAll();
-          }
-          doAllCompletions();
-          return true;
+        doAllCompletions();
+      }
+      @Override public boolean onExceptionalCompletion(Throwable ex, CountedCompleter dt) {
+        synchronized(RPC.this) { // Might be called several times
+          if( _done ) return true; // Filter down to 1st exceptional completion
+          _dt.setException(ex);
+          // must be the last set before notify call cause the waiting thread
+          // can wake up at any moment independently on notify
+          _done = true;
+          RPC.this.notifyAll();
         }
-      });
+        doAllCompletions();
+        return true;
+      }
+    });
     H2O.submitTask(_dt);
     return this;
   }
@@ -164,8 +164,8 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
   // called on a timeout.
 
   public synchronized RPC<V> call() {
-      // Any Completer will not be carried over to remote; add it to the RPC call
-      // so completion is signaled after the remote comes back.
+    // Any Completer will not be carried over to remote; add it to the RPC call
+    // so completion is signaled after the remote comes back.
     CountedCompleter cc = _dt.getCompleter();
     if( cc != null )  handleCompleter(cc);
 
@@ -196,6 +196,7 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
           AutoBuffer ab = new AutoBuffer(_target,_dt.priority());
           try {
             final boolean t;
+            int offset = ab.position();
             ab.putTask(UDP.udp.exec, _tasknum).put1(CLIENT_UDP_SEND);
             ab.put(_dt);
             t = ab.hasTCP();
@@ -247,7 +248,7 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
     Thread cThr = Thread.currentThread();
     int priority = (cThr instanceof FJWThr) ? ((FJWThr)cThr)._priority : -1;
     assert _dt.priority() > priority || (_dt.priority() == priority && _dt instanceof MRTask)
-      : "*** Attempting to block on task (" + _dt.getClass() + ") with equal or lower priority. Can lead to deadlock! " + _dt.priority() + " <=  " + priority;
+            : "*** Attempting to block on task (" + _dt.getClass() + ") with equal or lower priority. Can lead to deadlock! " + _dt.priority() + " <=  " + priority;
     if( _done ) return result(); // Fast-path shortcut, or throw if exception
     // Use FJP ManagedBlock for this blocking-wait - so the FJP can spawn
     // another thread if needed.
@@ -299,7 +300,7 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
     // Pretty-print bytes 1-15; byte 0 is the udp_type enum
     @Override String print16( AutoBuffer ab ) {
       int flag = ab.getFlag();
-      String clazz = (flag == CLIENT_UDP_SEND) ? TypeMap.className(ab.getInt()) : "";
+      String clazz = (flag == CLIENT_UDP_SEND) ? TypeMap.className(ab.get2()) : "";
       return "task# "+ab.getTask()+" "+ clazz+" "+COOKIES[flag-SERVER_UDP_SEND];
     }
   }
@@ -318,7 +319,6 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
     // if should remain the same size.  Also used for profiling.
     int _size;
     RPCCall(DTask dt, H2ONode client, int tsknum) {
-      super(dt.priority());
       _dt = dt;
       _client = client;
       _tsknum = tsknum;
@@ -326,10 +326,8 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
       _started = System.currentTimeMillis(); // for nack timeout
       _retry = RETRY_MS >> 1; // half retry for sending nack
     }
-    RPCCall(H2ONode client) { _client = client; _tsknum = 0; }
 
-    @Override
-    public void compute2() {
+    @Override protected void compute2() {
       // First set self to be completed when this subtask completer
       assert _dt.getCompleter() == null;
       _dt.setCompleter(this);
@@ -357,7 +355,7 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
         _computed = true;
       }
       _dt.setException(ex);
-      sendAck();  // PUBDEV-2630
+      sendAck();
       return false;
     }
 
@@ -432,6 +430,7 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
       // note the generous 5sec cap: ping at least every 5 sec.
       _retry += (_retry < MAX_TIMEOUT ) ? _retry : MAX_TIMEOUT;
     }
+    @Override protected byte priority() { return _dt.priority(); }
     // How long until we should do the "timeout" action?
     @Override public final long getDelay( TimeUnit unit ) {
       long delay = (_started+_retry)-System.currentTimeMillis();
@@ -444,7 +443,7 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
       return nextTime == rNextTime ? 0 : (nextTime > rNextTime ? 1 : -1);
     }
     static private AtomicReferenceFieldUpdater<RPCCall,DTask> CAS_DT =
-      AtomicReferenceFieldUpdater.newUpdater(RPCCall.class, DTask.class,"_dt");
+            AtomicReferenceFieldUpdater.newUpdater(RPCCall.class, DTask.class,"_dt");
     boolean CAS_DT(DTask old, DTask nnn) { return CAS_DT.compareAndSet(this,old,nnn);  }
 
     // Assertion check that size is not changing between resends,
@@ -613,8 +612,9 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
     // Also notify any and all pending completion-style tasks
     if( _fjtasks != null )
       for( final H2OCountedCompleter task : _fjtasks ) {
-        H2O.submitTask(new H2OCountedCompleter(task.priority()) {
-          @Override public void compute2() {
+        H2O.submitTask(new H2OCountedCompleter() {
+          @Override
+          public void compute2() {
             if (e != null) // re-throw exception on this side as if it happened locally
               task.completeExceptionally(e);
             else try {
@@ -622,6 +622,11 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
             } catch (Throwable e) {
               task.completeExceptionally(e);
             }
+          }
+
+          @Override
+          public byte priority() {
+            return task.priority();
           }
         });
       }
