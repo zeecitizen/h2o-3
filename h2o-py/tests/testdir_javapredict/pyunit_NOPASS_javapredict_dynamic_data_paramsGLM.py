@@ -45,7 +45,7 @@ def javapredict_dynamic_data():
     if family == 'binomial': train['response'] = train['response'].asfactor()
     results_dir = pyunit_utils.locate("results")
     h2o.download_csv(train["response"],os.path.join(results_dir,"glm_dynamic_preimputed_response.log"))
-    train = train.impute("response", method="mode")
+    train.impute("response", method="mode")
     print("Training dataset:")
     print(train)
 
