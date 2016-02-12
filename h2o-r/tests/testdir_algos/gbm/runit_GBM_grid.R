@@ -38,8 +38,8 @@ check.gbm.grid <- function() {
   print(gg)
 
   # Test grid sorting
-  ascending = h2o.getGrid(grid_id = gg@grid_id, sort_by =  "mse", sort_order = "asc")
-  descending = h2o.getGrid(grid_id = gg@grid_id, sort_by =  "mse", sort_order = "desc")
+  ascending = h2o.getGrid(grid_id = gg@grid_id, sort_by =  "mse", decreasing = FALSE)
+  descending = h2o.getGrid(grid_id = gg@grid_id, sort_by =  "mse", decreasing = TRUE)
 
   ascending_model_ids <- ascending@model_ids
   descending_model_ids <- descending@model_ids
