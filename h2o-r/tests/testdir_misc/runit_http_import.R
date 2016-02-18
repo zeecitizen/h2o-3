@@ -13,6 +13,10 @@ test.import.http <- function() {
   t <- system.time(aa <- h2o.importFile( url))
   print(aa)
   print(t)
+  t <- h2o.importFile(url, destination_frame="foo")
+  h2o.ls()
+  fr <- h2o.getFrame("foo")
+
 
   
 }
