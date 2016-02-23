@@ -28,7 +28,7 @@ test <- function() {
 	hh = h2o.deeplearning(x = 1:3,y = "Claims",distribution ="tweedie",hidden = c(1),epochs = 1000,train_samples_per_iteration = -1,
                       reproducible = T,activation = "Tanh",single_node_mode = F,balance_classes = F,force_load_balance = F,
                       seed = 23123,tweedie_power = 1.5,score_training_samples = 0,score_validation_samples = 0,
-                      training_frame = hdf, stopping_rounds=0)
+                      training_frame = hdf)
 	mean_deviance = hh@model$training_metrics@metrics$mean_residual_deviance
 	ph = as.data.frame(h2o.predict(hh,newdata = hdf))
 
@@ -36,10 +36,10 @@ test <- function() {
   print(mean(ph[,1]))
   print(min(ph[,1]))
   print(max(ph[,1]))
-	expect_equal(0.5560917, mean_deviance, tolerance=1e-5)
-	expect_equal(47.61471, mean(ph[,1]), tolerance=1e-5)
-	expect_equal(1.942533, min(ph[,1]), tolerance=1e-5 )
-	expect_equal(284.5918, max(ph[,1]), tolerance=1e-5 )
+	expect_equal( 0.6192687, mean_deviance, tolerance=1e-5)
+	expect_equal(47.4701, mean(ph[,1]), tolerance=1e-5)
+	expect_equal(1.715737, min(ph[,1]), tolerance=1e-5 )
+	expect_equal(250.465, max(ph[,1]), tolerance=1e-5 )
 
 	# with offset
 	#hh = h2o.gbm(x = 1:3,y = "Claims",distribution ="tweedie",ntrees = 100,tweedie_power = 1.5,
@@ -50,7 +50,7 @@ test <- function() {
 	hh = h2o.deeplearning(x = 1:3,y = "Claims",distribution ="tweedie",hidden = c(1),epochs = 1000,train_samples_per_iteration = -1,
                       reproducible = T,activation = "Tanh",single_node_mode = F,balance_classes = F,force_load_balance = F,
                       seed = 23123,tweedie_power = 1.5,score_training_samples = 0,score_validation_samples = 0,
-                      offset_column = "offset",training_frame = hdf, stopping_rounds=0)
+                      offset_column = "offset",training_frame = hdf)
 	
 	mean_deviance = hh@model$training_metrics@metrics$mean_residual_deviance
 	ph = as.data.frame(h2o.predict(hh,newdata = hdf))
@@ -58,10 +58,10 @@ test <- function() {
   print(mean(ph[,1]))
   print(min(ph[,1]))
   print(max(ph[,1]))
-	expect_equal(0.2621663, mean_deviance, tolerance=1e-5)
-	expect_equal(49.23802, mean(ph[,1]), tolerance=1e-5 )
-	expect_equal(1.076217, min(ph[,1]), tolerance=1e-5 )
-	expect_equal(398.3793, max(ph[,1]), tolerance=1e-5 )
+	expect_equal(0.2752001, mean_deviance, tolerance=1e-5)
+	expect_equal(49.65738, mean(ph[,1]), tolerance=1e-5 )
+	expect_equal(1.171264, min(ph[,1]), tolerance=1e-5 )
+	expect_equal(409.61, max(ph[,1]), tolerance=1e-5 )
 	
 	
 }

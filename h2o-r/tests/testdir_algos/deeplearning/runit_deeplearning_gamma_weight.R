@@ -56,7 +56,7 @@ test <- function(h) {
 	hh = h2o.deeplearning(x = myX,y = "Loss",distribution ="gamma",hidden = c(1),epochs = 1000,train_samples_per_iteration = -1,
                       reproducible = T,activation = "Tanh",balance_classes = F,force_load_balance = F,
                       seed = 2353123,tweedie_power = 1.5,score_training_samples = 0,score_validation_samples = 0,
-                      weights_column = "Insured",training_frame = cancar, stopping_rounds=0)
+                      weights_column = "Insured",training_frame = cancar)
 	hh@model$training_metrics@metrics$mean_residual_deviance  
 	mean_deviance = hh@model$training_metrics@metrics$mean_residual_deviance
 	ph = as.data.frame(h2o.predict(hh,newdata = cancar)) #mean = 0.04399   mean = 0.04423
@@ -65,10 +65,10 @@ test <- function(h) {
 	print(mean(ph[,1]))
 	print(min(ph[,1]))
 	print(max(ph[,1]))
-	expect_equal(-5.164816, mean_deviance, tolerance=1e-5)
-	expect_equal(0.04430686, mean(ph[,1]), tolerance=1e-5)
-	expect_equal(0.02298768, min(ph[,1]), tolerance=1e-5)
-	expect_equal(0.07382703, max(ph[,1]), tolerance=1e-5)
+	expect_equal(-2.090582, mean_deviance, tolerance=1e-5)
+	expect_equal(0.226821, mean(ph[,1]), tolerance=1e-5)
+	expect_equal(0.1494218, min(ph[,1]), tolerance=1e-5)
+	expect_equal(0.3894742, max(ph[,1]), tolerance=1e-5)
 
 	
 }
