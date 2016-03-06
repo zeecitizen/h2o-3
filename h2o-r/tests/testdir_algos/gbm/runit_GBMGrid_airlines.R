@@ -1,5 +1,7 @@
 setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../../h2o-runit.R')
+source("../../../scripts/h2o-r-test-setup.R")
+
+
 
 gbm.grid.test <- function() {
     air.hex <- h2o.uploadFile(locate("smalldata/airlines/allyears2k_headers.zip"), destination_frame="air.hex")
@@ -29,7 +31,27 @@ gbm.grid.test <- function() {
     expect_model_param(grid_models, "max_depth", max_depth_opts)
     expect_model_param(grid_models, "learn_rate", learn_rate_opts)
 
-    
+    #
+    # test random/max_models search criterion: max_models
+    max_models <- 5
+    search_criteria = list(strategy = "RandomDiscrete", max_models = max_models)
+    air.grid <- h2o.grid("gbm", y = "IsDepDelayed", x = myX,
+                         distribution="bernoulli",
+                         training_frame = air.hex,
+                         hyper_params = hyper_params,
+                         search_criteria = search_criteria)
+    print(air.grid)
+    expect_equal(length(air.grid@model_ids), max_models)
+
+    # test random/max_models search criterion: asymptotic
+    search_criteria = list(strategy = "RandomDiscrete", stopping_metric = "AUTO", stopping_tolerance = 0.01, stopping_rounds = 3)
+    air.grid <- h2o.grid("gbm", y = "IsDepDelayed", x = myX,
+                         distribution="bernoulli",
+                         training_frame = air.hex,
+                         hyper_params = hyper_params,
+                         search_criteria = search_criteria)
+    print(air.grid)
+    expect_that(length(air.grid@model_ids) < size_of_hyper_space, is_true())
 }
 
 doTest("GBM Grid Test: Airlines Smalldata", gbm.grid.test)

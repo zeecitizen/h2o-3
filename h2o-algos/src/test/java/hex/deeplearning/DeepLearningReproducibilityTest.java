@@ -11,7 +11,7 @@ import water.fvec.NFSFileVec;
 import water.parser.ParseDataset;
 import water.util.FrameUtils;
 import water.util.Log;
-
+import hex.deeplearning.DeepLearningModel.DeepLearningParameters;
 import static org.junit.Assert.assertTrue;
 
 public class DeepLearningReproducibilityTest extends TestUtil {
@@ -52,10 +52,9 @@ public class DeepLearningReproducibilityTest extends TestUtil {
 
           p._train = train._key;
           p._valid = test._key;
-          p._model_id = Key.make();
           p._response_column = train.names()[train.names().length-1];
           int ci = train.names().length-1;
-          Scope.track(train.replace(ci, train.vecs()[ci].toCategorical())._key);
+          Scope.track(train.replace(ci, train.vecs()[ci].toCategoricalVec()));
           DKV.put(train);
           p._ignored_columns = new String[]{"EvapMM", "RISK_MM"}; //for weather data
           p._activation = DeepLearningParameters.Activation.RectifierWithDropout;
@@ -72,14 +71,7 @@ public class DeepLearningReproducibilityTest extends TestUtil {
           p._quiet_mode = true;
           p._reproducible = repro;
           DeepLearning dl = new DeepLearning(p);
-          try {
-            mymodel = dl.trainModel().get();
-          } catch (Throwable t) {
-            t.printStackTrace();
-            throw new RuntimeException(t);
-          } finally {
-            dl.remove();
-          }
+          mymodel = dl.trainModel().get();
 
           // Extract the scoring on validation set from the model
           preds[repeat] = mymodel.score(test);
@@ -91,11 +83,8 @@ public class DeepLearningReproducibilityTest extends TestUtil {
           Log.info("Prediction:\n" + FrameUtils.chunkSummary(preds[repeat]).toString());
           numbers[repeat] = mymodel.model_info().get_weights(0).get(23,4);
           checksums[repeat] = mymodel.model_info().checksum_impl(); //check that the model state is consistent
-          repeatErrs.put(repeat, mymodel.error());
+          repeatErrs.put(repeat, mymodel.loss());
 
-        } catch (Throwable t) {
-          t.printStackTrace();
-          throw new RuntimeException(t);
         } finally {
           // cleanup
           if (mymodel != null) {
@@ -107,7 +96,7 @@ public class DeepLearningReproducibilityTest extends TestUtil {
         }
       }
       sb.append("Reproducibility: ").append(repro ? "on" : "off").append("\n");
-      sb.append("Repeat # --> Validation Error\n");
+      sb.append("Repeat # --> Validation Loss\n");
       for (String s : Arrays.toString(repeatErrs.entrySet().toArray()).split(","))
         sb.append(s.replace("=", " --> ")).append("\n");
       sb.append('\n');

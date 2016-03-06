@@ -5,9 +5,7 @@ import hex.Model;
 import hex.ModelCategory;
 import hex.ModelMetrics;
 import hex.ModelMetricsUnsupervised;
-import water.DKV;
-import water.Key;
-import water.MRTask;
+import water.*;
 import water.codegen.CodeGeneratorPipeline;
 import water.fvec.Chunk;
 import water.fvec.Frame;
@@ -16,6 +14,17 @@ import water.util.SBPrintStream;
 
 public class SVDModel extends Model<SVDModel,SVDModel.SVDParameters,SVDModel.SVDOutput> {
   public static class SVDParameters extends Model.Parameters {
+    public String algoName() { return "SVD"; }
+    public String fullName() { return "Singular Value Decomposition"; }
+    public String javaName() { return SVDModel.class.getName(); }
+    @Override public long progressUnits() {
+      switch(_svd_method) {
+        case GramSVD:    return 2;
+        case Power:      return 1 + _nv;
+        case Randomized: return 5 + _max_iterations;
+        default:         return _nv;
+      }
+    }
     public DataInfo.TransformType _transform = DataInfo.TransformType.NONE; // Data transformation (demean to compare with PCA)
     public Method _svd_method = Method.GramSVD;   // Method for computing SVD
     public int _nv = 1;    // Number of right singular vectors to calculate
@@ -34,6 +43,7 @@ public class SVDModel extends Model<SVDModel,SVDModel.SVDParameters,SVDModel.SVD
     public enum Method {
       GramSVD, Power, Randomized
     }
+    @Override protected long nFoldSeed() { return _seed; }
   }
 
   public static class SVDOutput extends Model.Output {
@@ -82,6 +92,26 @@ public class SVDModel extends Model<SVDModel,SVDModel.SVDParameters,SVDModel.SVD
 
   public SVDModel(Key selfKey, SVDParameters parms, SVDOutput output) { super(selfKey,parms,output); }
 
+  @Override protected Futures remove_impl( Futures fs ) {
+    if (null != _output._u_key)
+      _output._u_key.remove(fs);
+    if (null != _output._v_key)
+      _output._v_key.remove(fs);
+    return super.remove_impl(fs);
+  }
+
+  /** Write out K/V pairs */
+  @Override protected AutoBuffer writeAll_impl(AutoBuffer ab) { 
+    ab.putKey(_output._u_key);
+    ab.putKey(_output._v_key);
+    return super.writeAll_impl(ab);
+  }
+  @Override protected Keyed readAll_impl(AutoBuffer ab, Futures fs) { 
+    ab.getKey(_output._u_key,fs);
+    ab.getKey(_output._v_key,fs);
+    return super.readAll_impl(ab,fs);
+  }
+
   @Override public ModelMetrics.MetricBuilder makeMetricBuilder(String[] domain) {
     return new ModelMetricsSVD.SVDModelMetrics(_parms._nv);
   }
@@ -99,19 +129,20 @@ public class SVDModel extends Model<SVDModel,SVDModel.SVDParameters,SVDModel.SVD
 
       @Override public double[] perRow(double[] preds, float[] dataRow, Model m) { return preds; }
 
-      @Override public ModelMetrics makeModelMetrics(Model m, Frame f) {
+      @Override public ModelMetrics makeModelMetrics(Model m, Frame f, Frame adaptedFrame, Frame preds) {
         return m._output.addModelMetrics(new ModelMetricsSVD(m, f));
       }
     }
   }
 
-  @Override protected Frame predictScoreImpl(Frame orig, Frame adaptedFr, String destination_key) {
+  @Override protected Frame predictScoreImpl(Frame orig, Frame adaptedFr, String destination_key, final Job j) {
     Frame adaptFrm = new Frame(adaptedFr);
     for(int i = 0; i < _parms._nv; i++)
       adaptFrm.add("PC"+String.valueOf(i+1),adaptFrm.anyVec().makeZero());
 
     new MRTask() {
       @Override public void map( Chunk chks[] ) {
+        if (isCancelled() || j != null && j.stop_requested()) return;
         double tmp [] = new double[_output._names.length];
         double preds[] = new double[_parms._nv];
         for( int row = 0; row < chks[0]._len; row++) {
@@ -119,6 +150,7 @@ public class SVDModel extends Model<SVDModel,SVDModel.SVDParameters,SVDModel.SVD
           for( int c=0; c<preds.length; c++ )
             chks[_output._names.length+c].set(row, p[c]);
         }
+        if (j !=null) j.update(1);
       }
     }.doAll(adaptFrm);
 
@@ -128,7 +160,7 @@ public class SVDModel extends Model<SVDModel,SVDModel.SVDParameters,SVDModel.SVD
 
     f = new Frame((null == destination_key ? Key.make() : Key.make(destination_key)), f.names(), f.vecs());
     DKV.put(f);
-    makeMetricBuilder(null).makeModelMetrics(this, orig);
+    makeMetricBuilder(null).makeModelMetrics(this, orig, null, null);
     return f;
   }
 

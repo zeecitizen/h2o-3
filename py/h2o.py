@@ -1,6 +1,6 @@
-import sys, os, getpass, logging, time, inspect, requests, json
-import h2o_util
-from h2o_util import log, log_rest
+import sys, os, getpass, logging, time, inspect, requests, json, pprint
+import h2o_test_utils
+from h2o_test_utils import log, log_rest
 import h2o_print as h2p
 
 class H2O(object):
@@ -10,7 +10,7 @@ class H2O(object):
     json_url_history = []
     python_test_name = inspect.stack()[1][1]
     verbose = False
-    experimental_algos = ["pca", "svd", "glrm"]
+    experimental_algos = ["svd"]
 
     ## TODO: support api_version parameter for all api calls!
     # Also a global in the H2O object set at creation time.
@@ -135,9 +135,9 @@ class H2O(object):
     def verboseprint(*args, **kwargs):
         if H2O.verbose:
             for x in args: # so you don't have to create a single string
-                print x,
+                print(x),
             for x in kwargs: # so you don't have to create a single string
-                print x,
+                print(x),
             print
             sys.stdout.flush()
 
@@ -158,7 +158,7 @@ class H2O(object):
     '''
 #    @profile
     def __do_json_request(self, jsonRequest=None, fullUrl=None, timeout=10, params=None, postData=None, returnFast=False,
-                          cmd='get', extraComment=None, ignoreH2oError=False, noExtraErrorCheck=False, raiseIfNon200=True, **kwargs):
+                          cmd='get', extraComment=None, ignoreH2oError=False, noExtraErrorCheck=False, raiseIfNon200=True, suppressErrorMsg=False, **kwargs):
         H2O.verboseprint("__do_json_request, timeout: " + str(timeout))
         # if url param is used, use it as full url. otherwise crate from the jsonRequest
         if fullUrl:
@@ -201,12 +201,33 @@ class H2O(object):
                             first  = False
                         array_str += ']'
                         munged_postData[k] = array_str
+                elif type(v) is dict:
+                    if len(v) == 0:
+                        munged_postData[k] = '{}'
+                    else:
+                        first = True
+                        map_str = '{'
+                        for key, val in v.iteritems():
+                            if not first: map_str += ', '
+
+                            if val is None:
+                                map_str += "\"" + key + "\"" + ': null'
+                            elif isinstance(val, basestring):
+                                map_str += "\"" + str(key) + "\"" + ":" + "\"" + str(val) + "\""
+                            else:
+                                map_str += "\"" + key + "\"" + ':' + str(val)
+                            first  = False
+                        map_str += '}'
+                        munged_postData[k] = map_str
+
                 else:
                     # not list:
                     munged_postData[k] = v
         else:  
             # None
             munged_postData = postData
+
+        # print("munged_postData: " + repr(munged_postData))
 
         if extraComment:
             log('Start ' + url + paramsStr, comment=extraComment)
@@ -241,7 +262,7 @@ class H2O(object):
             else:
                 raise ValueError("Unknown HTTP command (expected 'get', 'post' or 'delete'): " + cmd)
 
-        except Exception, e:
+        except Exception as e:
             # rethrow the exception after we've checked for stack trace from h2o
             # out of memory errors maybe don't show up right away? so we should wait for h2o
             # to get it out to h2o stdout. We don't want to rely on cloud teardown to check
@@ -256,15 +277,32 @@ class H2O(object):
                 H2O.check_sandbox_for_errors(python_test_name=H2O.python_test_name);
             log_rest("")
             log_rest("EXCEPTION CAUGHT DOING REQUEST: " + str(e.message))
-            raise exc_info[1], None, exc_info[2]
+            raise (exc_info[1], None, exc_info[2])
 
             H2O.verboseprint("r: " + repr(r))
 
-        if raiseIfNon200 and 200 != r.status_code:
-            print "JSON call returned non-200 status: ", url
-            print "r.status_code: " + str(r.status_code)
-            print "r.headers: " + repr(r.headers)
-            print "r.text: " + r.text
+        if 200 != r.status_code:
+            pp = pprint.PrettyPrinter(indent=4)
+            msg = "JSON call returned non-200 status: " + url
+
+            json = r.json()
+            if None != json and 'dev_msg' in json:
+                msg += "\ndev_msg: "
+                msg += str(json['dev_msg'])
+            msg += "\nr.status_code: " + str(r.status_code)
+            msg += "\nr.headers: " + repr(r.headers)
+            if None == json:
+                msg += '\nERROR: the error output from H2O is not JSON!'
+                msg += "\nr.text: " + r.text
+            else:
+                msg += "\nr.json: "
+                msg += pp.pformat(json)
+
+            if raiseIfNon200:
+                pass  # we'll pass msg up with the exception
+            elif not suppressErrorMsg:
+                print(msg)
+            log_rest(msg)
 
         log_rest("")
         try:
@@ -282,14 +320,14 @@ class H2O(object):
                             log_rest(r.text)
                     else:
                         log_rest("r does not have attr text")
-        except Exception, e:
+        except Exception as e:
             # Paranoid exception catch.  
             # Ignore logging exceptions in the case that the above error checking isn't sufficient.
-            print "Caught exception from result logging: ", e, "; result: ", repr(r)
+            print("Caught exception from result logging: ", e, "; result: ", repr(r))
 
         # fatal if no response
         if raiseIfNon200 and not r:
-            raise Exception("Maybe bad url? no r in __do_json_request in %s:" % inspect.stack()[1][3])
+            raise Exception("Maybe bad url? no r in __do_json_request in %s:" % inspect.stack()[1][3] + "\n\n" + msg)
 
         # this is used to open a browser on results, or to redo the operation in the browser
         # we don't' have that may urls flying around, so let's keep them all
@@ -303,7 +341,7 @@ class H2O(object):
         try:
             rjson = r.json()
         except:
-            print h2o_util.dump_json(r.text)
+            print(h2o_test_utils.dump_json(r.text))
             if not isinstance(r, (list, dict)):
                 raise Exception("h2o json responses should always be lists or dicts, see previous for text")
 
@@ -317,20 +355,20 @@ class H2O(object):
         for e in ['error', 'Error', 'errors', 'Errors']:
             # error can be null (python None). This happens in exec2
             if e in rjson and rjson[e]:
-                H2O.verboseprint("rjson:" + h2o_util.dump_json(rjson))
+                H2O.verboseprint("rjson:" + h2o_test_utils.dump_json(rjson))
                 emsg = 'rjson %s in %s: %s' % (e, inspect.stack()[1][3], rjson[e])
                 if ignoreH2oError:
                     # well, we print it..so not totally ignore. test can look at rjson returned
-                    print emsg
+                    print(emsg)
                 else:
-                    print emsg
+                    print(emsg)
                     raise Exception(emsg)
 
         for w in ['warning', 'Warning', 'warnings', 'Warnings']:
             # warning can be null (python None).
             if w in rjson and rjson[w]:
                 H2O.verboseprint(dump_json(rjson))
-                print 'rjson %s in %s: %s' % (w, inspect.stack()[1][3], rjson[w])
+                print('rjson %s in %s: %s' % (w, inspect.stack()[1][3], rjson[w]))
 
         
         # Allow the caller to check things like __http_request.status_code.
@@ -376,13 +414,58 @@ class H2O(object):
     # REST API ACCESSORS
 
     '''
+    Fetch all the cluster status from the /Cloud endpoint.
+    '''
+    def cloud(self, timeoutSecs=10, **kwargs):
+        params_dict = {
+        }
+        h2o_test_utils.check_params_update_kwargs(params_dict, kwargs, 'cloud', H2O.verbose)
+        result = self.__do_json_request('/3/Cloud', timeout=timeoutSecs, params=params_dict)
+        return result
+
+
+    '''
+    Determine if the cluster status is not good.  Returns a message (which evaluates as True) 
+    if cloud status is bad; else returns None (which evluates as False);
+    '''
+    def cloud_is_bad(self, timeoutSecs=10, **kwargs):
+        try:
+            cloud = self.cloud()
+        except Exception as e:
+            return str(e)
+
+        if cloud is None:
+            return '/3/Cloud returned None'
+        if 'cloud_size' not in cloud:
+            return '/3/Cloud return value does not contain cloud_size'
+        if 'nodes' not in cloud:
+            return '/3/Cloud return value does not contain nodes'
+        if type(cloud['nodes']) is not list:
+            return '/3/Cloud nodes element is not a list'
+        if cloud['cloud_size'] < 1:
+            return 'cloud_size < 1: ' + cloud['cloud_size']
+
+        size = cloud['cloud_size']
+        if cloud['cloud_size'] != len(cloud['nodes']):
+            return '/3/Cloud nodes list length != cloud_size'
+
+        node_num = 0
+        for node in cloud['nodes']:
+            if 'healthy' not in node:
+                return '/3/Cloud node return value does not contain healthy'
+            if not node['healthy']:
+                return 'node ' + str(node_num) + ' is not healthy'
+
+        return None
+
+    '''
     Fetch all the jobs or a single job from the /Jobs endpoint.
     '''
     def jobs(self, job_key=None, timeoutSecs=10, **kwargs):
         params_dict = {
             'job_key': job_key
         }
-        h2o_util.check_params_update_kwargs(params_dict, kwargs, 'jobs', H2O.verbose)
+        h2o_test_utils.check_params_update_kwargs(params_dict, kwargs, 'jobs', H2O.verbose)
         result = self.__do_json_request('/3/Jobs', timeout=timeoutSecs, params=params_dict)
         return result
 
@@ -394,7 +477,7 @@ class H2O(object):
     def poll_job(self, job_key, timeoutSecs=10, retryDelaySecs=0.5, **kwargs):
         params_dict = {
         }
-        h2o_util.check_params_update_kwargs(params_dict, kwargs, 'poll_job', H2O.verbose)
+        h2o_test_utils.check_params_update_kwargs(params_dict, kwargs, 'poll_job', H2O.verbose)
 
         start_time = time.time()
         while True:
@@ -407,7 +490,7 @@ class H2O(object):
                 return result
 
             if time.time() - start_time > timeoutSecs:
-                print 'Job: ' + job_key + ' timed out in: ' + str(timeoutSecs) + '.'
+                print('Job: ' + job_key + ' timed out in: ' + str(timeoutSecs) + '.')
                 # downstream checkers should tolerate None. Print msg in case it's overlooked.
                 return None
 
@@ -422,7 +505,7 @@ class H2O(object):
             timeout=timeoutSecs,
             params=kwargs
         )
-        H2O.verboseprint("\ncreate_frame result:", h2o_util.dump_json(a))
+        H2O.verboseprint("\ncreate_frame result:", h2o_test_utils.dump_json(a))
         return a
 
 
@@ -435,7 +518,7 @@ class H2O(object):
             postData=kwargs
         )
         job_json = self.poll_job(a["key"]["name"], timeoutSecs=timeoutSecs)
-        H2O.verboseprint("\nsplit_frame result:", h2o_util.dump_json(a))
+        H2O.verboseprint("\nsplit_frame result:", h2o_test_utils.dump_json(a))
         return a
 
     '''
@@ -446,7 +529,7 @@ class H2O(object):
                                    timeout=timeoutSecs,
                                    postData=kwargs
         )
-        H2O.verboseprint("\ninteraction result:", h2o_util.dump_json(a))
+        H2O.verboseprint("\ninteraction result:", h2o_test_utils.dump_json(a))
         return a
 
     ''' 
@@ -458,7 +541,7 @@ class H2O(object):
             timeout=timeoutSecs,
             params={"path": path}
         )
-        H2O.verboseprint("\nimport_files result:", h2o_util.dump_json(a))
+        H2O.verboseprint("\nimport_files result:", h2o_test_utils.dump_json(a))
         return a
 
 
@@ -480,9 +563,9 @@ class H2O(object):
         parse_setup_params = {
             'source_frames': '["' + key + '"]'  # NOTE: quote key names
         }
-        # h2o_util.check_params_update_kwargs(params_dict, kwargs, 'parse_setup', print_params=H2O.verbose)
+        # h2o_test_utils.check_params_update_kwargs(params_dict, kwargs, 'parse_setup', print_params=H2O.verbose)
         setup_result = self.__do_json_request(jsonRequest="/3/ParseSetup", cmd='post', timeout=timeoutSecs, postData=parse_setup_params)
-        H2O.verboseprint("ParseSetup result:", h2o_util.dump_json(setup_result))
+        H2O.verboseprint("ParseSetup result:", h2o_test_utils.dump_json(setup_result))
 
         # 
         # and then Parse?source_frames=<keys list> and params from the ParseSetup result
@@ -503,10 +586,10 @@ class H2O(object):
             'chunk_size': setup_result['chunk_size'],
         }
         H2O.verboseprint("parse_params: " + repr(parse_params))
-        h2o_util.check_params_update_kwargs(parse_params, kwargs, 'parse', print_params=H2O.verbose)
+        h2o_test_utils.check_params_update_kwargs(parse_params, kwargs, 'parse', print_params=H2O.verbose)
 
         parse_result = self.__do_json_request(jsonRequest="/3/Parse", cmd='post', timeout=timeoutSecs, postData=parse_params, **kwargs)
-        H2O.verboseprint("Parse result:", h2o_util.dump_json(parse_result))
+        H2O.verboseprint("Parse result:", h2o_test_utils.dump_json(parse_result))
 
         # print("Parse result:", repr(parse_result))
         job_key = parse_result['job']['key']['name']
@@ -538,7 +621,7 @@ class H2O(object):
             'row_offset': 0,
             'row_count': 100
         }
-        h2o_util.check_params_update_kwargs(params_dict, kwargs, 'frames', H2O.verbose)
+        h2o_test_utils.check_params_update_kwargs(params_dict, kwargs, 'frames', H2O.verbose)
         
         if key:
             result = self.__do_json_request('/3/Frames/' + key, timeout=timeoutSecs, params=params_dict)
@@ -555,7 +638,7 @@ class H2O(object):
             'row_offset': 0,
             'row_count': 100
         }
-        h2o_util.check_params_update_kwargs(params_dict, kwargs, 'columns', H2O.verbose)
+        h2o_test_utils.check_params_update_kwargs(params_dict, kwargs, 'columns', H2O.verbose)
         
         result = self.__do_json_request('/3/Frames/' + key + '/columns', timeout=timeoutSecs, params=params_dict)
         return result
@@ -569,7 +652,7 @@ class H2O(object):
             'row_offset': 0,
             'row_count': 100
         }
-        h2o_util.check_params_update_kwargs(params_dict, kwargs, 'column', H2O.verbose)
+        h2o_test_utils.check_params_update_kwargs(params_dict, kwargs, 'column', H2O.verbose)
         
         result = self.__do_json_request('/3/Frames/' + key + '/columns/' + column, timeout=timeoutSecs, params=params_dict)
         return result
@@ -583,12 +666,29 @@ class H2O(object):
             'row_offset': 0,
             'row_count': 100
         }
-        h2o_util.check_params_update_kwargs(params_dict, kwargs, 'summary', H2O.verbose)
+        h2o_test_utils.check_params_update_kwargs(params_dict, kwargs, 'summary', H2O.verbose)
         
         result = self.__do_json_request('/3/Frames/' + key + '/columns/' + column + '/summary', timeout=timeoutSecs, params=params_dict)
         return result
 
 
+    '''
+    Use Rapids to execute as.factor on the column of a Frame.
+    '''
+    def as_factor(self, key, column, timeoutSecs=60):
+        assert key is not None, 'FAIL: "key" parameter is null'
+        assert column is not None, 'FAIL: "column" parameter is null'
+
+        # quote column names; leave integer column indexes alone
+        if isinstance(column, basestring):
+            column = '"' + column + '"'
+
+        params_dict = {
+            'ast': "(assign {0} (:= {0} (as.factor (cols_py {0} {1})) {1} []))".format(key, column)
+        }
+        result = self.__do_json_request('/99/Rapids', cmd='post', timeout=timeoutSecs, postData=params_dict)
+        return result
+    
     '''
     Delete a frame on the h2o cluster, given its key.
     '''
@@ -625,7 +725,7 @@ class H2O(object):
     def model_builders(self, algo=None, timeoutSecs=10, **kwargs):
         params_dict = {
         }
-        h2o_util.check_params_update_kwargs(params_dict, kwargs, 'model_builders', H2O.verbose)
+        h2o_test_utils.check_params_update_kwargs(params_dict, kwargs, 'model_builders', H2O.verbose)
 
         if algo:
             if algo in H2O.experimental_algos:
@@ -664,7 +764,7 @@ class H2O(object):
           _rest_version = 99
         else:
           _rest_version = 3
-        result = self.__do_json_request('/' + str(_rest_version) + '/ModelBuilders/' + algo + "/parameters", cmd='post', timeout=timeoutSecs, postData=parameters, ignoreH2oError=True, noExtraErrorCheck=True, raiseIfNon200=False)  # NOTE: DO NOT die if validation errors 
+        result = self.__do_json_request('/' + str(_rest_version) + '/ModelBuilders/' + algo + "/parameters", cmd='post', timeout=timeoutSecs, postData=parameters, ignoreH2oError=True, noExtraErrorCheck=True, raiseIfNon200=False, suppressErrorMsg=True)  # NOTE: DO NOT die if validation errors 
 
         H2O.verboseprint("model parameters validation: " + repr(result))
         return result
@@ -695,7 +795,80 @@ class H2O(object):
 
         if model_id is not None:
             parameters['model_id'] = model_id
-        result = self.__do_json_request('/3/ModelBuilders/' + algo, cmd='post', timeout=timeoutSecs, postData=parameters, raiseIfNon200=False)  # NOTE: DO NOT die if validation errors
+        result = self.__do_json_request('/3/ModelBuilders/' + algo, cmd='post', timeout=timeoutSecs, postData=parameters, raiseIfNon200=False, suppressErrorMsg=True)  # NOTE: DO NOT die if validation errors
+
+        if asynchronous:
+            return result
+        elif 'error_count' in result and result['error_count'] > 0:
+            # parameters validation failure
+            return result
+        elif result['__http_response']['status_code'] != 200:
+            return result
+        else:
+            assert 'job' in result, "FAIL: did not find job key in model build result: " + repr(result)
+            job = result['job']
+            job_key = job['key']['name']
+            H2O.verboseprint("model building job_key: " + repr(job_key))
+            job_json = self.poll_job(job_key, timeoutSecs=timeoutSecs)
+            return result
+
+
+    '''
+    Build a Cartesian grid of models on the h2o cluster using the given algorithm, training Frame, model parameters and grid parameters.  
+
+    The search_criteria parameter is an optional dictionary which specifies smarter hyperparameter search. 
+    For example, if we set grid_parameters and search_criteria as follows:
+
+    { 'ntrees': [1, 2, 4], 'distribution': ["gaussian", "poisson", "gamma", "tweedie"] }, { 'strategy': "Random", 'max_models': 5 }
+
+    5 models will be built from the 12 possible combinations.
+
+    Available search_criteria parameters are:
+    
+    'strategy': 'Cartesian' (the default) or 'Random'
+
+    'max_models': an optional integer limit on the number of models
+
+    'max_time_ms': an optional limit on the total runtime, in mS
+    '''
+    def build_model_grid(self, algo, training_frame, parameters, grid_parameters, grid_id = None, timeoutSecs=60, asynchronous=False, search_criteria=None, **kwargs):
+        # basic parameter checking
+        assert algo is not None, 'FAIL: "algo" parameter is null'
+        assert training_frame is not None, 'FAIL: "training_frame" parameter is null'
+        assert parameters is not None, 'FAIL: "parameters" parameter is null'
+        assert grid_parameters is not None, 'FAIL: "grid_parameters" parameter is null'
+
+        # check that algo is known (TODO: remove after testing that error from POST is good enough)
+        model_builders = self.model_builders(timeoutSecs=timeoutSecs)
+        assert model_builders is not None, "FAIL: /ModelBuilders REST call failed"
+        assert algo in model_builders['model_builders'], "FAIL: failed to find algo " + algo + " in model_builders list: " + repr(model_builders)
+        builder = model_builders['model_builders'][algo]
+        
+        # TODO: test this assert, I don't think this is working. . .
+        # Check for frame:
+        frames = self.frames(key=training_frame)
+        assert frames is not None, "FAIL: /Frames/{0} REST call failed".format(training_frame)
+        assert frames['frames'][0]['frame_id']['name'] == training_frame, "FAIL: /Frames/{0} returned Frame {1} rather than Frame {2}".format(training_frame, frames['frames'][0]['frame_id']['name'], training_frame)
+        parameters['training_frame'] = training_frame
+
+        # UGH: grid parameters are totally non-standard; the model parameters are mixed with grid_id and hyper_parameters.  See GridSearchSchema.fillFromParms().
+        post_parameters = {}
+        post_parameters.update(parameters)
+        post_parameters['hyper_parameters'] = grid_parameters
+        # gridParams['grid_parameters'] = json.dumps(hyperParameters)
+        post_parameters['search_criteria'] = search_criteria
+
+        # print("post_parameters: " + repr(post_parameters))
+
+        if grid_id is not None:
+            post_parameters['grid_id'] = grid_id
+
+        result = self.__do_json_request('/99/Grid/' + algo, cmd='post', timeout=timeoutSecs, postData=post_parameters, raiseIfNon200=False)  # NOTE: DO NOT die if validation errors
+        if result['__meta']['schema_type'] == 'H2OError':
+            print("ERROR: building model grid: " + grid_id)
+            print(" reason: " + result['dev_msg'])
+            print(" stacktrace: " + "\n ".join(result['stacktrace']))
+            raise ValueError("ERROR: building model grid: " + grid_id + ";  reason: " + result['dev_msg'])
 
         if asynchronous:
             return result
@@ -741,6 +914,8 @@ class H2O(object):
         assert frame is not None, 'FAIL: "frame" parameter is null'
 
         models = self.models(key=model, timeoutSecs=timeoutSecs)
+        # print("models (key={0}): ".format(model))
+        # pprint.PrettyPrinter(indent=4).pprint(models)
         assert models is not None, "FAIL: /Models REST call failed"
         assert models['models'][0]['model_id']['name'] == model, "FAIL: /Models/{0} returned Model {1} rather than Model {2}".format(model, models['models'][0]['model_id']['name'], model)
 
@@ -792,7 +967,7 @@ class H2O(object):
         params_dict = {
             'find_compatible_frames': False
         }
-        h2o_util.check_params_update_kwargs(params_dict, kwargs, 'models', H2O.verbose)
+        h2o_test_utils.check_params_update_kwargs(params_dict, kwargs, 'models', H2O.verbose)
 
         if key:
             result = self.__do_json_request(str(api_version) + '/Models/' + key, timeout=timeoutSecs, params=params_dict)
@@ -823,6 +998,39 @@ class H2O(object):
         parameters = { }
         result = self.__do_json_request('/3/Models', cmd='delete', timeout=timeoutSecs)
 
+        return result
+
+
+    '''
+    Return all of the grid search results in the h2o cluster.
+    The grid IDs are contained in a list called "grids" at the top level of the
+    result.  Currently the list is unordered.
+    '''
+    def grids(self, api_version=99, timeoutSecs=20, **kwargs):
+        params_dict = {
+        }        
+        h2o_test_utils.check_params_update_kwargs(params_dict, kwargs, 'grids', H2O.verbose)
+
+        result = self.__do_json_request(str(api_version) + '/Grids', timeout=timeoutSecs, params=params_dict)
+        return result
+
+
+    '''
+    Return a grid search result from the h2o cluster given its key.  
+    The models IDs are contained in a list called "model_ids" at the top level of the
+    result.  Currently the list is unordered.
+    '''
+    def grid(self, api_version=99, key=None, timeoutSecs=20, **kwargs):
+        params_dict = {
+            'sort_by': None,
+            'decreasing': None
+        }        
+        h2o_test_utils.check_params_update_kwargs(params_dict, kwargs, 'grids', H2O.verbose)
+
+        if key:
+            result = self.__do_json_request(str(api_version) + '/Grids/' + key, timeout=timeoutSecs, params=params_dict)
+        else:
+            raise ValueError('Grid key not given: ' + key)
         return result
 
 
@@ -862,6 +1070,7 @@ class H2O(object):
 
         return result
 
+'''
     def grid(self, algo, parameters, hyperParameters, timeoutSecs=60, asynchronous=False, **kwargs):
         assert algo is not None, 'FAIL: "algo" parameter is null'
         assert parameters is not None, 'FAIL: "parameters" parameter is null'
@@ -882,4 +1091,4 @@ class H2O(object):
             H2O.verboseprint("grid search job_key: " + repr(job_key))
             job_json = self.poll_job(job_key, timeoutSecs=timeoutSecs)
             return result
-
+'''

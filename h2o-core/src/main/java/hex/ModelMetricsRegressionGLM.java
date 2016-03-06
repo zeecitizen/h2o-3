@@ -5,7 +5,7 @@ import water.fvec.Frame;
 /**
  * Created by tomasnykodym on 4/20/15.
  */
-public class ModelMetricsRegressionGLM extends ModelMetricsRegression {
+public class ModelMetricsRegressionGLM extends ModelMetricsRegression implements GLMMetrics {
   public final long _nullDegressOfFreedom;
   public final long _residualDegressOfFreedom;
   public final double _resDev;
@@ -20,6 +20,20 @@ public class ModelMetricsRegressionGLM extends ModelMetricsRegression {
     _nullDegressOfFreedom = nDof;
     _residualDegressOfFreedom = rDof;
   }
+
+  @Override
+  public double residual_deviance() {return _resDev;}
+
+  @Override
+  public double null_deviance() {return _nullDev;}
+
+  @Override
+  public long residual_degrees_of_freedom(){
+    return _residualDegressOfFreedom;
+  }
+
+  @Override
+  public long null_degrees_of_freedom() {return _nullDegressOfFreedom;}
 
   @Override
   public String toString() {

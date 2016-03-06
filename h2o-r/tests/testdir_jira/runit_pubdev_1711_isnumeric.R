@@ -1,5 +1,7 @@
 setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../h2o-runit.R')
+source("../../scripts/h2o-r-test-setup.R")
+
+
 
 test.pubdev.is.numeric <- function(h) {
     iris_h2o <- as.h2o(iris)

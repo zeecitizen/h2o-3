@@ -1,3 +1,5 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../../scripts/h2o-r-test-setup.R")
 ##
 # Test out the var() functionality
 # If H2O dataset x, get back square data frame with dimension ncol(x)
@@ -5,8 +7,8 @@
 # If any categorical columns, throw an error
 ##
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../../h2o-runit.R')
+
+
 
 test.sdev <- function() {
   Log.info("Uploading iris/iris_wheader.csv")

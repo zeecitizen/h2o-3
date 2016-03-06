@@ -1,5 +1,7 @@
 setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../../h2o-runit.R')
+source("../../../scripts/h2o-r-test-setup.R")
+
+
 
 test.eq2.h2o.assign<-
 function() {
@@ -8,7 +10,7 @@ function() {
     Log.info("Slicing out some columns and rows from iris.hex")
     Log.info("Slicing out rows 20,40,60,80")
     Log.info("Slicing out columns, 3,4,5")
-    Log.info("Assigning to new Frame: slicedIris.hex")
+    Log.info("Assigning to new H2OFrame: slicedIris.hex")
     irisSlice <- iris.hex[c(20,40,60,80),c(3,4,5)]
     print(dim(irisSlice))
     irisSlice <- h2o.assign(irisSlice, "slicedIris.hex")
@@ -17,7 +19,7 @@ function() {
     print(h2o.ls())
     keys <- as.vector(h2o.ls()[,1])
     expect_true(any(grepl("slicedIris.hex", keys)))
-    expect_true(grepl("slicedIris.hex", attr(irisSlice, "id")))
+    expect_true(grepl("slicedIris.hex", h2o.getId(irisSlice)))
     h2o.removeAll()
 
     iris.hex <- h2o.importFile(locate("smalldata/iris/iris.csv"), "iris.hex")
@@ -25,7 +27,7 @@ function() {
     print(dim(iris.hex))
     iris.hex <- iris.hex[c(1:50), c(2,3,4,5)]
     print(dim(iris.hex))
-    Log.info("Assign the sliced dataset to the same Frame, \"iris.hex\"")
+    Log.info("Assign the sliced dataset to the same H2OFrame, \"iris.hex\"")
     keyList <- h2o.ls()
 
     Log.info("Check that the byte sizes of the temporary last.value and the new re-assigned iris.hex are the same")

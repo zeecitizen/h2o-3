@@ -3,9 +3,9 @@ package hex;
 import water.exceptions.H2OIllegalArgumentException;
 import water.fvec.Frame;
 import water.util.ArrayUtils;
-import water.util.Log;
 
 public class ModelMetricsRegression extends ModelMetricsSupervised {
+  public double residual_deviance() { return _mean_residual_deviance; }
   public final double _mean_residual_deviance;
   public ModelMetricsRegression(Model model, Frame frame, double mse, double sigma, double meanResidualDeviance) {
     super(model, frame, mse, null, sigma);
@@ -60,7 +60,7 @@ public class ModelMetricsRegression extends ModelMetricsSupervised {
     }
 
     // Having computed a MetricBuilder, this method fills in a ModelMetrics
-    public ModelMetrics makeModelMetrics( Model m, Frame f) {
+    public ModelMetrics makeModelMetrics(Model m, Frame f, Frame adaptedFrame, Frame preds) {
       double mse = _sumsqe / _wcount;
       double meanResDeviance = _sumdeviance / _wcount; //mean residual deviance
       return m._output.addModelMetrics(new ModelMetricsRegression( m, f, mse, weightedSigma(), meanResDeviance));

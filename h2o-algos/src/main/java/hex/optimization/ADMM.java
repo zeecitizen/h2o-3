@@ -1,6 +1,5 @@
 package hex.optimization;
 
-import hex.optimization.L_BFGS.GradientInfo;
 import water.H2O;
 import water.MemoryManager;
 import water.util.ArrayUtils;
@@ -46,8 +45,8 @@ public class ADMM {
       ABSTOL = abstol;
     }
 
-    public boolean solve(ProximalSolver solver, double[] res, double lambda) {
-      return solve(solver, res, lambda, true, null, null);
+    public boolean solve(ProximalSolver solver, double[] res, double lambda, boolean hasIntercept) {
+      return solve(solver, res, lambda, hasIntercept, null, null);
     }
 
     private double computeErr(double[] z, double[] grad, double lambda, double[] lb, double[] ub) {
@@ -82,12 +81,9 @@ public class ADMM {
       return gerr;
     }
 
-
-
-
-
     public boolean solve(ProximalSolver solver, double[] z, double l1pen, boolean hasIntercept, double[] lb, double[] ub) {
       gerr = Double.POSITIVE_INFINITY;
+      iter = 0;
       if (l1pen == 0 && lb == null && ub == null) {
         solver.solve(null, z);
         return true;
@@ -101,19 +97,19 @@ public class ADMM {
       double [] x = z.clone();
       double [] beta_given = MemoryManager.malloc8d(N);
       double [] kappa = MemoryManager.malloc8d(rho.length);
+      int hasIcpt = hasIntercept?1:0;
       if(l1pen > 0)
-        for(int i = 0; i < N-1; ++i)
-          kappa[i] = l1pen/rho[i];
+        for(int i = 0; i < N-hasIcpt; ++i)
+          kappa[i] = rho[i] != 0?l1pen/rho[i]:0;
       int i;
       double orlx = 1.0; // over-relaxation
       double reltol = RELTOL;
       double best_err = Double.POSITIVE_INFINITY;
-      for (i = 0; i < max_iter; ++i) {
-        solver.solve(beta_given, x);
+      for (i = 0; i < max_iter && solver.solve(beta_given, x); ++i) {
         // compute u and z updateADMM
         double rnorm = 0, snorm = 0, unorm = 0, xnorm = 0;
         boolean allzeros = true;
-        for (int j = 0; j < N - 1; ++j) {
+        for (int j = 0; j < N - hasIcpt; ++j) {
           double xj = x[j];
           double zjold = z[j];
           double x_hat = xj * orlx + (1 - orlx) * zjold;
@@ -163,24 +159,29 @@ public class ADMM {
           if(gerr > _eps)
             Log.warn("ADMM solver finished with gerr = " + gerr + " >  eps = " + _eps);
           iter = i;
-          Log.info("ADMM.L1Solver: converged at iteration = " + i + ", gerr = " + gerr + ", inner solver took " + solver.iter() + " iterations");
           return true;
         }
       }
       computeErr(z, solver.gradient(z), l1pen, lb, ub);
-      if (zbest != null && best_err < gerr) {
-        System.arraycopy(zbest, 0, z, 0, zbest.length);
-        computeErr(z, solver.gradient(z), l1pen, lb, ub);
-        assert Math.abs(best_err - gerr) < 1e-8 : " gerr = " + gerr + ", best_err = " + best_err + " zbest = " + Arrays.toString(zbest) + ", z = " + Arrays.toString(z);
-      }
-      Log.warn("ADMM solver reached maximum number of iterations (" + max_iter + ")");
+//      if (zbest != null && best_err < gerr) {
+//        System.arraycopy(zbest, 0, z, 0, zbest.length);
+//        computeErr(z, solver.gradient(z), l1pen, lb, ub);
+//        assert Math.abs(best_err - gerr) < 1e-8 : " gerr = " + gerr + ", best_err = " + best_err + " zbest = " + Arrays.toString(zbest) + ", z = " + Arrays.toString(z);
+//      }
+      if(iter == max_iter)
+        Log.warn("ADMM solver reached maximum number of iterations (" + max_iter + ")");
+      else
+        Log.warn("ADMM solver stopped after " + i + " iterations. (max_iter=" + max_iter + ")");
       if(gerr > _eps) Log.warn("ADMM solver finished with gerr = " + gerr + " >  eps = " + _eps);
       iter = max_iter;
       return false;
     }
 
+    @Override public String toString(){
+      return "iter = " + iter + ", gerr = " + gerr;
+    }
     /**
-     * Estimate optimal rho based on l1 penalty and (estimate of) soltuion x without the l1penalty
+     * Estimate optimal rho based on l1 penalty and (estimate of) solution x without the l1penalty
      * @param x
      * @param l1pen
      * @return
@@ -220,16 +221,15 @@ public class ADMM {
   public static double shrinkage(double x, double kappa) {
     double sign = x < 0?-1:1;
     double sx = x*sign;
-    if(sx <= kappa) return 0;
-    return sign*(sx - kappa);
+    return sx <= kappa?0:sign*(sx - kappa);
   }
 
   public static void subgrad(final double lambda, final double [] beta, final double [] grad){
     if(beta == null)return;
     for(int i = 0; i < grad.length-1; ++i) {// add l2 reg. term to the gradient
-      if(beta[i] < 0) grad[i] = shrinkage(grad[i]-lambda,lambda*1e-3);
-      else if(beta[i] > 0) grad[i] = shrinkage(grad[i] + lambda,lambda*1e-3);
-      else grad[i] = shrinkage(grad[i], 1.001*lambda);
+      if(beta[i] < 0) grad[i] = shrinkage(grad[i]-lambda,lambda*1e-4);
+      else if(beta[i] > 0) grad[i] = shrinkage(grad[i] + lambda,lambda*1e-4);
+      else grad[i] = shrinkage(grad[i], lambda);
     }
   }
 }

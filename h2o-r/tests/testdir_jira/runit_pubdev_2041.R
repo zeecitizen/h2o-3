@@ -1,5 +1,7 @@
 setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../h2o-runit.R')
+source("../../scripts/h2o-r-test-setup.R")
+
+
 
 test.pubdev.2041 <- function(conn) {
   iris = h2o.importFile(locate("smalldata/iris/iris.csv"))

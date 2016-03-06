@@ -1,19 +1,13 @@
 package water.parser;
 
-import water.DKV;
-import water.Iced;
-import water.Key;
-import water.MRTask;
+import water.*;
 import water.api.ParseSetupV3;
 import water.exceptions.H2OIllegalArgumentException;
-import water.exceptions.H2OParseException;
-import water.exceptions.H2OParseSetupException;
-import water.fvec.Frame;
-import water.fvec.Vec;
-import water.fvec.UploadFileVec;
-import water.fvec.FileVec;
-import water.fvec.ByteVec;
+import water.fvec.*;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.StringReader;
 import java.util.Arrays;
 import java.util.HashSet;
 
@@ -26,6 +20,7 @@ public final class ParseSetup extends Iced {
   public static final int GUESS_HEADER = 0;
   public static final int HAS_HEADER = 1;
   public static final int GUESS_COL_CNT = -1;
+
   ParserType _parse_type;     // CSV, XLS, XSLX, SVMLight, Auto, ARFF
   byte _separator;            // Field separator, usually comma ',' or TAB or space ' '
   // Whether or not single-quotes quote a field.  E.g. how do we parse:
@@ -124,19 +119,19 @@ public final class ParseSetup extends Iced {
     byte[] types = new byte[strs.length];
     for(int i=0; i< types.length;i++) {
       switch (strs[i].toLowerCase()) {
-        case "unknown": types[i] = Vec.T_BAD; break;
-        case "uuid": types[i] = Vec.T_UUID; break;
-        case "string": types[i] = Vec.T_STR; break;
-        case "numeric": types[i] = Vec.T_NUM; break;
-        case "enum": types[i] = Vec.T_CAT; break;
-        case "time": types[i] = Vec.T_TIME; break;
-        default: types[i] = Vec.T_BAD;
-          throw new H2OIllegalArgumentException("Provided column type "+ strs[i] + " is unknown. ",
-                  "Cannot proceed with parse due to invalid argument.");
+      case "unknown": types[i] = Vec.T_BAD;  break;
+      case "uuid":    types[i] = Vec.T_UUID; break;
+      case "string":  types[i] = Vec.T_STR;  break;
+      case "numeric": types[i] = Vec.T_NUM;  break;
+      case "enum":    types[i] = Vec.T_CAT;  break;
+      case "time":    types[i] = Vec.T_TIME; break;
+      default:        types[i] = Vec.T_BAD;
+        throw new H2OIllegalArgumentException("Provided column type "+ strs[i] + " is unknown.  Cannot proceed with parse due to invalid argument.");
       }
     }
     return types;
   }
+  public void setColumnTypes(String[] strs) { _column_types = strToColumnTypes(strs); }
 
   public Parser parser(Key jobKey) {
     switch(_parse_type) {
@@ -216,7 +211,8 @@ public final class ParseSetup extends Iced {
     if (ice instanceof Frame && ((Frame) ice).vec(0) instanceof UploadFileVec) {
       t._gblSetup._chunk_size = FileVec.DFLT_CHUNK_SIZE;
     } else {
-      t._gblSetup._chunk_size = FileVec.calcOptimalChunkSize(t._totalParseSize, t._gblSetup._number_columns);
+      t._gblSetup._chunk_size = FileVec.calcOptimalChunkSize(t._totalParseSize, t._gblSetup._number_columns, t._maxLineLength,
+              Runtime.getRuntime().availableProcessors(), H2O.getCloudSize(), false /*use new heuristic*/);
     }
 
     return t._gblSetup;
@@ -234,6 +230,7 @@ public final class ParseSetup extends Iced {
     // Output
     public ParseSetup _gblSetup;
     public long _totalParseSize;
+    public long _maxLineLength;
 
     /**
      *
@@ -279,6 +276,10 @@ public final class ParseSetup extends Iced {
         // Check for supported encodings
         checkEncoding(bits);
 
+        // Compute the max line length (to help estimate the number of bytes to read per Parse map)
+        _maxLineLength = maxLineLength(bits);
+        if (_maxLineLength==-1) throw new H2OIllegalArgumentException("The first 4MB of the data don't contain any line breaks. Cannot parse.");
+
         // only preview 1 DFLT_CHUNK_SIZE for ByteVecs, UploadFileVecs, compressed, and small files
 /*        if (ice instanceof ByteVec
                 || ((Frame)ice).vecs()[0] instanceof UploadFileVec
@@ -287,7 +288,7 @@ public final class ParseSetup extends Iced {
         try {
           _gblSetup = guessSetup(bits, _userSetup);
         } catch (H2OParseException pse) {
-          throw new H2OParseSetupException(key, pse);
+          throw pse.resetMsg(pse.getMessage()+" for "+key);
         }
 /*        } else { // file is aun uncompressed NFSFileVec or HDFSFileVec & larger than the DFLT_CHUNK_SIZE
           FileVec fv = (FileVec) ((Frame) ice).vecs()[0];
@@ -348,6 +349,7 @@ public final class ParseSetup extends Iced {
 
       _gblSetup = mergeSetups(_gblSetup, other._gblSetup);
       _totalParseSize += other._totalParseSize;
+      _maxLineLength = Math.max(_maxLineLength, other._maxLineLength);
     }
 
     @Override public void postGlobal() {
@@ -377,7 +379,7 @@ public final class ParseSetup extends Iced {
       } else if (setupA._parse_type == setupB._parse_type) {
         mergedSetup._column_previews = PreviewParseWriter.unifyColumnPreviews(setupA._column_previews, setupB._column_previews);
       } else
-        throw new H2OParseSetupException("File type mismatch. Cannot parse files of type "
+        throw new H2OParseException("File type mismatch. Cannot parse files of type "
                 + setupA._parse_type + " and " + setupB._parse_type + " as one dataset.");
 
       if (mergedSetup._data.length < PreviewParseWriter.MAX_PREVIEW_LINES) {
@@ -391,7 +393,7 @@ public final class ParseSetup extends Iced {
 
     private static int unifyCheckHeader(int chkHdrA, int chkHdrB){
       if (chkHdrA == GUESS_HEADER || chkHdrB == GUESS_HEADER)
-        throw new H2OParseSetupException("Unable to determine header on a file. Not expected.");
+        throw new H2OParseException("Unable to determine header on a file. Not expected.");
       if (chkHdrA == HAS_HEADER || chkHdrB == HAS_HEADER) return HAS_HEADER;
       else return NO_HEADER;
 
@@ -402,7 +404,7 @@ public final class ParseSetup extends Iced {
       else if (sepA == GUESS_SEP) return sepB;
       else if (sepB == GUESS_SEP) return sepA;
       // TODO: Point out which file is problem
-      throw new H2OParseSetupException("Column separator mismatch. One file seems to use \""
+      throw new H2OParseException("Column separator mismatch. One file seems to use \""
               + (char) sepA + "\" and the other uses \"" + (char) sepB + "\".");
     }
 
@@ -412,7 +414,7 @@ public final class ParseSetup extends Iced {
       else if (cntB == 0) return cntA;
       else { // files contain different numbers of columns
         // TODO: Point out which file is problem
-        throw new H2OParseSetupException("Files conflict in number of columns. " + cntA
+        throw new H2OParseException("Files conflict in number of columns. " + cntA
                 + " vs. " + cntB + ".");
       }
     }
@@ -424,7 +426,7 @@ public final class ParseSetup extends Iced {
         for (int i = 0; i < namesA.length; i++) {
           if (i > namesB.length || !namesA[i].equals(namesB[i])) {
             // TODO improvement: if files match except for blanks, merge?
-            throw new H2OParseSetupException("Column names do not match between files.");
+            throw new H2OParseException("Column names do not match between files.");
           }
         }
         return namesA;
@@ -459,7 +461,7 @@ public final class ParseSetup extends Iced {
           } catch( Throwable ignore ) { /*ignore failed parse attempt*/ }
         }
     }
-    throw new H2OParseSetupException("Cannot determine file type.");
+    throw new H2OParseException("Cannot determine file type.");
   }
 
   /**
@@ -477,17 +479,16 @@ public final class ParseSetup extends Iced {
     int sep = n.lastIndexOf(java.io.File.separatorChar);
     if( sep > 0 ) n = n.substring(sep+1);
     int dot = n.lastIndexOf('.');
-    if( dot > 0) {
-      while (n.endsWith("zip")
-              || n.endsWith("gz")
-              || n.endsWith("csv")
-              || n.endsWith("xls")
-              || n.endsWith("txt")
-              || n.endsWith("svm")
-              || n.endsWith("arff")) {
-        n = n.substring(0, dot);
-        dot = n.lastIndexOf('.');
-      }
+    while ( dot > 0 &&
+            (n.endsWith("zip")
+            || n.endsWith("gz")
+            || n.endsWith("csv")
+            || n.endsWith("xls")
+            || n.endsWith("txt")
+            || n.endsWith("svm")
+            || n.endsWith("arff"))) {
+      n = n.substring(0, dot);
+      dot = n.lastIndexOf('.');
     }
     // "2012_somedata" ==> "X2012_somedata"
     if( !Character.isJavaIdentifierStart(n.charAt(0)) ) n = "X"+n;
@@ -523,8 +524,85 @@ public final class ParseSetup extends Iced {
     if (bits.length >= 2) {
       if ((bits[0] == (byte) 0xff && bits[1] == (byte) 0xfe) /* UTF-16, little endian */ ||
               (bits[0] == (byte) 0xfe && bits[1] == (byte) 0xff) /* UTF-16, big endian */) {
-        throw new H2OParseSetupException("UTF16 encoding detected, but is not supported.");
+        throw new H2OParseException("UTF16 encoding detected, but is not supported.");
       }
     }
   }
+
+  /**
+   * Compute the longest line length in an array of bytes
+   * @param bytes Array of bytes (containing 0 or more newlines)
+   * @return The longest line length in the given bytes
+   */
+  private static final long maxLineLength(byte[] bytes) {
+    if (bytes.length >= 2) {
+      String st = new String(bytes);
+      StringReader sr = new StringReader(st);
+      BufferedReader br = new BufferedReader(sr);
+      String line;
+      long maxLineLength=0;
+      try {
+        while(true) {
+          line = br.readLine();
+          if (line == null) break;
+          maxLineLength = Math.max(line.length(), maxLineLength);
+        }
+      } catch (IOException e) {
+        return -1;
+      }
+      return maxLineLength;
+    }
+    return -1;
+  }
+
+  public ParseSetup setParseType(ParserType parse_type) {
+    this._parse_type = parse_type;
+    return this;
+  }
+
+  public ParseSetup setSeparator(byte separator) {
+    this._separator = separator;
+    return this;
+  }
+
+  public ParseSetup setSingleQuotes(boolean single_quotes) {
+    this._single_quotes = single_quotes;
+    return this;
+  }
+
+  public ParseSetup setCheckHeader(int check_header) {
+    this._check_header = check_header;
+    return this;
+  }
+
+  public ParseSetup setNumberColumns(int number_columns) {
+    this._number_columns = number_columns;
+    return this;
+  }
+
+  public ParseSetup setColumnNames(String[] column_names) {
+    this._column_names = column_names;
+    return this;
+  }
+
+  public ParseSetup setColumnTypes(byte[] column_types) {
+    this._column_types = column_types;
+    return this;
+  }
+
+  public ParseSetup setDomains(String[][] domains) {
+    this._domains = domains;
+    return this;
+  }
+
+  public ParseSetup setNAStrings(String[][] na_strings) {
+    this._na_strings = na_strings;
+    return this;
+  }
+
+  public ParseSetup setChunkSize(int chunk_size) {
+    this._chunk_size = chunk_size;
+    return this;
+  }
+
 } // ParseSetup state class

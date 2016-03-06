@@ -1,24 +1,13 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../../h2o-r/scripts/h2o-r-test-setup.R")
 #----------------------------------------------------------------------
 # Purpose:  This test exercises HDFS operations from R.
 #----------------------------------------------------------------------
+test <-
+function() {
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../h2o-runit-hadoop.R')
-
-ipPort <- get_args(commandArgs(trailingOnly = TRUE))
-myIP   <- ipPort[[1]]
-myPort <- ipPort[[2]]
 hdfs_name_node <- Sys.getenv(c("NAME_NODE"))
 print(hdfs_name_node)
-
-library(RCurl)
-library(h2o)
-library(testthat)
-
-#----------------------------------------------------------------------
-
-heading("BEGIN TEST")
-h2o.init(ip=myIP, port=myPort, startH2O = FALSE)
 
 hdfs_data_file = "/datasets/runit/covtype.data"
 hdfs_tmp_dir = "/tmp/runit"
@@ -30,7 +19,7 @@ data.hex <- h2o.importFile(url)
 data.hex[,55] <- ifelse(data.hex[,55] == 1, 1, 0)
 print(summary(data.hex))
 
-#heading("Running covtype GLM")
+##heading("Running covtype GLM")
 covtype.glm <- h2o.glm(x = setdiff(1:54, c(21,29)), y = 55, training_frame = data.hex, family = "gaussian", alpha = 0, lambda = 0)
 covtype.glm
 
@@ -49,5 +38,7 @@ covtype.glm
 #expect_equal(covtype.glm@model, covtype.glm2@model)
 #expect_equal(length(covtype.glm@xval), length(covtype.glm2@xval))
 
-PASS_BANNER()
+}
+
+doTest("Test", test)
 

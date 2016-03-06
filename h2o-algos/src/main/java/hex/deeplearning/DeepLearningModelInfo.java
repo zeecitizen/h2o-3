@@ -2,6 +2,9 @@ package hex.deeplearning;
 
 import hex.DataInfo;
 import static java.lang.Double.isNaN;
+
+import hex.Model;
+import hex.deeplearning.DeepLearningModel.DeepLearningParameters;
 import water.*;
 import water.fvec.Frame;
 import water.util.*;
@@ -14,7 +17,7 @@ import java.util.Random;
  * This class contains the state of the Deep Learning model
  * This will be shared: one per node
  */
-public class DeepLearningModelInfo extends Iced {
+final public class DeepLearningModelInfo extends Iced {
 
   public TwoDimTable summaryTable;
 
@@ -51,13 +54,13 @@ public class DeepLearningModelInfo extends Iced {
 
   /**
    * Check whether a missing value was found for every categorical predictor
-   * @param cats
+   * @param cats activation of categorical buckets for a given row
    */
   void checkMissingCats(int[] cats)  {
     if (cats == null) return;
     if (_saw_missing_cats == null) return;
     for (int i=0; i<cats.length; ++i) {
-      assert(data_info._catMissing[i] == 1); //have a missing bucket for each categorical
+      assert(data_info._catMissing[i]); //have a missing bucket for each categorical
       if (_saw_missing_cats[i]) continue;
       _saw_missing_cats[i] = (cats[i] == data_info._catOffsets[i+1]-1);
     }
@@ -102,13 +105,11 @@ public class DeepLearningModelInfo extends Iced {
   }
 
   public DeepLearningParameters parameters;
-
-  public final DeepLearningParameters get_params() {
-    return parameters;
-  }
-
-  public final void set_params(DeepLearningParameters p) {
+  Key<Model> _model_id;
+  public final DeepLearningParameters get_params() { return parameters; }
+  public final void set_params(DeepLearningParameters p, Key<Model> model_id ) {
     parameters = (DeepLearningParameters) p.clone();
+    _model_id = model_id;
   }
 
   private double[] mean_rate;
@@ -160,12 +161,13 @@ public class DeepLearningModelInfo extends Iced {
    * @param train User-given training data frame, prepared by AdaptTestTrain
    * @param valid User-specified validation data frame, prepared by AdaptTestTrain
    */
-  public DeepLearningModelInfo(final DeepLearningParameters params, final DataInfo dinfo, int nClasses, Frame train, Frame valid) {
+  public DeepLearningModelInfo(final DeepLearningParameters params, Key model_id, final DataInfo dinfo, int nClasses, Frame train, Frame valid) {
     _classification = nClasses > 1;
     _train = train;
     _valid = valid;
     data_info = dinfo;
     parameters = (DeepLearningParameters) params.clone(); //make a copy, don't change model's parameters
+    _model_id = model_id;
     DeepLearningParameters.Sanity.modifyParms(parameters, parameters, nClasses); //sanitize the model_info's parameters
 
     final int num_input = dinfo.fullN();
@@ -301,7 +303,7 @@ public class DeepLearningModelInfo extends Iced {
 
   /**
    * Create a summary table
-   * @return
+   * @return TwoDimTable with the summary of the model
    */
   TwoDimTable createSummaryTable() {
     computeStats();
@@ -309,7 +311,7 @@ public class DeepLearningModelInfo extends Iced {
     long byte_size = new AutoBuffer().put(this).buf().length;
     TwoDimTable table = new TwoDimTable(
             "Status of Neuron Layers",
-            (!get_params()._autoencoder ? ("predicting " + _train.lastVecName() + ", ") : "") +
+            (!get_params()._autoencoder ? ("predicting " + data_info._adaptedFrame.lastVecName() + ", ") : "") +
                     (get_params()._autoencoder ? "auto-encoder" :
                             _classification ? (units[units.length - 1] + "-class classification") : "regression")
                     + ", " + get_params()._distribution + " distribution, " + get_params()._loss + " loss, "
@@ -430,10 +432,39 @@ public class DeepLearningModelInfo extends Iced {
   }
 
   /**
+   * Fill weights and biases from a pretrained autoencoder model
+   * @param autoencoder Autoencoder DL model with matching inputs and hidden layers
+   */
+  void initializeFromPretrainedModel(DeepLearningModelInfo autoencoder) {
+    assert(autoencoder.parameters._autoencoder);
+    randomizeWeights();
+    // now overwrite the weights with those from the pretrained model
+    for (int w = 0; w < dense_row_weights.length-1 /*skip output layer*/; ++w) {
+      if (get_weights(w).rows() != autoencoder.get_weights(w).rows())
+        throw new IllegalArgumentException("Mismatch between weights in pretrained model and this model: rows in layer " + w + ": " + autoencoder.get_weights(w).rows() + " vs " + get_weights(w).rows() +
+        ". Enable ignored_const_cols for both models and/or check categorical levels for consistency.");
+      if (get_weights(w).cols() != autoencoder.get_weights(w).cols())
+        throw new IllegalArgumentException("Mismatch between weights in pretrained model and this model: cols in layer " + w + ": " + autoencoder.get_weights(w).cols() + " vs " + get_weights(w).cols() +
+      ". Enable ignored_const_cols for both models and/or check categorical levels for consistency.");
+      for (int i = 0; i < get_weights(w).rows(); i++) {
+        for (int j = 0; j < get_weights(w).cols(); j++) {
+          get_weights(w).set(i, j, autoencoder.get_weights(w).get(i, j));
+        }
+      }
+    }
+    for (int i = 0; i < get_params()._hidden.length; ++i) {
+      for (int j = 0; j < biases[i].raw().length; ++j) {
+        biases[i].set(j, autoencoder.biases[i].get(j));
+      }
+    }
+    Arrays.fill(biases[biases.length - 1].raw(), 0f); //output layer
+  }
+
+  /**
    * Add another model info into this
    * This will add the weights/biases/learning rate helpers, and the number of processed training samples
    * Note: It will NOT add the elastic averaging helpers, which are always kept constant (they already are the result of a reduction)
-   * @param other
+   * @param other Other DeepLearningModelInfo to add into this one
    */
   public void add(DeepLearningModelInfo other) {
     for (int i = 0; i < dense_row_weights.length; ++i)
@@ -460,7 +491,7 @@ public class DeepLearningModelInfo extends Iced {
 
   /**
    * Multiply all weights/biases by a real-valued number
-   * @param N
+   * @param N multiplication factor
    */
   protected void mult(double N) {
     div(1 / N);
@@ -468,7 +499,7 @@ public class DeepLearningModelInfo extends Iced {
 
   /**
    * Divide all weights/biases by a real-valued number
-   * @param N
+   * @param N divisor
    */
   protected void div(double N) {
     for (int i = 0; i < dense_row_weights.length; ++i)
@@ -587,7 +618,7 @@ public class DeepLearningModelInfo extends Iced {
     // zero out missing categorical variables if they were never seen
     if (_saw_missing_cats != null) {
       for (int i = 0; i < _saw_missing_cats.length; ++i) {
-        assert (data_info._catMissing[i] == 1); //have a missing bucket for each categorical
+        assert (data_info._catMissing[i]); //have a missing bucket for each categorical
         if (!_saw_missing_cats[i]) vi[data_info._catOffsets[i + 1] - 1] = 0;
       }
     }
@@ -711,11 +742,11 @@ public class DeepLearningModelInfo extends Iced {
   }
 
   public Key localModelInfoKey(H2ONode node) {
-    return Key.make(get_params()._model_id + ".node" + node.index(), (byte) 1 /*replica factor*/, (byte) 31 /*hidden user-key*/, true, node);
+    return Key.make(_model_id + ".node" + node.index(), (byte) 1 /*replica factor*/, (byte) 31 /*hidden user-key*/, true, node);
   }
 
   public Key elasticAverageModelInfoKey() {
-    return Key.make(get_params()._model_id + ".elasticaverage", (byte) 1 /*replica factor*/, (byte) 31 /*hidden user-key*/, true, H2O.CLOUD._memary[0]);
+    return Key.make(_model_id + ".elasticaverage", (byte) 1 /*replica factor*/, (byte) 31 /*hidden user-key*/, true, H2O.CLOUD._memary[0]);
   }
 
   static public class GradientCheck {
@@ -726,10 +757,10 @@ public class DeepLearningModelInfo extends Iced {
     double gradient;
     void apply(int l, int r, int c, double g) {
       if (r==row && c==col && l==layer) {
-        assert(gradient == 0); //there can only be one match
-        gradient = g;
+        gradient += g;
       }
     }
   }
   static public GradientCheck gradientCheck = null;
+  static public GradientCheck gradientCheckBias = null;
 }

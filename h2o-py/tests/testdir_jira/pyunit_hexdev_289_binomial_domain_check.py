@@ -1,22 +1,27 @@
+from __future__ import print_function
 import sys
-sys.path.insert(1, "../../")
-import h2o, tests
+sys.path.insert(1,"../../")
+import h2o
+from tests import pyunit_utils
+
+
+
 
 def domain_check():
     
 
-    air_train = h2o.import_file(path=h2o.locate("smalldata/airlines/AirlinesTrain.csv.zip"))
+    air_train = h2o.import_file(path=pyunit_utils.locate("smalldata/airlines/AirlinesTrain.csv.zip"))
     air_train.show()
-    air_test = h2o.import_file(path=h2o.locate("smalldata/airlines/AirlinesTest.csv.zip"))
+    air_test = h2o.import_file(path=pyunit_utils.locate("smalldata/airlines/AirlinesTest.csv.zip"))
     air_test.show()
 
     actual_domain = [u'YES',u'NO']
-    print "actual domain of the response: {0}".format(actual_domain)
+    print("actual domain of the response: {0}".format(actual_domain))
 
     ### DRF ###
-    print
-    print "-------------- DRF:"
-    print
+    print()
+    print("-------------- DRF:")
+    print()
     rf = h2o.random_forest(x=air_train[["Origin", "Dest", "Distance", "UniqueCarrier", "fMonth", "fDayofMonth",
                                         "fDayOfWeek"]], y=air_train ["IsDepDelayed"].asfactor(), training_frame=air_train)
     computed_domain = rf._model_json['output']['training_metrics']._metric_json['domain']
@@ -32,9 +37,9 @@ def domain_check():
 
 
     ### GBM ###
-    print
-    print "-------------- GBM:"
-    print
+    print()
+    print("-------------- GBM:")
+    print()
     gbm = h2o.gbm(x=air_train[["Origin", "Dest", "Distance", "UniqueCarrier", "fMonth", "fDayofMonth","fDayOfWeek"]],
                   y=air_train["IsDepDelayed"].asfactor(), training_frame=air_train, distribution="bernoulli")
     computed_domain = gbm._model_json['output']['training_metrics']._metric_json['domain']
@@ -49,9 +54,9 @@ def domain_check():
                             "The difference is {2}".format(actual_domain, computed_domain, domain_diff)
 
     ### Deeplearning ###
-    print
-    print "-------------- Deeplearning:"
-    print
+    print()
+    print("-------------- Deeplearning:")
+    print()
     dl = h2o.deeplearning(x=air_train[["Origin", "Dest", "Distance", "UniqueCarrier", "fMonth", "fDayofMonth","fDayOfWeek"]],
                      y=air_train["IsDepDelayed"].asfactor(), training_frame = air_train, activation = "Tanh",
                      hidden = [2, 2, 2], epochs = 10)
@@ -67,9 +72,9 @@ def domain_check():
                             "The difference is {2}".format(actual_domain, computed_domain, domain_diff)
 
     ### GLM ###
-    print
-    print "-------------- GLM:"
-    print
+    print()
+    print("-------------- GLM:")
+    print()
     glm = h2o.glm(x=air_train[["Origin", "Dest", "Distance", "UniqueCarrier", "fMonth", "fDayofMonth", "fDayOfWeek"]],
                   y=air_train["IsDepDelayed"], training_frame=air_train , family="binomial")
     computed_domain = glm._model_json['output']['training_metrics']._metric_json['domain']
@@ -83,5 +88,9 @@ def domain_check():
     assert not domain_diff, "There's a difference between the actual ({0}) and the computed ({1}) domains of the " \
                             "The difference is {2}".format(actual_domain, computed_domain, domain_diff)
 
+
+
 if __name__ == "__main__":
-    tests.run_test(sys.argv, domain_check)
+    pyunit_utils.standalone_test(domain_check)
+else:
+    domain_check()

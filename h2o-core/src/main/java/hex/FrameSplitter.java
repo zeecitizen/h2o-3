@@ -41,8 +41,6 @@ public class FrameSplitter extends H2OCountedCompleter<FrameSplitter> {
 
   /** Output frames for each output split part */
   private Frame[] splits;
-  /** Temporary variable holding exceptions of workers */
-  private Throwable[] workersExceptions;
 
   public FrameSplitter(Frame dataset, double[] ratios, Key<Frame>[] destKeys, Key<Job> jobKey) {
     this(null, dataset, ratios,destKeys,jobKey);
@@ -76,62 +74,40 @@ public class FrameSplitter extends H2OCountedCompleter<FrameSplitter> {
       split.delete_and_lock(jobKey);
       splits[s] = split;
     }
-    setPendingCount(1);
-    H2O.submitTask(new H2OCountedCompleter(FrameSplitter.this) {
-      @Override public void compute2() {
-        setPendingCount(nsplits);
-        for (int s=0; s<nsplits; s++) {
-          new FrameSplitTask(new H2OCountedCompleter(this) { // Completer for this task
-            @Override public void compute2() { }
-            @Override public boolean onExceptionalCompletion(Throwable ex, CountedCompleter caller) {
-              synchronized( FrameSplitter.this) { // synchronized on this since can be accessed from different workers
-                workersExceptions = workersExceptions!=null ? Arrays.copyOf(workersExceptions, workersExceptions.length+1) : new Throwable[1];
-                workersExceptions[workersExceptions.length-1] = ex;
-              }
-              tryComplete(); // we handle the exception so wait perform normal completion
-              return false;
-            }
-          }, datasetVecs, ratios, s).asyncExec(splits[s]);
-        }
-        tryComplete(); // complete the computation of nsplits-tasks
-      }
-    });
+    setPendingCount(nsplits);
+    for (int s=0; s<nsplits; s++)
+      new FrameSplitTask(this,datasetVecs, ratios, s).dfork(splits[s]);
     tryComplete(); // complete the computation of thrown tasks
   }
 
   /** Blocking call to obtain a result of computation. */
   public Frame[] getResult() {
     join();
-    if (workersExceptions!=null) throw new RuntimeException(workersExceptions[0]);
     return splits;
   }
 
-  public Throwable[] getErrors() {
-    return workersExceptions;
-  }
-
   @Override public void onCompletion(CountedCompleter caller) {
-    boolean exceptional = workersExceptions!=null;
     dataset.unlock(jobKey);
-    if (splits!=null) {
-      for (Frame s : splits) {
-        if (s!=null) {
-          if (!exceptional) {
-            s.update(jobKey);
-            s.unlock(jobKey);
-          } else { // Have to unlock and delete here
-            s.unlock(jobKey);
-            s.delete(jobKey, new Futures()).blockForPending(); // delete all splits
-          }
-        }
-      }
-    }
+    if (splits!=null)
+      for (Frame s : splits)
+        if (s!=null)
+          s.update(jobKey).unlock(jobKey);
+  }
+  @Override public boolean onExceptionalCompletion(Throwable ex, CountedCompleter caller) {
+    dataset.unlock(jobKey);
+    Futures fs = new Futures();
+    if (splits!=null)
+      for (Frame s : splits)
+        if (s!=null)
+          s.unlock(jobKey).delete(jobKey,fs);
+    fs.blockForPending();
+    return true;
   }
 
   // Make vector templates for all output frame vectors
   private Vec[][] makeTemplates(Frame dataset, double[] ratios) {
     Vec anyVec = dataset.anyVec();
-    final long[][] espcPerSplit = computeEspcPerSplit(anyVec._espc, anyVec.length(), ratios);
+    final long[][] espcPerSplit = computeEspcPerSplit(anyVec.espc(), anyVec.length(), ratios);
     final int num = dataset.numCols(); // number of columns in input frame
     final int nsplits = espcPerSplit.length; // number of splits
     final String[][] domains = dataset.domains(); // domains
@@ -142,7 +118,9 @@ public class FrameSplitter extends H2OCountedCompleter<FrameSplitter> {
     Vec[][] t = new Vec[nsplits][/*num*/]; // resulting vectors for all
     for (int i=0; i<nsplits; i++) {
       // vectors for j-th split
-      t[i] = new Vec(Vec.newKey(),espcPerSplit[i/*-th split*/]).makeCons(num, 0, domains, types);
+      Key vkey = Vec.newKey();
+      int rowLayout = Vec.ESPC.rowLayout(vkey,espcPerSplit[i]);
+      t[i] = new Vec(vkey,rowLayout).makeCons(num, 0, domains, types);
     }
     return t;
   }
@@ -191,7 +169,7 @@ public class FrameSplitter extends H2OCountedCompleter<FrameSplitter> {
       long[] partSizes = partitione(anyInVec.length(), _ratios);
       long pnrows = 0;
       for (int p=0; p<_partIdx; p++) pnrows += partSizes[p];
-      long[] espc = anyInVec._espc;
+      long[] espc = anyInVec.espc();
       while (_pcidx < espc.length-1 && (pnrows -= (espc[_pcidx+1]-espc[_pcidx])) >= 0 ) _pcidx++;
       assert pnrows <= 0;
       _psrow = (int) (pnrows + espc[_pcidx+1]-espc[_pcidx]);

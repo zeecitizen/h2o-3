@@ -10,10 +10,7 @@ import water.fvec.NewChunk;
 import water.fvec.Vec;
 
 import java.text.DecimalFormat;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
 
 import static water.util.RandomUtils.getRNG;
 
@@ -67,6 +64,13 @@ public class ArrayUtils {
   }
 
   public static double l2norm2(double [] x){ return l2norm2(x, false); }
+
+  public static double l2norm2(double [][] xs, boolean skipLast){
+    double res = 0;
+    for(double [] x:xs)
+      res += l2norm2(x,skipLast);
+    return res;
+  }
   public static double l2norm2(double [] x, boolean skipLast){
     double sum = 0;
     int last = x.length - (skipLast?1:0);
@@ -176,6 +180,13 @@ public class ArrayUtils {
     return a;
   }
 
+  public static double[] wadd(double[] a, double[] b, double [] c, double w) {
+    if( a==null ) return b;
+    for(int i = 0; i < a.length; i++ )
+      c[i] = a[i] + w*b[i];
+    return c;
+  }
+
   // a <- b + c
   public static double[] add(double[] a, double[] b, double [] c) {
     for(int i = 0; i < a.length; i++ )
@@ -228,12 +239,12 @@ public class ArrayUtils {
     return ds;
   }
   public static float[] mult(float[] nums, float n) {
-    assert !Float.isInfinite(n) : "Trying to multiply " + Arrays.toString(nums) + " by  " + n; // Almost surely not what you want
+//    assert !Float.isInfinite(n) : "Trying to multiply " + Arrays.toString(nums) + " by  " + n; // Almost surely not what you want
     for (int i=0; i<nums.length; i++) nums[i] *= n;
     return nums;
   }
   public static double[] mult(double[] nums, double n) {
-    assert !Double.isInfinite(n) : "Trying to multiply " + Arrays.toString(nums) + " by  " + n; // Almost surely not what you want
+//    assert !Double.isInfinite(n) : "Trying to multiply " + Arrays.toString(nums) + " by  " + n; // Almost surely not what you want
     for (int i=0; i<nums.length; i++) nums[i] *= n;
     return nums;
   }
@@ -242,6 +253,12 @@ public class ArrayUtils {
     for (int i=0; i<ary.length; i++) mult(ary[i], n);
     return ary;
   }
+  
+  public static double[] mult(double[] nums, double[] nums2) {
+    for (int i=0; i<nums.length; i++) nums[i] *= nums2[i];
+    return nums;
+  }
+  
   public static double[] invert(double[] ary) {
     if(ary == null) return null;
     for(int i=0;i<ary.length;i++) ary[i] = 1. / ary[i];
@@ -293,6 +310,19 @@ public class ArrayUtils {
         res[i][j] = ary[j][i];
     }
     return res;
+  }
+
+  /**
+   * Provide array from start to end in steps of 1
+   * @param start beginning value (inclusive)
+   * @param end   ending value (exclusive)
+   * @return specified range of integers
+   */
+  public static int[] range(int start, int end) {
+    int[] r = new int[end-start+1];
+    for(int i=0;i<r.length;i++)
+      r[i] = i+start;
+    return r;
   }
 
   /**
@@ -558,6 +588,12 @@ public class ArrayUtils {
       if (from[i]>result) result = from[i];
     return result;
   }
+  public static long maxValue(int[] from) {
+    int result = from[0];
+    for (int i = 1; i<from.length; ++i)
+      if (from[i]>result) result = from[i];
+    return result;
+  }
   public static long minValue(long[] from) {
     long result = from[0];
     for (int i = 1; i<from.length; ++i)
@@ -572,10 +608,18 @@ public class ArrayUtils {
   }
 
   // Find an element with linear search & return it's index, or -1
-  public static <T> int find(T[] ts, T elem) {
-    for( int i=0; i<ts.length; i++ )
-      if( elem==ts[i] || elem.equals(ts[i]) )
+  public static <T> int find(T[] ts, T elem) {return find(ts,elem,0);}
+
+  // Find an element with linear search & return it's index, or -1
+  public static <T> int find(T[] ts, T elem, int off) {
+    for (int i = off; i < ts.length; i++)
+      if (elem == ts[i] || elem.equals(ts[i]))
         return i;
+    return -1;
+  }
+  public static int find(long[] ls, long elem) {
+    for(int i=0; i<ls.length; ++i )
+      if( elem==ls[i] ) return i;
     return -1;
   }
 
@@ -687,10 +731,10 @@ public class ArrayUtils {
     return result;
   }
   public static double[] gaussianVector(int n) { return gaussianVector(n, System.currentTimeMillis()); }
-  public static double[] gaussianVector(int n, long seed) {
+  public static double[] gaussianVector(int n, long seed) { return gaussianVector(n, getRNG(seed)); }
+  public static double[] gaussianVector(int n, Random random) {
     if(n <= 0) return null;
     double[] result = new double[n];
-    Random random = getRNG(seed);
 
     for(int i = 0; i < n; i++)
       result[i] = random.nextGaussian();
@@ -896,6 +940,12 @@ public class ArrayUtils {
     System.arraycopy(b,0,tmp,a.length,b.length);
     return tmp;
   }
+  public static int[] append(int[] a, int b) {
+    if( a==null || a.length == 0) return  new int[]{b};
+    int[] tmp = Arrays.copyOf(a,a.length+1);
+    tmp[a.length] = b;
+    return tmp;
+  }
 
   static public String[] prepend(String[] ary, String s) {
     if (ary==null) return new String[] { s };
@@ -979,6 +1029,21 @@ public class ArrayUtils {
     return res;
   }
 
+  public static double[] select(double[] ary, int[] idxs) {
+    double [] res = MemoryManager.malloc8d(idxs.length);
+    for(int i = 0; i < res.length; ++i)
+      res[i] = ary[idxs[i]];
+    return res;
+  }
+
+  public static double [] expandAndScatter(double [] ary, int N, int [] ids) {
+    assert ary.length == ids.length;
+    double [] res = MemoryManager.malloc8d(N);
+    for(int i = 0; i < ids.length; ++i) res[ids[i]] = ary[i];
+    return res;
+  }
+
+
   /**
    * Sort an integer array of indices based on values
    * Updates indices in place, keeps values the same
@@ -1017,9 +1082,10 @@ public class ArrayUtils {
     subtract(a,b,c);
     return c;
   }
-  public static void subtract (double [] a, double [] b, double [] c) {
+  public static double[] subtract (double [] a, double [] b, double [] c) {
     for(int i = 0; i < a.length; ++i)
       c[i] = a[i] - b[i];
+    return c;
   }
 
   /** Flatenize given array.
@@ -1035,6 +1101,31 @@ public class ArrayUtils {
     int tlen = 0;
     for (T[] t : arr) tlen += t.length;
     T[] result = Arrays.copyOf(arr[0], tlen);
+    int j = arr[0].length;
+    for (int i = 1; i < arr.length; i++) {
+      System.arraycopy(arr[i], 0, result, j, arr[i].length);
+      j += arr[i].length;
+    }
+    return result;
+  }
+
+  public static double [][] convertTo2DMatrix(double [] x, int N) {
+    assert x.length % N == 0;
+    int len = x.length/N;
+    double [][] res = new double[len][];
+    for(int i = 0; i < len; ++i) {
+      res[i] = MemoryManager.malloc8d(N);
+      System.arraycopy(x,i*N,res[i],0,N);
+    }
+    return res;
+  }
+
+  public static double[] flat(double[][] arr) {
+    if (arr == null) return null;
+    if (arr.length == 0) return null;
+    int tlen = 0;
+    for (double[] t : arr) tlen += t.length;
+    double[] result = Arrays.copyOf(arr[0], tlen);
     int j = arr[0].length;
     for (int i = 1; i < arr.length; i++) {
       System.arraycopy(arr[i], 0, result, j, arr[i].length);
@@ -1085,6 +1176,23 @@ public class ArrayUtils {
     return result;
   }
 
+  public static String [] remove(String [] ary, String s) {
+    if(s == null)return ary;
+    int cnt = 0;
+    int idx = find(ary,s);
+    while(idx > 0) {
+      ++cnt;
+      idx = find(ary,s,++idx);
+    }
+    if(cnt == 0)return ary;
+    String [] res = new String[ary.length-cnt];
+    int j = 0;
+    for(String x:ary)
+      if(!x.equals(s))
+        res[j++] = x;
+    return res;
+  }
+
   /** Create a new frame based on given row data.
    *  @param key   Key for the frame
    *  @param names names of frame columns
@@ -1095,12 +1203,14 @@ public class ArrayUtils {
     Futures fs = new Futures();
     Vec[] vecs = new Vec[rows[0].length];
     Key keys[] = Vec.VectorGroup.VG_LEN1.addVecs(vecs.length);
+    int rowLayout = -1;
     for( int c = 0; c < vecs.length; c++ ) {
-      AppendableVec vec = new AppendableVec(keys[c]);
+      AppendableVec vec = new AppendableVec(keys[c], Vec.T_NUM);
       NewChunk chunk = new NewChunk(vec, 0);
       for (double[] row : rows) chunk.addNum(row[c]);
       chunk.close(0, fs);
-      vecs[c] = vec.close(fs);
+      if( rowLayout== -1) rowLayout = vec.compute_rowLayout();
+      vecs[c] = vec.close(rowLayout,fs);
     }
     fs.blockForPending();
     Frame fr = new Frame(key, names, vecs);
@@ -1110,4 +1220,55 @@ public class ArrayUtils {
   public static Frame frame(double[]... rows) { return frame(null, rows); }
   public static Frame frame(String[] names, double[]... rows) { return frame(Key.make(), names, rows); }
   public static Frame frame(String name, Vec vec) { Frame f = new Frame(); f.add(name, vec); return f; }
+
+  /**
+   * Remove b from a, both a,b are assumed to be sorted.
+   */
+  public static int[] removeSorted(int [] a, int [] b) {
+    int [] indeces = new int[b.length];
+    indeces[0] = Arrays.binarySearch(a,0,a.length,b[0]);
+    if(indeces[0] < 0)
+      throw new NoSuchElementException("value " + b[0] + " not found in the first array.");
+    for(int i = 1; i < b.length; ++i) {
+      indeces[i] = Arrays.binarySearch(a,indeces[i-1],a.length,b[i]);
+      if(indeces[i] < 0)
+        throw new NoSuchElementException("value " + b[i] + " not found in the first array.");
+    }
+    return removeIds(a,indeces);
+  }
+
+  public static int[] removeIds(int[] x, int[] ids) {
+    int [] res = new int[x.length-ids.length];
+    int j = 0;
+    for(int i = 0; i < x.length; ++i)
+      if(j == ids.length || i != ids[j]) res[i-j] = x[i]; else ++j;
+    return res;
+  }
+  public static double[] removeIds(double[] x, int[] ids) {
+    double [] res = new double[x.length-ids.length];
+    int j = 0;
+    for(int i = 0; i < x.length; ++i)
+      if(j == ids.length || i != ids[j]) res[i-j] = x[i]; else ++j;
+    return res;
+  }
+
+  public static boolean hasNzs(double[] x) {
+    if(x == null)
+      return false;
+    for(double d:x)
+      if(d != 0) return true;
+    return false;
+  }
+
+  public static int countNonzeros(double[] beta) {
+    int res = 0;
+    for(double d:beta)
+      if(d != 0)++res;
+    return res;
+  }
+
+  public static long[] subtract(long n, long[] nums) {
+    for (int i=0; i<nums.length; i++) nums[i] = n - nums[i];
+    return nums;
+  }
 }

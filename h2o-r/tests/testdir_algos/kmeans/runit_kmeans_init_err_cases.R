@@ -1,5 +1,7 @@
 setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../../h2o-runit.R')
+source("../../../scripts/h2o-r-test-setup.R")
+
+
 
 test.km.init_err <- function() {
   Log.info("Importing benign.csv data...\n")

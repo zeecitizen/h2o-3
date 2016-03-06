@@ -43,9 +43,9 @@ To access the H2O Web UI, go to [https://localhost:54321](https://localhost:5432
 Open Demos Notebook
 -------------------
 
-Open the prostateGBM.ipynb file. The notebook contains a demo that starts H2O, imports a prostate dataset into H2O, builds a GBM model, and predicts on the training set with the recently built model. Use Ctrl+Return to execute each cell in the notebook.
+Open the prostate_gbm.ipynb file. The notebook contains a demo that starts H2O, imports a prostate dataset into H2O, builds a GBM model, and predicts on the training set with the recently built model. Use Shift+Return to execute each cell and proceed to the next cell in the notebook .
 
-    $ ipython notebook prostateGBM.ipynb
+    $ ipython notebook prostate_gbm.ipynb
 
 All demos are available here:
 
@@ -63,7 +63,7 @@ To set up your Python environment to run these examples, download and install H2
 ###Available Demos
 
 - [Predict Airline Delays](https://github.com/h2oai/h2o-3/blob/master/h2o-py/demos/airlines_demo_small.ipynb) - Uses historical airlines flight data to build multiple classification models to label any flight as either delayed or not delayed.
-- [Chicago Crime Rate](https://github.com/h2oai/h2o-3/blob/master/h2o-py/demos/chicago_crimes.ipynb) - Uses weather and city statistics to compare arrest rates with the total crimes for each category. 
+- [Chicago Crime Rate](https://github.com/h2oai/h2o-3/blob/master/h2o-py/demos/H2O_chicago_crimes.ipynb) - Uses weather and city statistics to compare arrest rates with the total crimes for each category. 
 - [NYC Citibike Demand with Weather](https://github.com/h2oai/h2o-3/blob/master/h2o-py/demos/citi_bike_large.ipynb) - Takes monthly bike ride data (~10 million rows) for the past two years to predict bike demand at each bike share station. Weather data is also incorporated to better predict bike usage.
 - [NYC Citibike Demand with Weather - smaller dataset](https://github.com/h2oai/h2o-3/blob/master/h2o-py/demos/citi_bike_small.ipynb) - Takes monthly bike ride data (~1 million rows) for the past two years to predict bike demand at each bike share station. Weather data is also incorporated to better predict bike usage.
 - [Confusion Matrix & ROC](https://github.com/h2oai/h2o-3/blob/master/h2o-py/demos/cm_roc.ipynb) - Creates a GBM and GLM model using the airlines dataset, including confusion matrices, ROCs, and scoring histories. 
@@ -75,6 +75,7 @@ To set up your Python environment to run these examples, download and install H2
 - [GBM model using prostate dataset](https://github.com/h2oai/h2o-3/blob/master/h2o-py/demos/prostate_gbm.ipynb) - Creates a GBM model using the prostate dataset.  
 - [Balance Classes](https://github.com/h2oai/h2o-3/blob/master/h2o-py/demos/rf_balance_classes.ipynb) - Imports the airlines dataset, parses it, displays a summary, and runs GLM with a binomial link function. 
 - [Clustering with KMeans](https://github.com/h2oai/h2o-3/blob/master/h2o-py/demos/kmeans_aic_bic_diagnostics.ipynb) - Demonstrates kmeans clusters and different diagnostics for selecting the number of clusters.  Link to data is provided in the notebook.
+- [EEG Eye State](https://github.com/h2oai/h2o-3/blob/master/h2o-py/demos/H2O_tutorial_eeg_eyestate.ipynb) - Uses EEG data collected from an Emotiv Neuroheadset and classifies eye state (open vs closed) with a GBM.  
 
 
 

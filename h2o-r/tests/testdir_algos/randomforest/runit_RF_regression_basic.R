@@ -1,10 +1,12 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../../scripts/h2o-r-test-setup.R")
 ##################################
 ## basic regression test
 ##################################
 
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../../h2o-runit.R')
+
+
 
 test.regression.basic <- function() {
   cars.hex <- h2o.uploadFile(locate("smalldata/junit/cars.csv"))

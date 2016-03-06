@@ -1,12 +1,15 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../scripts/h2o-r-test-setup.R")
 ##
 # Test: Logging H2O from R
 # Description: Capture POST commands sent from R and corresponding HTTP response.
 ##
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../h2o-runit.R')
+
+
 
 test.rh2o_logging <- function() {
+
   # Change log paths to R working directory
   h2o.setLogPath(getwd(), "Command")
   h2o.setLogPath(getwd(), "Error")
@@ -32,7 +35,6 @@ test.rh2o_logging <- function() {
   expect_false(file.exists(cmd_path))
   expect_false(file.exists(err_path))
 
-  
 }
 
 doTest("Logging Tests: h2o.startLogging, h2o.stopLogging", test.rh2o_logging)

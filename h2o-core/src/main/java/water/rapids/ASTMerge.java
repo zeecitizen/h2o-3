@@ -26,21 +26,24 @@ import java.util.Arrays;
  *  allRightFlag.  Missing data will appear as NAs.  Both flags can be true.
  */
 public class ASTMerge extends ASTPrim {
-  @Override public String[] args() { return new String[]{"left","rite", "all_left", "all_rite"}; }
+  @Override public String[] args() { return new String[]{"left","rite", "all_left", "all_rite", "by_left", "by_right", "method"}; }
   @Override public String str(){ return "merge";}
-  @Override int nargs() { return 1+4; } // (merge left rite all.left all.rite)
+  @Override int nargs() { return 1+7; } // (merge left rite all.left all.rite method)
 
   // Size cutoff before switching between a hashed-join vs a sorting join.
   // Hash tables beyond this count are assumed to be inefficient, and we're
   // better served by sorting all the join columns and doing a global
   // merge-join.
-  static final int MAX_HASH_SIZE = 100000000;
+  static final int MAX_HASH_SIZE = 120000000;
 
   @Override Val apply( Env env, Env.StackHelp stk, AST asts[] ) {
     Frame l = stk.track(asts[1].exec(env)).getFrame();
     Frame r = stk.track(asts[2].exec(env)).getFrame();
     boolean allLeft = asts[3].exec(env).getNum() == 1;
     boolean allRite = asts[4].exec(env).getNum() == 1;
+    int[] byLeft = check(asts[5]);
+    int[] byRight = check(asts[6]);
+    String method = asts[7].exec(env).getStr();
 
     // Look for the set of columns in common; resort left & right to make the
     // leading prefix of column names match.  Bail out if we find any weird
@@ -57,7 +60,7 @@ public class ASTMerge extends ASTPrim {
           throw new IllegalArgumentException("Merging columns must be the same type, column "+l._names[ncols]+
                                              " found types "+lv.get_type_str()+" and "+rv.get_type_str());
         if( lv.isString() )
-          throw new IllegalArgumentException("Cannot merge Strings; flip toCategorical first");
+          throw new IllegalArgumentException("Cannot merge Strings; flip toCategoricalVec first");
         if( lv.isNumeric() && !lv.isInt())  
           throw new IllegalArgumentException("Equality tests on doubles rarely work, please round to integers only before merging");
         ncols++;
@@ -66,16 +69,38 @@ public class ASTMerge extends ASTPrim {
     if( ncols == 0 ) 
       throw new IllegalArgumentException("Frames must have at least one column in common to merge them");
 
+    // GC now to sync nodes and get them to use young gen for the working memory. This helps get stable
+    // repeatable timings.  Otherwise full GCs can cause blocks. Adding System.gc() here suggested by Cliff
+    // during F2F pair-programming and it for sure worked.
+    // TODO - would be better at the end to clean up, but there are several exit paths here.
+    new MRTask() {
+      @Override public void setupLocal() { System.gc(); }
+    }.doAllNodes();
+
+    if (method.equals("radix")) {
+      // Build categorical mappings, to rapidly convert categoricals from the left to the right
+      // With the sortingMerge approach there is no variance here: always map left to right
+      if (allRite)
+        throw new IllegalArgumentException("all.y=TRUE not yet implemented for method='radix'");
+      int[][] id_maps = new int[ncols][];
+      for( int i=0; i<ncols; i++ ) {
+        Vec lv = l.vec(i);
+        Vec rv = r.vec(i);
+        if( lv.isCategorical() ) {
+          assert rv.isCategorical();  // if not, would have thrown above
+          id_maps[i] = CategoricalWrappedVec.computeMap(lv.domain(),rv.domain());
+        }
+      }
+      return sortingMerge(l,r,allLeft,allRite,ncols,id_maps);
+    }
+
     // Pick the frame to replicate & hash.  If one set is "all" and the other
     // is not, the "all" set must be walked, so the "other" is hashed.  If both
     // or neither are "all", then pick the smallest bytesize of the non-key
     // columns.  The hashed dataframe is completely replicated per-node
     boolean walkLeft;
     if( allLeft == allRite ) {
-      long lsize = 0, rsize = 0;
-      for( int i=ncols; i<l.numCols(); i++ ) lsize += l.vecs()[i].byteSize();
-      for( int i=ncols; i<r.numCols(); i++ ) rsize += r.vecs()[i].byteSize();
-      walkLeft = lsize > rsize;
+      walkLeft = l.numRows() > r.numRows();
     } else {
       walkLeft = allLeft;
     }
@@ -88,14 +113,8 @@ public class ASTMerge extends ASTPrim {
     int[][] id_maps = new int[ncols][];
     for( int i=0; i<ncols; i++ ) {
       Vec lv = walked.vecs()[i];
-      if( lv.isCategorical() ) {
-        CategoricalWrappedVec ewv = new CategoricalWrappedVec(lv.domain(),hashed.vecs()[i].domain());
-        int[] ids = ewv.getDomainMap();
-        DKV.remove(ewv._key);
-        // Build an Identity map for the hashed set
-        id_maps[i] = new int[ids.length];
-        for( int j=0; j<ids.length; j++ )  id_maps[i][j] = j;
-      }
+      if( lv.isCategorical() )
+        id_maps[i] = CategoricalWrappedVec.computeMap(hashed.vecs()[i].domain(),lv.domain());
     }
 
     // Build the hashed version of the hashed frame.  Hash and equality are
@@ -108,8 +127,8 @@ public class ASTMerge extends ASTPrim {
     final Key uniq = ms._uniq;
     IcedHashMap<Row,String> rows = MergeSet.MERGE_SETS.get(uniq)._rows;
     new MRTask() { @Override public void setupLocal() { MergeSet.MERGE_SETS.remove(uniq);  } }.doAllNodes();
-    if( rows == null )          // Blew out hash size; switch to a sorting join
-      return sortingMerge(walked,hashed,allLeft,allRite,ncols,id_maps);
+    if (method.equals("auto") && (rows == null || rows.size() > MAX_HASH_SIZE ))  // Blew out hash size; switch to a sorting join.  Matt: even with 0, rows was size 3 hence added ||
+      return sortingMerge(l,r,allLeft,allRite,ncols,id_maps);
 
     // All of the walked set, and no dup handling on the right - which means no
     // need to replicate rows of the walked dataset.  Simple 1-pass over the
@@ -124,7 +143,8 @@ public class ASTMerge extends ASTPrim {
       // matching row; append matching column data
       String[]   names  = Arrays.copyOfRange(hashed._names,   ncols,hashed._names   .length);
       String[][] domains= Arrays.copyOfRange(hashed.domains(),ncols,hashed.domains().length);
-      Frame res = new AllLeftNoDupe(ncols,rows,hashed,allRite).doAll(hashed.numCols()-ncols,walked).outputFrame(names,domains);
+      byte[] types = Arrays.copyOfRange(hashed.types(),ncols,hashed.numCols());
+      Frame res = new AllLeftNoDupe(ncols,rows,hashed,allRite).doAll(types,walked).outputFrame(names,domains);
       return new ValFrame(walked.add(res));
     }
 
@@ -135,7 +155,10 @@ public class ASTMerge extends ASTPrim {
       System.arraycopy(hashed.names(),ncols,names,walked.numCols(),hashed.numCols()-ncols);
       String[][] domains = Arrays.copyOf(walked.domains(),walked.numCols() + hashed.numCols()-ncols);
       System.arraycopy(hashed.domains(),ncols,domains,walked.numCols(),hashed.numCols()-ncols);
-      return new ValFrame(new AllRiteWithDupJoin(ncols,rows,hashed,allLeft).doAll(walked.numCols()+hashed.numCols()-ncols,walked).outputFrame(names,domains));
+      byte[] types = walked.types();
+      types = Arrays.copyOf(types,types.length+hashed.numCols()-ncols);
+      System.arraycopy(hashed.types(),ncols,types,walked.numCols(),hashed.numCols()-ncols);
+      return new ValFrame(new AllRiteWithDupJoin(ncols,rows,hashed,allLeft).doAll(types,walked).outputFrame(names,domains));
     } 
 
     throw H2O.unimpl();
@@ -148,8 +171,8 @@ public class ASTMerge extends ASTPrim {
    *  The walked and hashed frames are sorted according to allLeft; if allRite
    *  is set then allLeft will also be set (but not vice-versa).
    *
-   *  @param walked is the LHS frame; not-null.
-   *  @param hashed is the RHS frame; not-null.
+   *  @param left is the LHS frame; not-null.
+   *  @param right is the RHS frame; not-null.
    *  @param allLeft all rows in the LHS frame will appear in the result frame.
    *  @param allRite all rows in the RHS frame will appear in the result frame.
    *  @param ncols is the number of columns to join on, and these are ordered
@@ -157,8 +180,11 @@ public class ASTMerge extends ASTPrim {
    *  @param id_maps if not-null denote simple integer mappings from one
    *  categorical column to another; the width is ncols
    */
-  private ValFrame sortingMerge( Frame walked, Frame hashed, boolean allLeft, boolean allRite, int ncols, int[][] id_maps) {
-    throw H2O.unimpl();
+
+  private ValFrame sortingMerge( Frame left, Frame right, boolean allLeft, boolean allRite, int ncols, int[][] id_maps) {
+    int cols[] = new int[ncols];
+    for (int i=0; i<ncols; i++) cols[i] = i;
+    return new ValFrame(Merge.merge(left, right, cols, cols, allLeft, id_maps));
   }
 
   // One Row object per row of the hashed dataset, so kept as small as
@@ -178,7 +204,8 @@ public class ASTMerge extends ASTPrim {
         if( chks[i].isNA(row) ) l = 0;
         else {
           l = chks[i].at8(row);
-          hash += (cat_maps == null || cat_maps[i]==null) ? l : cat_maps[i][(int)l];
+          l = (cat_maps == null || cat_maps[i]==null) ? l : cat_maps[i][(int)l];
+          hash += l;
         }
         _keys[i] = l;
       }
@@ -190,20 +217,19 @@ public class ASTMerge extends ASTPrim {
     @Override public boolean equals( Object o ) {
       if( !(o instanceof Row) ) return false;
       Row r = (Row)o;
-      if( _hash != r._hash ) return false; // Shortcut
-      if( _row == r._row ) return true; // Another shortcut: same absolute row
-      // Now must check key contents
-      return Arrays.equals(_keys,r._keys); 
+      return _hash == r._hash && Arrays.equals(_keys,r._keys);
     }
 
     private void atomicAddDup(long row) {
       synchronized (this) {
         if( _dups==null ) {
           _dups = new long[]{_row,row};
-          _dupIdx = 2;
-        } else if( _dupIdx==_dups.length )
-          _dups = Arrays.copyOf(_dups, _dupIdx>>1);
-        _dups[_dupIdx++]=row;
+          _dupIdx=2;
+        } else {
+          if( _dupIdx==_dups.length )
+            _dups = Arrays.copyOf(_dups,_dups.length << 1);
+          _dups[_dupIdx++]=row;
+        }
       }
     }
   }
@@ -319,6 +345,17 @@ public class ASTMerge extends ASTPrim {
     }
   }
 
+  private int[] check(AST ast) {
+    double[] n;
+    if( ast instanceof ASTNumList  ) n = ((ASTNumList)ast).expand();
+    else if( ast instanceof ASTNum ) n = new double[]{((ASTNum)ast)._v.getNum()};  // this is the number of breaks wanted...
+    else throw new IllegalArgumentException("Requires a number-list, but found a "+ast.getClass());
+    int[] ni = new int[n.length];
+    for (int i=0; i<ni.length; ++i)
+      ni[i] = (int) n[i];
+    return ni;
+  }
+
   // Build the join-set by iterating over all the local Chunks of the walked
   // dataset, doing a hash-lookup on the hashed replicated dataset, and adding
   // in BOTH the walked and the matching columns.
@@ -331,12 +368,12 @@ public class ASTMerge extends ASTPrim {
       // Shared common hash map
       final IcedHashMap<Row,String> rows = _rows;
       Vec[] vecs = _hashed.vecs(); // Data source from hashed set
-      assert vecs.length == _ncols + nchks.length;
+//      assert vecs.length == _ncols + nchks.length;
       Row row = new Row(_ncols);   // Recycled Row object on the bigger dataset
       BufferedString bStr = new BufferedString(); // Recycled BufferedString
       int len = chks[0]._len;
       for( int i=0; i<len; i++ ) {
-        Row hashed = rows.getk(row.fill(chks, null, i));
+        Row hashed = _rows.getk(row.fill(chks, null, i));
         if( hashed == null ) {    // no rows, fill in chks, and pad NAs as needed...
           if( _allLeft ) {        // pad NAs to the right...
             int c=0;
@@ -352,7 +389,7 @@ public class ASTMerge extends ASTPrim {
     void addRow(NewChunk[] nchks, Chunk[] chks, Vec[] vecs, int relRow, long absRow, BufferedString bStr) {
       int c=0;
       for( ;c< chks.length;++c) addElem(nchks[c],chks[c],relRow);
-      for( ;c<nchks.length;++c) addElem(nchks[c],vecs[c - (chks.length + _ncols)],absRow,bStr);
+      for( ;c<nchks.length;++c) addElem(nchks[c],vecs[c - chks.length + _ncols],absRow,bStr);
     }
   }
 }

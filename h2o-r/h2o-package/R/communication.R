@@ -67,19 +67,18 @@
 
   opts = curlOptions()
   if (!is.na(conn@username)) {
-    if (is.na(conn@password)) {
-      stop("Password not specified")
-    }
-
     userpwd = sprintf("%s:%s", conn@username, conn@password)
     basicAuth = 1L
     opts = curlOptions(userpwd = userpwd, httpauth = basicAuth, .opts = opts)
   }
   if (conn@https) {
     if (conn@insecure) {
-      opts = curlOptions(ssl.verifypeer = 0L, .opts = opts)
+      opts = curlOptions(ssl.verifypeer = 0L, ssl.verifyhost=0L, .opts = opts)
     }
   }
+  if (!is.na(conn@proxy)) {
+    opts = curlOptions(proxy = conn@proxy, .opts = opts)
+  } 
 
   queryString = ""
   i = 1L
@@ -135,6 +134,7 @@
                                 writefunction = t$update,
                                 headerfunction = h$update,
                                 useragent=R.version.string,
+                                httpheader = c('Connection' = 'close'),
                                 verbose = FALSE,
                                 timeout = timeout_secs,
                                 .opts = opts),
@@ -153,7 +153,7 @@
                             .opts=curlOptions(writefunction = t$update,
                                               headerfunction = h$update,
                                               useragent = R.version.string,
-                                              httpheader = c('Expect' = ''),
+                                              httpheader = c('Expect' = '', 'Connection' = 'close'),
                                               verbose = FALSE,
                                               timeout = timeout_secs,
                                               .opts = opts)),
@@ -171,7 +171,7 @@
                                writefunction = t$update,
                                headerfunction = h$update,
                                useragent = R.version.string,
-                               httpheader = c('Expect' = ''),
+                               httpheader = c('Expect' = '', 'Connection' = 'close'),
                                verbose = FALSE,
                                timeout = timeout_secs,
                                .opts = opts),
@@ -304,6 +304,7 @@
                    parms = parms, method = method, fileUploadInfo = fileUploadInfo, ...)
 
   if (rv$curlError) {
+  
     stop(sprintf("Unexpected CURL error: %s", rv$curlErrorMessage))
   } else if (rv$httpStatusCode != 200) {
     cat("\n")
@@ -429,8 +430,7 @@
                  string = {},
                  {})
         }
-        if( x$name == "Confusion Matrix") attr(tbl, "header") <- paste0(x$name, " - (", x$description, ")")
-        else                              attr(tbl, "header")  <- x$name
+        attr(tbl, "header")  <- x$name
         attr(tbl, "formats") <- fmts
         attr(tbl, "description")   <- descr
         oldClass(tbl) <- c("H2OTable", "data.frame")
@@ -573,10 +573,12 @@ h2o.killMinus3 <- function() {
 h2o.clusterInfo <- function() {
   conn = h2o.getConnection()
   if(! h2o.clusterIsUp(conn)) {
-    ip = conn@ip
-    port = conn@port
     stop(sprintf("Cannot connect to H2O instance at %s", h2o.getBaseURL(conn)))
   }
+
+  ip = conn@ip
+  port = conn@port
+  proxy = conn@proxy
 
   res <- .h2o.fromJSON(jsonlite::fromJSON(.h2o.doSafeGET(urlSuffix = .h2o.__CLOUD), simplifyDataFrame=FALSE))
   nodeInfo <- res$nodes
@@ -592,7 +594,7 @@ h2o.clusterInfo <- function() {
   }
 
   nodeInfo <- res$nodes
-  maxMem   <- sum(sapply(nodeInfo,function(x) as.numeric(x['max_mem']))) / (1024 * 1024 * 1024)
+  freeMem  <- sum(sapply(nodeInfo,function(x) as.numeric(x['free_mem']))) / (1024 * 1024 * 1024)
   numCPU   <- sum(sapply(nodeInfo,function(x) as.numeric(x['num_cpus'])))
   allowedCPU = sum(sapply(nodeInfo,function(x) as.numeric(x['cpus_allowed'])))
   clusterHealth <- all(sapply(nodeInfo,function(x) as.logical(x['healthy'])))
@@ -610,11 +612,15 @@ h2o.clusterInfo <- function() {
   cat("    H2O cluster version:       ", res$version, "\n")
   cat("    H2O cluster name:          ", res$cloud_name, "\n")
   cat("    H2O cluster total nodes:   ", res$cloud_size, "\n")
-  cat("    H2O cluster total memory:  ", sprintf("%.2f GB", maxMem), "\n")
+  cat("    H2O cluster total memory:  ", sprintf("%.2f GB", freeMem), "\n")
   cat("    H2O cluster total cores:   ", numCPU, "\n")
   cat("    H2O cluster allowed cores: ", allowedCPU, "\n")
   cat("    H2O cluster healthy:       ", clusterHealth, "\n")
-
+  cat("    H2O Connection ip:         ", ip, "\n")
+  cat("    H2O Connection port:       ", port, "\n")
+  cat("    H2O Connection proxy:      ", proxy, "\n")
+  cat("    R Version:                 ", R.version.string, "\n")
+  
   cpusLimited = sapply(nodeInfo, function(x) x[['num_cpus']] > 1L && x[['nthreads']] != 1L && x[['cpus_allowed']] == 1L)
   if(any(cpusLimited))
     warning("Number of CPU cores allowed is limited to 1 on some nodes.\n",
@@ -649,13 +655,13 @@ h2o.clusterInfo <- function() {
     healthy = node$healthy
     if (! healthy) {
       ip_port = node$ip_port
-      warning(paste0("H2O cluster node ", ip_port, " is behaving slowly and should be inspected manually"), immediate. = T)
+      warning(paste0("H2O cluster node ", ip_port, " is behaving slowly and should be inspected manually"), immediate. = TRUE)
       overallHealthy = FALSE
     }
   }
   if (! overallHealthy) {
     url <- .h2o.calcBaseURL( conn, h2oRestApiVersion = .h2o.__REST_API_VERSION, urlSuffix = .h2o.__CLOUD)
-    warning(paste0("Check H2O cluster status here: ", url, "\n", collapse = ""), immediate. = T)
+    warning(paste0("Check H2O cluster status here: ", url, "\n", collapse = ""), immediate. = TRUE)
   }
 }
 
@@ -665,11 +671,34 @@ h2o.clusterInfo <- function() {
 #' @export
 h2o.is_client <- function() get("IS_CLIENT", .pkg.env)
 
+
+#'
+#' Disable Progress Bar
+#' 
+#' @export
+h2o.no_progress <- function() assign("PROGRESS_BAR", FALSE, .pkg.env)
+
+#'
+#' Enable Progress Bar
+#' 
+#' @export
+h2o.show_progress <- function() assign("PROGRESS_BAR", TRUE, .pkg.env)
+
+#'
+#' Check if Progress Bar is Enabled 
+#' 
+.h2o.is_progress <- function() {
+  progress <- mget("PROGRESS_BAR", .pkg.env, ifnotfound=TRUE)
+  if (is.list(progress)) progress <- unlist(progress)
+  progress
+}
+
 #-----------------------------------------------------------------------------------------------------------------------
 #   Job Polling
 #-----------------------------------------------------------------------------------------------------------------------
 
-.h2o.__waitOnJob <- function(job_key, pollInterval = 1, progressBar = TRUE) {
+.h2o.__waitOnJob <- function(job_key, pollInterval = 1) {
+  progressBar <- .h2o.is_progress()
   if (progressBar) pb <- txtProgressBar(style = 3L)
   keepRunning <- TRUE
   tryCatch({
@@ -754,6 +783,16 @@ h2o.getBaseURL <- function(conn) {
 h2o.getVersion <- function() {
   res = .h2o.__remoteSend(.h2o.__CLOUD)
   res$version
+}
+
+h2o.getBuildNumber <- function() {
+  res = .h2o.__remoteSend(.h2o.__CLOUD)
+  res$build_number
+}
+
+h2o.getBranchName <- function() {
+  res = .h2o.__remoteSend(.h2o.__CLOUD)
+  res$branch_name
 }
 
 .readableTime <- function(epochTimeMillis) {

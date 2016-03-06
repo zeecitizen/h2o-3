@@ -1,5 +1,7 @@
 setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../h2o-runit.R')
+source("../../scripts/h2o-r-test-setup.R")
+
+
 
 test.pubdev.1844.field.not.found <- function(conn) {
   cars <- h2o.uploadFile(locate("smalldata/junit/cars_20mpg.csv"))

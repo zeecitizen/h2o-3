@@ -1,12 +1,14 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../scripts/h2o-r-test-setup.R")
 ######################################################################
 # Test for HEX-1794
 # UUID
 # Issue: is.na on a UUID column was not giving correct results
 ######################################################################
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+
 options(echo=TRUE)
-source('../h2o-runit.R')
+
 
 test.uuid <- function() {
   Log.info('Importing test_uuid.csv to H2O...')

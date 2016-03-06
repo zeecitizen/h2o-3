@@ -11,6 +11,8 @@ import water.fvec.Vec;
  */
 public class ChunkSummary extends MRTask<ChunkSummary> {
 
+  ChunkSummary() {  super((byte)(Thread.currentThread() instanceof H2O.FJWThr ? currThrPriority()+1 : H2O.MIN_HI_PRIORITY - 2)); }
+
   // static list of chunks for which statistics are to be gathered
   final transient static String[] chunkTypes = new String[]{
     "C0L",
@@ -27,9 +29,11 @@ public class ChunkSummary extends MRTask<ChunkSummary> {
     "C4S",
     "C4F",
     "C8",
+    "CNAXI",                    // NA sparse ints
     "C16",                      // UUID
     "CStr",                     // Strings
     "CXD",                      // Sparse doubles
+    "CNAXD",                    // NA sparse doubles      
     "CUD",                      // Few Unique doubles
     "C8D",                      //leave this as last -> no compression
   };
@@ -37,8 +41,8 @@ public class ChunkSummary extends MRTask<ChunkSummary> {
           "Constant Integers",
           "Constant Reals",
           "Bits",
-          "Sparse Bits",
-          "Sparse Integers",
+          "Zero Sparse Bits",
+          "Zero Sparse Integers",
           "1-Byte Integers",
           "1-Byte Integers (w/o NAs)",
           "1-Byte Fractions",
@@ -48,9 +52,11 @@ public class ChunkSummary extends MRTask<ChunkSummary> {
           "4-Byte Fractions",
           "32-bit Reals",
           "64-bit Integers",
+          "NA Sparse Integers",
           "128-bit UUID",
           "String",
-          "Sparse Reals",
+          "Zero Sparse Reals",
+          "NA Sparse Reals",
           "Unique Reals",
           "64-bit Reals",
   };

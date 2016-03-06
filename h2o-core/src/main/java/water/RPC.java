@@ -4,13 +4,11 @@ import jsr166y.CountedCompleter;
 import jsr166y.ForkJoinPool;
 import water.H2O.FJWThr;
 import water.H2O.H2OCountedCompleter;
-import water.H2ONode.H2OSmallMessage;
 import water.UDP.udp;
 import water.util.Log;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Random;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
@@ -162,7 +160,6 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
     return this;
   }
 
-  private H2OSmallMessage _sentMsg;
   // Make an initial RPC, or re-send a packet.  Always called on 1st send; also
   // called on a timeout.
 
@@ -195,20 +192,15 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
       // make a new UDP-sized packet.  On a re-send of a TCP-sized hunk, just
       // send the basic UDP control packet.
       if( !_sentTcp ) {
-        if(_sentMsg != null) {
-          _sentMsg.increasePriority();
-          _target.sendMessage(_sentMsg);
-        } else while( true ) {         // Retry loop for broken TCP sends
+        while( true ) {         // Retry loop for broken TCP sends
           AutoBuffer ab = new AutoBuffer(_target,_dt.priority());
           try {
             final boolean t;
-            int offset = ab.position();
             ab.putTask(UDP.udp.exec, _tasknum).put1(CLIENT_UDP_SEND);
             ab.put(_dt);
             t = ab.hasTCP();
             assert sz_check(ab) : "Resend of " + _dt.getClass() + " changes size from " + _size + " to " + ab.size() + " for task#" + _tasknum;
             ab.close();        // Then close; send final byte
-            _sentMsg = ab.takeSentMessage();
             _sentTcp = t;  // Set after close (and any other possible fail)
             break;             // Break out of retry loop
           } catch( AutoBuffer.AutoBufferException e ) {
@@ -307,7 +299,7 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
     // Pretty-print bytes 1-15; byte 0 is the udp_type enum
     @Override String print16( AutoBuffer ab ) {
       int flag = ab.getFlag();
-      String clazz = (flag == CLIENT_UDP_SEND) ? TypeMap.className(ab.get2()) : "";
+      String clazz = (flag == CLIENT_UDP_SEND) ? TypeMap.className(ab.getInt()) : "";
       return "task# "+ab.getTask()+" "+ clazz+" "+COOKIES[flag-SERVER_UDP_SEND];
     }
   }
@@ -326,6 +318,7 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
     // if should remain the same size.  Also used for profiling.
     int _size;
     RPCCall(DTask dt, H2ONode client, int tsknum) {
+      super(dt.priority());
       _dt = dt;
       _client = client;
       _tsknum = tsknum;
@@ -333,8 +326,10 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
       _started = System.currentTimeMillis(); // for nack timeout
       _retry = RETRY_MS >> 1; // half retry for sending nack
     }
+    RPCCall(H2ONode client) { _client = client; _tsknum = 0; }
 
-    @Override protected void compute2() {
+    @Override
+    public void compute2() {
       // First set self to be completed when this subtask completer
       assert _dt.getCompleter() == null;
       _dt.setCompleter(this);
@@ -362,7 +357,7 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
         _computed = true;
       }
       _dt.setException(ex);
-      sendAck();
+      sendAck();  // PUBDEV-2630
       return false;
     }
 
@@ -437,7 +432,6 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
       // note the generous 5sec cap: ping at least every 5 sec.
       _retry += (_retry < MAX_TIMEOUT ) ? _retry : MAX_TIMEOUT;
     }
-    @Override protected byte priority() { return _dt.priority(); }
     // How long until we should do the "timeout" action?
     @Override public final long getDelay( TimeUnit unit ) {
       long delay = (_started+_retry)-System.currentTimeMillis();
@@ -466,7 +460,7 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
   // Called from either a F/J thread (generally with a UDP packet) or from the
   // TCPReceiver thread.
   static void remote_exec( AutoBuffer ab ) {
-    long lo = ab.get8(0), hi = ab.get8(8);
+    long lo = ab.get8(0), hi = ab._size >= 16 ? ab.get8(8) : 0;
     final int task = ab.getTask();
     final int flag = ab.getFlag();
     assert flag==CLIENT_UDP_SEND || flag==CLIENT_TCP_SEND; // Client-side send
@@ -580,6 +574,7 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
     return ab.clearForWriting(H2O.ACK_ACK_PRIORITY).putTask(UDP.udp.ackack.ordinal(),tnum);
   }
   protected AutoBuffer response( AutoBuffer ab ) {
+
     assert _tasknum==ab.getTask();
     if( _done ) {
       if(!ab.hasTCP())
@@ -599,10 +594,9 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
           _dt.read(ab);             // Read the answer (under lock?)
           _size_rez = ab.size();    // Record received size
           ab.close();               // Also finish the read (under lock?  even if canceled, since need to drain TCP)
-          if (!isCancelled())      // Can be canceled already (locally by MRTask while recieving remote answer)
+          if (!isCancelled())       // Can be canceled already (locally by MRTask while recieving remote answer)
             _dt.onAck();            // One time only execute (before sending ACKACK)
           _done = true;             // Only read one (of many) response packets
-          _sentMsg = null;
           ab._h2o.taskRemove(_tasknum); // Flag as task-completed, even if the result is null
           notifyAll();              // And notify in any case
         }
@@ -618,19 +612,19 @@ public class RPC<V extends DTask> implements Future<V>, Delayed, ForkJoinPool.Ma
     final Exception e = _dt.getDException();
     // Also notify any and all pending completion-style tasks
     if( _fjtasks != null )
-      for( final H2OCountedCompleter task : _fjtasks )
-        H2O.submitTask(new H2OCountedCompleter() {
-            @Override public void compute2() {
-              if(e != null) // re-throw exception on this side as if it happened locally
-                task.completeExceptionally(e);
-              else try {
-                  task.tryComplete();
-                } catch(Throwable e) {
-                  task.completeExceptionally(e);
-                }
+      for( final H2OCountedCompleter task : _fjtasks ) {
+        H2O.submitTask(new H2OCountedCompleter(task.priority()) {
+          @Override public void compute2() {
+            if (e != null) // re-throw exception on this side as if it happened locally
+              task.completeExceptionally(e);
+            else try {
+              task.__tryComplete(_dt);
+            } catch (Throwable e) {
+              task.completeExceptionally(e);
             }
-            @Override public byte priority() { return task.priority(); }
-          });
+          }
+        });
+      }
   }
 
   // ---

@@ -1,7 +1,9 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../scripts/h2o-r-test-setup.R")
 #----------------------------------------------------------------------
 # Try to slice by using != factor_level
 #----------------------------------------------------------------------
-source('../h2o-runit.R')
+
 options(echo=TRUE)
 library(h2o)
 check.revalue <- function() {

@@ -72,5 +72,11 @@ public class SharedTreeV3<B extends SharedTree, S extends SharedTreeV3<B,S,P>, P
 
     @API(help = "Row sample rate (from 0.0 to 1.0)", gridable = true)
     public float sample_rate;
+
+    @API(help = "Column sample rate per tree (from 0.0 to 1.0)", gridable = true)
+    public float col_sample_rate_per_tree;
+
+    @API(help="Score the model after every so many trees. Disabled if set to 0.", level = API.Level.secondary, gridable = false)
+    public int score_tree_interval;
   }
 }

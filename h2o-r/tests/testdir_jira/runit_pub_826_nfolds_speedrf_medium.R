@@ -1,11 +1,13 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../scripts/h2o-r-test-setup.R")
 ######################################################################
 # Test for PUB-826
 # Check the nfold CM to see if there's clumping of the responses
 ######################################################################
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+
 options(echo=TRUE)
-source('../h2o-runit.R')
+
 
 test.pub.826 <- function() {
   Log.info('Importing the airlines data from smalldata.')

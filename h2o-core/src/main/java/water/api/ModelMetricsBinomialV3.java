@@ -34,6 +34,9 @@ public class ModelMetricsBinomialV3<I extends ModelMetricsBinomial, S extends Mo
   @API(help = "The Metrics for various criteria.", direction = API.Direction.OUTPUT, level = API.Level.secondary)
   public TwoDimTableBase max_criteria_and_metric_scores;
 
+  @API(help = "Gains and Lift table.", direction = API.Direction.OUTPUT, level = API.Level.secondary)
+  public TwoDimTableBase gains_lift_table;
+
   @Override
   public S fillFromImpl(ModelMetricsBinomial modelMetrics) {
     super.fillFromImpl(modelMetrics);
@@ -52,7 +55,7 @@ public class ModelMetricsBinomialV3<I extends ModelMetricsBinomial, S extends Mo
         thresholds[i] = Double.toString(auc._ths[i]);
       AUC2.ThresholdCriterion crits[] = AUC2.ThresholdCriterion.VALUES;
       String[] colHeaders = new String[crits.length+2];
-      String[] colHeadersMax = new String[7];
+      String[] colHeadersMax = new String[9];
       String[] types      = new String[crits.length+2];
       String[] formats    = new String[crits.length+2];
       colHeaders[0] = "Threshold";
@@ -92,6 +95,10 @@ public class ModelMetricsBinomialV3<I extends ModelMetricsBinomial, S extends Mo
       }
 
       max_criteria_and_metric_scores = new TwoDimTableV3().fillFromImpl(maxMetrics);
+    }
+    if (modelMetrics._gainsLift != null) {
+      TwoDimTable t = modelMetrics._gainsLift.createTwoDimTable();
+      if (t!=null) this.gains_lift_table = new TwoDimTableV3().fillFromImpl(t);
     }
     return (S) this;
   }

@@ -1,5 +1,6 @@
 package hex.schemas;
 
+import hex.deeplearning.DeepLearningModel.DeepLearningParameters;
 import hex.glm.GLM;
 import hex.glm.GLMModel.GLMParameters;
 import hex.glm.GLMModel.GLMParameters.Solver;
@@ -38,6 +39,9 @@ public class GLMV3 extends ModelBuilderSchema<GLM,GLMV3,GLMV3.GLMParametersV3> {
             "lambda_search",
             "nlambdas",
             "standardize",
+            "missing_values_handling",
+            "compute_p_values",
+            "remove_collinear_columns",
             "intercept",
             "non_negative",
             "max_iterations",
@@ -55,10 +59,11 @@ public class GLMV3 extends ModelBuilderSchema<GLM,GLMV3,GLMV3.GLMParametersV3> {
             "max_after_balance_size",
             "max_confusion_matrix_size",
             "max_hit_ratio_k",
+            "max_runtime_secs"
     };
 
     // Input fields
-    @API(help = "Family. Use binomial for classification with logistic regression, others are for regression problems.", values = {"gaussian", "binomial", "poisson", "gamma", "tweedie"}, level = Level.critical)
+    @API(help = "Family. Use binomial for classification with logistic regression, others are for regression problems.", values = {"gaussian", "binomial","multinomial", "poisson", "gamma", "tweedie"}, level = Level.critical)
     // took tweedie out since it's not reliable
     public GLMParameters.Family family;
 
@@ -86,6 +91,9 @@ public class GLMV3 extends ModelBuilderSchema<GLM,GLMV3,GLMV3.GLMParametersV3> {
     @API(help = "Standardize numeric columns to have zero mean and unit variance", level = Level.critical)
     public boolean standardize;
 
+    @API(help = "Handling of missing values. Either Skip or MeanImputation.", values = { "Skip", "MeanImputation" }, level = API.Level.expert, direction=API.Direction.INOUT, gridable = true)
+    public DeepLearningParameters.MissingValuesHandling missing_values_handling;
+
     @API(help = "Restrict coefficients (not intercept) to be non-negative")
     public boolean non_negative;
 
@@ -100,6 +108,9 @@ public class GLMV3 extends ModelBuilderSchema<GLM,GLMV3,GLMV3.GLMParametersV3> {
 
     @API(help = "converge if  objective changes less (using L-infinity norm) than this, ONLY applies to L-BFGS solver", level = Level.expert)
     public double gradient_epsilon;
+
+    @API(help="likelihood divider in objective value computation, default is 1/nobs")
+    public double obj_reg;
 
     @API(help = "", level = Level.secondary, values = {"family_default", "identity", "logit", "log", "inverse", "tweedie"})
     public GLMParameters.Link link;
@@ -160,8 +171,12 @@ public class GLMV3 extends ModelBuilderSchema<GLM,GLMV3,GLMV3.GLMParametersV3> {
     @API(help = "Max. number (top K) of predictions to use for hit ratio computation (for multi-class only, 0 to disable)", level = API.Level.secondary, direction=API.Direction.INOUT)
     public int max_hit_ratio_k;
 
+    @API(help="request p-values computation, p-values work only with IRLSM solver and no regularization", level = Level.secondary, direction = Direction.INPUT)
+    public boolean compute_p_values; // _remove_collinear_columns
+
+    @API(help="in case of linearly dependent columns remove some of the dependent columns", level = Level.secondary, direction = Direction.INPUT)
+    public boolean remove_collinear_columns; // _remove_collinear_columns
+
     /////////////////////
-
-
   }
 }

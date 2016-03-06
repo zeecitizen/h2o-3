@@ -4,10 +4,10 @@ import hex.DataInfo;
 import hex.Model;
 import hex.ModelCategory;
 import hex.ModelMetrics;
-import water.DKV;
-import water.Key;
-import water.MRTask;
+import water.*;
+import water.codegen.CodeGenerator;
 import water.codegen.CodeGeneratorPipeline;
+import water.exceptions.JCodeSB;
 import water.fvec.Chunk;
 import water.fvec.Frame;
 import water.util.JCodeGen;
@@ -17,6 +17,11 @@ import water.util.TwoDimTable;
 public class PCAModel extends Model<PCAModel,PCAModel.PCAParameters,PCAModel.PCAOutput> {
 
   public static class PCAParameters extends Model.Parameters {
+    public String algoName() { return "PCA"; }
+    public String fullName() { return "Principle Components Analysis"; }
+    public String javaName() { return PCAModel.class.getName(); }
+    @Override public long progressUnits() { return _pca_method == PCAParameters.Method.GramSVD ? 5 : 3; }
+
     public DataInfo.TransformType _transform = DataInfo.TransformType.NONE; // Data transformation
     public Method _pca_method = Method.GramSVD;   // Method for computing PCA
     public int _k = 1;                     // Number of principal components
@@ -27,8 +32,9 @@ public class PCAModel extends Model<PCAModel,PCAModel.PCAParameters,PCAModel.PCA
     public boolean _impute_missing = false;   // Should missing numeric values be imputed with the column mean?
 
     public enum Method {
-      GramSVD, Power, GLRM
+      GramSVD, Power, Randomized, GLRM
     }
+    @Override protected long nFoldSeed() { return _seed; }
   }
 
   public static class PCAOutput extends Model.Output {
@@ -88,13 +94,14 @@ public class PCAModel extends Model<PCAModel,PCAModel.PCAParameters,PCAModel.PCA
   }
 
   @Override
-  protected Frame predictScoreImpl(Frame orig, Frame adaptedFr, String destination_key) {
+  protected Frame predictScoreImpl(Frame orig, Frame adaptedFr, String destination_key, final Job j) {
     Frame adaptFrm = new Frame(adaptedFr);
     for(int i = 0; i < _parms._k; i++)
       adaptFrm.add("PC"+String.valueOf(i+1),adaptFrm.anyVec().makeZero());
 
     new MRTask() {
       @Override public void map( Chunk chks[] ) {
+        if (isCancelled() || j != null && j.stop_requested()) return;
         double tmp [] = new double[_output._names.length];
         double preds[] = new double[_parms._k];
         for( int row = 0; row < chks[0]._len; row++) {
@@ -102,6 +109,7 @@ public class PCAModel extends Model<PCAModel,PCAModel.PCAParameters,PCAModel.PCA
           for( int c=0; c<preds.length; c++ )
             chks[_output._names.length+c].set(row, p[c]);
         }
+        if (j != null) j.update(1);
       }
     }.doAll(adaptFrm);
 
@@ -111,7 +119,7 @@ public class PCAModel extends Model<PCAModel,PCAModel.PCAParameters,PCAModel.PCA
 
     f = new Frame((null == destination_key ? Key.make() : Key.make(destination_key)), f.names(), f.vecs());
     DKV.put(f);
-    makeMetricBuilder(null).makeModelMetrics(this, orig);
+    makeMetricBuilder(null).makeModelMetrics(this, orig, null, null);
     return f;
   }
 
@@ -147,13 +155,28 @@ public class PCAModel extends Model<PCAModel,PCAModel.PCAParameters,PCAModel.PCA
     sb.ip("public int nfeatures() { return "+_output.nfeatures()+"; }").nl();
     sb.ip("public int nclasses() { return "+_parms._k+"; }").nl();
 
-    if (_output._nnums > 0) {
-      JCodeGen.toStaticVar(sb, "NORMMUL", _output._normMul, "Standardization/Normalization scaling factor for numerical variables.");
-      JCodeGen.toStaticVar(sb, "NORMSUB", _output._normSub, "Standardization/Normalization offset for numerical variables.");
-    }
-    JCodeGen.toStaticVar(sb, "CATOFFS", _output._catOffsets, "Categorical column offsets.");
-    JCodeGen.toStaticVar(sb, "PERMUTE", _output._permutation, "Permutation index vector.");
-    JCodeGen.toStaticVar(sb, "EIGVECS", _output._eigenvectors_raw, "Eigenvector matrix.");
+    // This is model name
+    final String mname = JCodeGen.toJavaId(_key.toString());
+
+    fileCtx.add(new CodeGenerator() {
+      @Override
+      public void generate(JCodeSB out) {
+        if (_output._nnums > 0) {
+          JCodeGen.toClassWithArray(out, null, mname + "_NORMMUL", _output._normMul,
+                                    "Standardization/Normalization scaling factor for numerical variables.");
+          JCodeGen.toClassWithArray(out, null, mname + "_NORMSUB", _output._normSub,
+                                    "Standardization/Normalization offset for numerical variables.");
+        }
+        JCodeGen.toClassWithArray(out, null, mname + "_CATOFFS", _output._catOffsets,
+                                  "Categorical column offsets.");
+        JCodeGen.toClassWithArray(out, null, mname + "_PERMUTE", _output._permutation,
+                                  "Permutation index vector.");
+        JCodeGen.toClassWithArray(out, null, mname + "_EIGVECS", _output._eigenvectors_raw,
+                                  "Eigenvector matrix.");
+      }
+    });
+
+
     return sb;
   }
 
@@ -161,25 +184,28 @@ public class PCAModel extends Model<PCAModel,PCAModel.PCAParameters,PCAModel.PCA
                                              CodeGeneratorPipeline classCtx,
                                              CodeGeneratorPipeline fileCtx,
                                              final boolean verboseCode) {
+    // This is model name
+    final String mname = JCodeGen.toJavaId(_key.toString());
+
     bodySb.i().p("java.util.Arrays.fill(preds,0);").nl();
     final int cats = _output._ncats;
     final int nums = _output._nnums;
-    bodySb.i().p("final int nstart = CATOFFS[CATOFFS.length-1];").nl();
+    bodySb.i().p("final int nstart = ").pj(mname+"_CATOFFS", "VALUES").p("[").pj(mname+"_CATOFFS", "VALUES").p(".length-1];").nl();
     bodySb.i().p("for(int i = 0; i < ").p(_parms._k).p("; i++) {").nl();
 
     // Categorical columns
     bodySb.i(1).p("for(int j = 0; j < ").p(cats).p("; j++) {").nl();
-    bodySb.i(2).p("double d = data[PERMUTE[j]];").nl();
+    bodySb.i(2).p("double d = data[").pj(mname+"_PERMUTE", "VALUES").p("[j]];").nl();
     bodySb.i(2).p("if(Double.isNaN(d)) continue;").nl();
-    bodySb.i(2).p("int last = CATOFFS[j+1]-CATOFFS[j]-1;").nl();
+    bodySb.i(2).p("int last = ").pj(mname+"_CATOFFS", "VALUES").p("[j+1]-").pj(mname+"_CATOFFS", "VALUES").p("[j]-1;").nl();
     bodySb.i(2).p("int c = (int)d").p(_parms._use_all_factor_levels ? ";":"-1;").nl();
     bodySb.i(2).p("if(c < 0 || c > last) continue;").nl();
-    bodySb.i(2).p("preds[i] += EIGVECS[CATOFFS[j]+c][i];").nl();
+    bodySb.i(2).p("preds[i] += ").pj(mname+"_EIGVECS", "VALUES").p("[").pj(mname+"_CATOFFS", "VALUES").p("[j]+c][i];").nl();
     bodySb.i(1).p("}").nl();
 
     // Numeric columns
     bodySb.i(1).p("for(int j = 0; j < ").p(nums).p("; j++) {").nl();
-    bodySb.i(2).p("preds[i] += (data[PERMUTE[j" + (cats > 0 ? "+" + cats : "") + "]]-NORMSUB[j])*NORMMUL[j]*EIGVECS[j" + (cats > 0 ? "+ nstart" : "") +"][i];").nl();
+    bodySb.i(2).p("preds[i] += (data[").pj(mname+"_PERMUTE", "VALUES").p("[j" + (cats > 0 ? "+" + cats : "") + "]]-").pj(mname+"_NORMSUB", "VALUES").p("[j])*").pj(mname+"_NORMMUL", "VALUES").p("[j]*").pj(mname+"_EIGVECS", "VALUES").p("[j" + (cats > 0 ? "+ nstart" : "") +"][i];").nl();
     bodySb.i(1).p("}").nl();
     bodySb.i().p("}").nl();
   }

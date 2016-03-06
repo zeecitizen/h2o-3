@@ -1,11 +1,13 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../scripts/h2o-r-test-setup.R")
 #
 # h2o.ddply
 #
 
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
 
-source('../h2o-runit.R')
+
+
 
 
 h2o.ddplytest <- function(){

@@ -19,7 +19,7 @@ public class SparseTest extends TestUtil {
     int j = 0;
     for(double d:vals)if(d != 0)nonzeros[nzs++] = j++;
     Key key = Vec.newKey();
-    AppendableVec av = new AppendableVec(key);
+    AppendableVec av = new AppendableVec(key, Vec.T_NUM);
     NewChunk nv = new NewChunk(av,0);
     for(double d:vals){
       if(Double.isNaN(d))nv.addNA();
@@ -27,7 +27,7 @@ public class SparseTest extends TestUtil {
       else nv.addNum(d);
     }
     nv.close(0,fs);
-    Vec vec = av.close(fs);
+    Vec vec = av.layout_and_close(fs);
     return vec.chunkForChunkIdx(0);
   }
 
@@ -54,7 +54,7 @@ public class SparseTest extends TestUtil {
     assertTrue(class0.isAssignableFrom(c0.getClass()));
     try{
       assertTrue(class0.isAssignableFrom(c0.getClass()));
-      assertEquals(3,c0.sparseLen());
+      assertEquals(3,c0.sparseLenZero());
       for(int i = 0; i < vals.length; ++i){
         assertEquals(Double.isNaN(vals[i]), c0.isNA(i));
         assertTrue(Double.isNaN(vals[i]) || vals[i] == c0.atd(i));
@@ -78,13 +78,13 @@ public class SparseTest extends TestUtil {
       Chunk c1 = setAndClose(vals[length-1] = v1,length-1,c0,fs);
       assertTrue(class1.isAssignableFrom(c1.getClass()));
       // test sparse set
-      assertEquals(4,c1.sparseLen());
+      assertEquals(4,c1.sparseLenZero());
       assertEquals(Double.isNaN(v1),c1.isNA(length - 1));
       assertTrue(Double.isNaN(v1) || v1 == c1.atd(length - 1));
       Chunk c2 = setAndClose(vals[0] = v2,0,c1,fs);
       assertTrue(class2.isAssignableFrom(c2.getClass()));
       assertTrue(c2.nextNZ(-1) == 0);
-      assertEquals(vals.length,c2.sparseLen());
+      assertEquals(vals.length,c2.sparseLenZero());
       for(int i = 0; i < vals.length; ++i){
         assertEquals(Double.isNaN(vals[i]),c2.isNA(i));
         assertTrue(Double.isNaN(vals[i]) || vals[i] == c2.atd(i));

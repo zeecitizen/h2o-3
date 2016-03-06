@@ -1,5 +1,7 @@
 setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../../h2o-runit.R')
+source("../../../scripts/h2o-r-test-setup.R")
+
+
 
 check.test_KDD_trees <- function(){
     Log.info("Test to verify that identical models produce idential MSEs")

@@ -1,17 +1,14 @@
 package water.api;
 
-import water.H2O;
-import water.Job;
-import water.Key;
-import water.Keyed;
+import water.*;
 import water.api.KeyV3.JobKeyV3;
-import water.util.Log;
 import water.util.PojoUtils;
-import water.util.PrettyPrint;
-import water.util.ReflectionUtils;
+
+import java.io.PrintWriter;
+import java.io.StringWriter;
 
 /** Schema for a single Job. */
-public class JobV3<J extends Job, S extends JobV3<J, S>> extends Schema<J, S> {
+public class JobV3 extends RequestSchema<Job, JobV3> {
 
   // Input fields
   @API(help="Job Key")
@@ -42,31 +39,19 @@ public class JobV3<J extends Job, S extends JobV3<J, S>> extends Schema<J, S> {
   @API(help="exception", direction=API.Direction.OUTPUT)
   public String exception;
 
-  @API(help="Info, warning and error messages; NOTE: can be appended to while the Job is running", direction=API.Direction.OUTPUT)
-  public ValidationMessageBase messages[];
-
-  @API(help="Count of error messages", direction=API.Direction.OUTPUT)
-  public int error_count;
-
+  @API(help="stacktrace", direction=API.Direction.OUTPUT)
+  public String stacktrace;
 
   //==========================
   // Custom adapters go here
 
   // Version&Schema-specific filling into the impl
   @SuppressWarnings("unchecked")
-  @Override public J createImpl( ) {
-    try {
-      Key k = key == null?Key.make():key.key();
-      return this.getImplClass().getConstructor(new Class[]{Key.class,String.class}).newInstance(k,description);
-    }catch (Exception e) {
-      String msg = "Exception instantiating implementation object of class: " + this.getImplClass().toString() + " for schema class: " + this.getClass();
-      Log.err(msg + ": " + e);
-      throw H2O.fail(msg, e);
-    }
-  }
+  @Override public Job createImpl( ) { throw H2O.fail(); } // Cannot make a new Job directly via REST
 
   // Version&Schema-specific filling from the impl
-  @Override public S fillFromImpl(Job job) {
+  @Override public JobV3 fillFromImpl( Job job ) {
+    if( job == null ) return this;
     // Handle fields in subclasses:
     PojoUtils.copyProperties(this, job, PojoUtils.FieldNaming.ORIGIN_HAS_UNDERSCORES);
     PojoUtils.copyProperties(this, job, PojoUtils.FieldNaming.CONSISTENT);  // TODO: make consistent and remove
@@ -75,32 +60,29 @@ public class JobV3<J extends Job, S extends JobV3<J, S>> extends Schema<J, S> {
     description = job._description;
     progress = job.progress();
     progress_msg = job.progress_msg();
-    status = job._state.toString();
-    msec = (job.isStopped() ? job._end_time : System.currentTimeMillis())-job._start_time;
-    Key dest_key = job.dest();
-    Class<? extends Keyed> dest_class = ReflectionUtils.findActualClassParameter(job.getClass(), 0); // What type do we expect for this Job?
-    dest = KeyV3.forKeyedClass(dest_class, dest_key);
-    exception = job._exception;
-
-    // NOTE: the message list can be getting longer in another thread; copy so we don't have a race.
-    Job.ValidationMessage[] vms = job._messages;
-    int num_messages = vms.length;
-    this.messages = new ValidationMessageBase[num_messages];
-    this.error_count = 0;
-
-    for( int i = 0; i < num_messages; ) {
-      Job.ValidationMessage vm = vms[i];
-      if (null == vm) {
-        break;
-      }
-      this.messages[i] = new ValidationMessageV3().fillFromImpl(vm); // TODO: version
-      if (vm.getMessageType() == Job.ValidationMessage.MessageType.ERROR) {
-        this.error_count++;
-      }
-      i++;
+    // Bogus status; Job no longer has these states, but we fake it for /3/Job poller's.
+    // Notice state "CREATED" no long exists and is never returned.
+    // Notice new state "CANCEL_PENDING".
+    if( job.isRunning() )
+      if( job.stop_requested() ) status = "CANCEL_PENDING";
+      else status = "RUNNING";
+    else
+      if( job.stop_requested() ) status = "CANCELLED";
+      else status = "DONE";
+    Throwable ex = job.ex();
+    if( ex != null ) status = "FAILED";
+    exception = ex == null ? null : ex.toString();
+    if (ex!=null) {
+      StringWriter sw = new StringWriter();
+      PrintWriter pw = new PrintWriter(sw);
+      ex.printStackTrace(pw);
+      stacktrace = sw.toString();
     }
+    msec = job.msec();
 
-    return (S) this;
+    Keyed dest_type = (Keyed)TypeMap.theFreezable(job._typeid);
+    dest = job._result == null ? null : KeyV3.make(dest_type.makeSchema(),job._result);
+    return this;
   }
 
   //==========================

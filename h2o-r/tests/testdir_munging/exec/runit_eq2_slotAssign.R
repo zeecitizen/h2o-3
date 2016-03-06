@@ -1,3 +1,5 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../../scripts/h2o-r-test-setup.R")
 ##
 # Test: [<-
 # Description: Select a dataset, select columns, change values in the column, re-assign col
@@ -5,8 +7,8 @@
 # Author: Spencer
 ##
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../../h2o-runit.R')
+
+
 
 #setupRandomSeed(1689636624)
 

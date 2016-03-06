@@ -56,10 +56,10 @@ public class ParseFolderTestBig extends TestUtil {
       File f = find_test_file(fname);
       assert f != null && f.exists():" file not found: " + fname;
       NFSFileVec nfs = NFSFileVec.make(f);
-      Job<Frame> job = ParseDataset.parse(Key.make("BIGSVM.hex"),new Key[]{nfs._key},true,ParseSetup.guessSetup(new Key[]{nfs._key}, false, ParseSetup.GUESS_HEADER),false);
+      Job<Frame> job = ParseDataset.parse(Key.make("BIGSVM.hex"),new Key[]{nfs._key},true,ParseSetup.guessSetup(new Key[]{nfs._key}, false, ParseSetup.GUESS_HEADER),false)._job;
       while( job.progress() < 1.0 ) {
         System.out.print(((int)(job.progress()*1000.0))/10.0 + "% ");
-        try { Thread.sleep(1000); } catch( InterruptedException ie ) { }
+        try { Thread.sleep(1000); } catch (InterruptedException ignore) { /*comment to disable ideaJ warning*/}
       }
       System.out.println();
       k1 = job.get();

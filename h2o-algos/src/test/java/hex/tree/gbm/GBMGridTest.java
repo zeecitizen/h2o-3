@@ -17,6 +17,7 @@ import hex.Model;
 import hex.grid.Grid;
 import hex.grid.GridSearch;
 import water.DKV;
+import water.Job;
 import water.Key;
 import water.TestUtil;
 import water.fvec.Frame;
@@ -24,7 +25,6 @@ import water.fvec.Vec;
 import water.test.util.GridTestUtils;
 import water.util.ArrayUtils;
 
-import static hex.grid.ModelFactories.GBM_MODEL_FACTORY;
 import static org.junit.Assert.assertTrue;
 import static water.util.ArrayUtils.interval;
 
@@ -44,17 +44,18 @@ public class GBMGridTest extends TestUtil {
       fr = parse_test_file("smalldata/junit/cars.csv");
       fr.remove("name").remove(); // Remove unique id
       old = fr.remove("cylinders");
-      fr.add("cylinders", old.toCategorical()); // response to last column
+      fr.add("cylinders", old.toCategoricalVec()); // response to last column
       DKV.put(fr);
 
       // Setup hyperparameter search space
-      HashMap<String, Object[]> hyperParms = new HashMap<>();
-      hyperParms.put("_ntrees", new Integer[]{1, 2});
-      hyperParms.put("_distribution", new Distribution.Family[]{Distribution.Family.multinomial});
-      hyperParms.put("_max_depth", new Integer[]{1, 2, 5});
-      Float[] legalLearnRateOpts = new Float[]{0.01f, 0.1f, 0.3f};
-      Float[] illegalLearnRateOpts = new Float[]{-1f};
-      hyperParms.put("_learn_rate", ArrayUtils.join(legalLearnRateOpts, illegalLearnRateOpts));
+      final Float[] legalLearnRateOpts = new Float[]{0.01f, 0.1f, 0.3f};
+      final Float[] illegalLearnRateOpts = new Float[]{-1f};
+      HashMap<String, Object[]> hyperParms = new HashMap<String, Object[]>() {{
+        put("_ntrees", new Integer[]{1, 2});
+        put("_distribution", new Distribution.Family[]{Distribution.Family.multinomial});
+        put("_max_depth", new Integer[]{1, 2, 5});
+        put("_learn_rate", ArrayUtils.join(legalLearnRateOpts, illegalLearnRateOpts));
+      }};
 
       // Name of used hyper parameters
       String[] hyperParamNames = hyperParms.keySet().toArray(new String[hyperParms.size()]);
@@ -66,7 +67,7 @@ public class GBMGridTest extends TestUtil {
       params._train = fr._key;
       params._response_column = "cylinders";
       // Get the Grid for this modeling class and frame
-      GridSearch gs = GridSearch.startGridSearch(params, hyperParms, GBM_MODEL_FACTORY);
+      Job<Grid> gs = GridSearch.startGridSearch(null, params, hyperParms);
       grid = (Grid<GBMModel.GBMParameters>) gs.get();
       // Make sure number of produced models match size of specified hyper space
       Assert.assertEquals("Size of grid (models+failures) should match to size of hyper space",
@@ -135,19 +136,20 @@ public class GBMGridTest extends TestUtil {
       DKV.put(fr);
 
       // Setup random hyperparameter search space
-      HashMap<String, Object[]> hyperParms = new HashMap<>();
-      hyperParms.put("_distribution", new Distribution.Family[]{Distribution.Family.gaussian});
-      hyperParms.put("_ntrees", new Integer[]{5, 5});
-      hyperParms.put("_max_depth", new Integer[]{2, 2});
-      hyperParms.put("_learn_rate", new Float[]{.1f, .1f});
+      HashMap<String, Object[]> hyperParms = new HashMap<String, Object[]>() {{
+        put("_distribution", new Distribution.Family[]{Distribution.Family.gaussian});
+        put("_ntrees", new Integer[]{5, 5});
+        put("_max_depth", new Integer[]{2, 2});
+        put("_learn_rate", new Float[]{.1f, .1f});
+      }};
 
       // Fire off a grid search
       GBMModel.GBMParameters params = new GBMModel.GBMParameters();
       params._train = fr._key;
       params._response_column = "economy";
 
-      GridSearch gs = GridSearch.startGridSearch(params, hyperParms, GBM_MODEL_FACTORY);
-      grid = (Grid) gs.get();
+      Job<Grid>gs = GridSearch.startGridSearch(null, params, hyperParms);
+      grid = gs.get();
 
       // Check that duplicate model have not been constructed
       Model[] models = grid.getModels();
@@ -229,8 +231,8 @@ public class GBMGridTest extends TestUtil {
       params._train = fr._key;
       params._response_column = "economy (mpg)";
       // Get the Grid for this modeling class and frame
-      GridSearch gs = GridSearch.startGridSearch(params, hyperParms, GBM_MODEL_FACTORY);
-      grid = (Grid) gs.get();
+      Job<Grid> gs = GridSearch.startGridSearch(null, params, hyperParms);
+      grid = gs.get();
 
       System.out.println("ntrees search space: " + Arrays.toString(ntreesSpace));
       System.out.println("max_depth search space: " + Arrays.toString(maxDepthSpace));
@@ -263,16 +265,9 @@ public class GBMGridTest extends TestUtil {
       params._ntrees = ntreeVal;
       params._max_depth = maxDepthVal;
       params._learn_rate = learnRateVal;
-      GBM job = null;
-      try {
-        job = new GBM(params);
-        gbmRebuilt = job.trainModel().get();
-      } finally {
-        if (job != null) {
-          job.remove();
-        }
-      }
-      assertTrue(job._state == water.Job.JobState.DONE);
+      GBM gbm = new GBM(params);
+      gbmRebuilt = gbm.trainModel().get();
+      assertTrue(gbm.isStopped());
 
       // Make sure the MSE metrics match
       //double fromGridMSE = gbmFromGrid._output._scored_train[gbmFromGrid._output._ntrees]._mse;
@@ -282,18 +277,10 @@ public class GBMGridTest extends TestUtil {
       //assertEquals(fromGridMSE, rebuiltMSE);
 
     } finally {
-      if (old != null) {
-        old.remove();
-      }
-      if (fr != null) {
-        fr.remove();
-      }
-      if (grid != null) {
-        grid.remove();
-      }
-      if (gbmRebuilt != null) {
-        gbmRebuilt.remove();
-      }
+      if (old != null) old.remove();
+      if (fr != null) fr.remove();
+      if (grid != null) grid.remove();
+      if (gbmRebuilt != null) gbmRebuilt.remove();
     }
   }
 }

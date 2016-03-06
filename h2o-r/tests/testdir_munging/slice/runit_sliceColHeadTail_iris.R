@@ -1,5 +1,7 @@
 setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../../h2o-runit.R')
+source("../../../scripts/h2o-r-test-setup.R")
+
+
 
 test.slice.colTail <- function() {
   Log.info("Importing iris.csv data...\n")
@@ -19,7 +21,7 @@ test.slice.colTail <- function() {
   sepalLength <- iris.hex[,1]
   
   Log.info("Slicing out the first column still gives an h2o object.")
-  expect_that(sepalLength, is_a("Frame"))
+  expect_that(sepalLength, is_a("H2OFrame"))
   print(head(sepalLength))
   
   Log.info("Tail of sepalLength is:\n")

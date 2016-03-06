@@ -2,7 +2,8 @@ package hex.deeplearning;
 
 import hex.ConfusionMatrix;
 import hex.Distribution;
-import hex.deeplearning.DeepLearningParameters.ClassSamplingMethod;
+import hex.deeplearning.DeepLearningModel.DeepLearningParameters;
+import hex.deeplearning.DeepLearningModel.DeepLearningParameters.ClassSamplingMethod;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Ignore;
@@ -25,7 +26,7 @@ import static hex.ConfusionMatrix.buildCM;
 public class DeepLearningProstateTest extends TestUtil {
   @BeforeClass() public static void setup() { stall_till_cloudsize(1); }
 
-  @Test public void run() throws Exception { runFraction(0.00001f); }
+  @Test public void run() throws Exception { runFraction(0.00002f); }
 
   public void runFraction(float fraction) {
     long seed = 0xDECAF;
@@ -51,13 +52,13 @@ public class DeepLearningProstateTest extends TestUtil {
           if (classification && !frame.vec(resp).isCategorical()) {
             DKV.remove(frame._key);
             String respname = frame.name(resp);
-            Vec r = frame.vec(respname).toCategorical();
+            Vec r = frame.vec(respname).toCategoricalVec();
             frame.remove(respname).remove();
             frame.add(respname, r);
             DKV.put(frame);
 
             DKV.remove(vframe._key);
-            Vec vr = vframe.vec(respname).toCategorical();
+            Vec vr = vframe.vec(respname).toCategoricalVec();
             vframe.remove(respname).remove();
             vframe.add(respname, vr);
             DKV.put(vframe);
@@ -187,7 +188,6 @@ public class DeepLearningProstateTest extends TestUtil {
                                           DeepLearningParameters p = new DeepLearningParameters();
                                           {
                                             Log.info("Using seed: " + myseed);
-                                            p._model_id = Key.make(Key.make().toString() + "first");
                                             p._train = frame._key;
                                             p._response_column = frame._names[resp];
                                             p._valid = valid==null ? null : valid._key;
@@ -212,23 +212,22 @@ public class DeepLearningProstateTest extends TestUtil {
                                             p._score_validation_samples = scorevalidation;
                                             p._classification_stop = -1;
                                             p._regression_stop = -1;
+                                            p._stopping_rounds = 0;
                                             p._balance_classes = classification && balance_classes;
                                             p._quiet_mode = true;
                                             p._score_validation_sampling = csm;
                                             p._elastic_averaging = elastic_averaging;
 //                                      Log.info(new String(p.writeJSON(new AutoBuffer()).buf()).replace(",","\n"));
-                                            DeepLearning dl = new DeepLearning(p);
+                                            DeepLearning dl = new DeepLearning(p, Key.<DeepLearningModel>make(Key.make().toString() + "first"));
                                             try {
                                               model1 = dl.trainModel().get();
                                               checkSums.add(model1.checksum());
                                               testcount++;
                                             } catch(Throwable t) {
-                                              model1 = DKV.getGet(p._model_id);
+                                              model1 = DKV.getGet(dl.dest());
                                               if (model1 != null)
-                                                Assert.assertTrue(model1._output._status == Job.JobState.FAILED);
+                                                Assert.assertTrue(model1._output._job.isCrashed());
                                               throw t;
-                                            } finally {
-                                              dl.remove();
                                             }
                                             Log.info("Trained for " + model1.epoch_counter + " epochs.");
                                             assert( ((p._train_samples_per_iteration <= 0 || p._train_samples_per_iteration >= frame.numRows()) && model1.epoch_counter > epochs)
@@ -270,7 +269,6 @@ public class DeepLearningProstateTest extends TestUtil {
                                           Assert.assertTrue(model1.model_info().get_processed_total() >= frame.numRows() * epochs);
 
                                           {
-                                            p2._model_id = Key.make();
                                             p2._checkpoint = model1._key;
                                             p2._distribution = dist;
                                             p2._loss = loss;
@@ -287,6 +285,7 @@ public class DeepLearningProstateTest extends TestUtil {
                                             p2._quiet_mode = true;
                                             p2._epochs = 2*epochs; //final amount of training epochs
                                             p2._replicate_training_data = replicate2;
+                                            p2._stopping_rounds = 0;
                                             p2._seed = myseed;
 //                                              p2._loss = loss; //fall back to default
 //                                              p2._distribution = dist; //fall back to default
@@ -297,16 +296,14 @@ public class DeepLearningProstateTest extends TestUtil {
                                             try {
                                               model2 = dl.trainModel().get();
                                             } catch(Throwable t) {
-                                              model2 = DKV.getGet(p2._model_id);
+                                              model2 = DKV.getGet(dl.dest());
                                               if (model2 != null)
-                                                Assert.assertTrue(model2._output._status == Job.JobState.FAILED);
+                                                Assert.assertTrue(model2._output._job.isCrashed());
                                               throw t;
-                                            } finally {
-                                              dl.remove();
                                             }
                                           }
-                                          Assert.assertTrue(model1._output._status == Job.JobState.DONE);
-                                          Assert.assertTrue(model2._output._status == Job.JobState.DONE);
+                                          Assert.assertTrue(model1._output._job.isDone());
+                                          Assert.assertTrue(model2._output._job.isDone());
 
                                           assert(model1._parms != p2);
                                           assert(model1.model_info().get_params() != model2.model_info().get_params());
@@ -314,6 +311,7 @@ public class DeepLearningProstateTest extends TestUtil {
                                           assert(model1.model_info().get_params()._l1 == 0);
                                           assert(model1.model_info().get_params()._l2 == 0);
 
+                                          if (!overwrite_with_best_model)
                                           Assert.assertTrue(model2.model_info().get_processed_total() >= frame.numRows() * 2 * epochs);
 
                                           assert(p != p2);
@@ -358,10 +356,10 @@ public class DeepLearningProstateTest extends TestUtil {
                                               // binary
                                               if (model2._output.nclasses() == 2) {
                                                 assert (resp == 1);
-                                                threshold = mm.auc().defaultThreshold();
-                                                error = mm.auc().defaultErr();
+                                                threshold = mm.auc_obj().defaultThreshold();
+                                                error = mm.auc_obj().defaultErr();
                                                 // check that auc.cm() is the right CM
-                                                Assert.assertEquals(new ConfusionMatrix(mm.auc().defaultCM(), model2._output._domains[resp]).err(), error, 1e-15);
+                                                Assert.assertEquals(new ConfusionMatrix(mm.auc_obj().defaultCM(), model2._output._domains[resp]).err(), error, 1e-15);
                                                 // check that calcError() is consistent as well (for CM=null, AUC!=null)
                                                 Assert.assertEquals(mm.cm().err(), error, 1e-15);
 
@@ -398,18 +396,22 @@ public class DeepLearningProstateTest extends TestUtil {
                                             }
                                           }
                                           Log.info("Parameters combination " + count + ": PASS");
-                                        } catch (H2OModelBuilderIllegalArgumentException t) {
-                                          H2O.fail("should not get here");
-                                        } catch (IllegalArgumentException t) {
-                                          H2O.fail("should not get here");
+                                        } catch (H2OModelBuilderIllegalArgumentException | IllegalArgumentException ex) {
+                                          throw H2O.fail("should not get here");
                                         } catch (RuntimeException t) {
                                           Assert.assertTrue(t.getMessage().contains("unstable"));
                                         } catch (Throwable t) {
                                           t.printStackTrace();
                                           throw new RuntimeException(t);
                                         } finally {
-                                          if (model1 != null) model1.delete();
-                                          if (model2 != null) model2.delete();
+                                          if (model1 != null) {
+                                            model1.deleteCrossValidationModels();
+                                            model1.delete();
+                                          }
+                                          if (model2 != null) {
+                                            model2.deleteCrossValidationModels();
+                                            model2.delete();
+                                          }
                                         }
                                       }
                                     }

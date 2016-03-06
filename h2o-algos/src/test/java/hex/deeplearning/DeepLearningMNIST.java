@@ -8,7 +8,7 @@ import water.fvec.Frame;
 import water.fvec.NFSFileVec;
 import water.parser.ParseDataset;
 import water.util.Log;
-
+import hex.deeplearning.DeepLearningModel.DeepLearningParameters;
 import java.io.File;
 
 /**
@@ -50,69 +50,68 @@ public class DeepLearningMNIST extends TestUtil {
 
   @Test @Ignore public void run() {
     Scope.enter();
+    Frame frame=null;
+    Frame vframe=null;
     try {
       File file = find_test_file("bigdata/laptop/mnist/train.csv.gz");
       File valid = find_test_file("bigdata/laptop/mnist/test.csv.gz");
       if (file != null) {
         NFSFileVec trainfv = NFSFileVec.make(file);
-        Frame frame = ParseDataset.parse(Key.make(), trainfv._key);
+        frame = ParseDataset.parse(Key.make(), trainfv._key);
         NFSFileVec validfv = NFSFileVec.make(valid);
-        Frame vframe = ParseDataset.parse(Key.make(), validfv._key);
+        vframe = ParseDataset.parse(Key.make(), validfv._key);
         DeepLearningParameters p = new DeepLearningParameters();
 
         // populate model parameters
-        p._model_id = Key.make("dl_mnist_model");
         p._train = frame._key;
-//        p._valid = vframe._key;
+        p._valid = vframe._key;
         p._response_column = "C785"; // last column is the response
         p._activation = DeepLearningParameters.Activation.RectifierWithDropout;
 //        p._activation = DeepLearningParameters.Activation.MaxoutWithDropout;
-        p._hidden = new int[]{800,800};
-        p._input_dropout_ratio = 0.2;
+        p._hidden = new int[]{128,128,128};
+        p._input_dropout_ratio = 0.0;
+        p._score_training_samples = 0;
+        p._adaptive_rate = false;
+        p._rate = 0.005;
+        p._rate_annealing = 0;
+        p._momentum_start = 0;
+        p._momentum_stable = 0;
         p._mini_batch_size = 1;
-        p._train_samples_per_iteration = 50000;
-        p._score_duty_cycle = 0;
-//        p._shuffle_training_data = true;
+        p._train_samples_per_iteration = -1;
+//        p._score_duty_cycle = 0.1;
+        p._shuffle_training_data = true;
+//        p._reproducible = true;
 //        p._l1= 1e-5;
-//        p._max_w2= 10;
-        p._epochs = 10*5./6;
+        p._max_w2= 1;
+        p._epochs = 20; //1000*10*5./6;
+        p._sparse = true; //faster as activations remain sparse
 
         // Convert response 'C785' to categorical (digits 1 to 10)
         int ci = frame.find("C785");
-        Scope.track(frame.replace(ci, frame.vecs()[ci].toCategorical())._key);
-        Scope.track(vframe.replace(ci, vframe.vecs()[ci].toCategorical())._key);
+        Scope.track(frame.replace(ci, frame.vecs()[ci].toCategoricalVec()));
+        Scope.track(vframe.replace(ci, vframe.vecs()[ci].toCategoricalVec()));
         DKV.put(frame);
         DKV.put(vframe);
 
         // speed up training
-        p._adaptive_rate = true; //disable adaptive per-weight learning rate -> default settings for learning rate and momentum are probably not ideal (slow convergence)
+//        p._adaptive_rate = true; //disable adaptive per-weight learning rate -> default settings for learning rate and momentum are probably not ideal (slow convergence)
         p._replicate_training_data = true; //avoid extra communication cost upfront, got enough data on each node for load balancing
         p._overwrite_with_best_model = true; //no need to keep the best model around
         p._classification_stop = -1;
-        p._score_interval = 60; //score and print progress report (only) every 20 seconds
+//        p._score_interval = 5; //score and print progress report (only) every 20 seconds
         p._score_training_samples = 10000; //only score on a small sample of the training set -> don't want to spend too much time scoring (note: there will be at least 1 row per chunk)
 
-        DeepLearning dl = new DeepLearning(p);
-        DeepLearningModel model = null;
-        try {
-          model = dl.trainModel().get();
-        } catch (Throwable t) {
-          t.printStackTrace();
-          throw new RuntimeException(t);
-        } finally {
-          dl.remove();
-          if (model != null) {
-            model.delete();
-          }
-        }
+        DeepLearning dl = new DeepLearning(p,Key.<DeepLearningModel>make("dl_mnist_model"));
+        DeepLearningModel model = dl.trainModel().get();
+        if (model != null)
+          model.delete();
       } else {
         Log.info("Please run ./gradlew syncBigDataLaptop in the top-level directory of h2o-3.");
       }
-    } catch (Throwable t) {
-      t.printStackTrace();
-      throw new RuntimeException(t);
     } finally {
       Scope.exit();
+      if (vframe!=null) vframe.remove();
+      if (frame!=null) frame.remove();
     }
   }
 }

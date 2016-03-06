@@ -1,12 +1,13 @@
+import sys
+sys.path.insert(1,"../../")
+import h2o
+from tests import pyunit_utils
 ################################################################################
 ##
 ## Verifying that Python can define features as categorical or continuous
 ##
 ################################################################################
 
-import sys, os
-sys.path.insert(1, "../../")
-import h2o, tests
 
 def continuous_or_categorical():
   # connect to h2o
@@ -18,14 +19,14 @@ def continuous_or_categorical():
     'h3': [0, 1, 0, 0, 1]
   }
 
-  df_hex = h2o.H2OFrame(python_obj = aa)
+  df_hex = h2o.H2OFrame(aa)
 
   df_hex.show()
   df_hex.summary()
 
-  assert (not df_hex['h1'].isfactor())
-  assert (df_hex['h2'].isfactor())
-  assert (not df_hex['h3'].isfactor())
+  assert (not df_hex['h1'].isfactor()[0])
+  assert (df_hex['h2'].isfactor()[0])
+  assert (not df_hex['h3'].isfactor()[0])
 
   df_hex['h1'] = df_hex['h1'].asfactor()
   df_hex['h2'] = df_hex['h2'].asfactor()
@@ -34,9 +35,9 @@ def continuous_or_categorical():
   df_hex.show()
   df_hex.summary()
 
-  assert (df_hex['h1'].isfactor())
-  assert (df_hex['h2'].isfactor())
-  assert (df_hex['h3'].isfactor())
+  assert (df_hex['h1'].isfactor()[0])
+  assert (df_hex['h2'].isfactor()[0])
+  assert (df_hex['h3'].isfactor()[0])
 
   df_hex['h1'] = df_hex['h1'].asnumeric()
   df_hex['h2'] = df_hex['h2'].asnumeric()
@@ -45,9 +46,13 @@ def continuous_or_categorical():
   df_hex.show()
   df_hex.summary()
 
-  assert (not df_hex['h1'].isfactor())
-  assert (not df_hex['h2'].isfactor())
-  assert (not df_hex['h3'].isfactor())
+  assert (not df_hex['h1'].isfactor()[0])
+  assert (not df_hex['h2'].isfactor()[0])
+  assert (not df_hex['h3'].isfactor()[0])
+
+
 
 if __name__ == "__main__":
-    tests.run_test(sys.argv, continuous_or_categorical)
+    pyunit_utils.standalone_test(continuous_or_categorical)
+else:
+    continuous_or_categorical()

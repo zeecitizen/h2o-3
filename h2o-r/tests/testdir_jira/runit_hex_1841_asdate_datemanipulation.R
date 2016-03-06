@@ -1,10 +1,12 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../scripts/h2o-r-test-setup.R")
 #
 # date parsing and field extraction tests
 #
 
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../h2o-runit.R')
+
+
 
 print_diff <- function(r, h2o) {
   if (!isTRUE(all.equal(r,h2o))) {

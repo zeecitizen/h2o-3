@@ -1,6 +1,8 @@
-### This tests observation weights in glm ######
 setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../../h2o-runit.R')
+source("../../../scripts/h2o-r-test-setup.R")
+### This tests observation weights in glm ######
+
+
 # TODO: Deduplicate code for lambda=0 and lambda>=0 cases
 
 test_weights_vs_glmnet <- function() {

@@ -1,5 +1,7 @@
 setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../../h2o-runit.R')
+source("../../../scripts/h2o-r-test-setup.R")
+
+
 
 gbm.grid.test <- function() {
     wine.hex <- h2o.uploadFile(locate("smalldata/gbm_test/wine.data"), destination_frame="wine.hex")

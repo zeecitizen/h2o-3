@@ -1,6 +1,10 @@
-import h2o
+from __future__ import print_function
+from __future__ import absolute_import
+from . import h2o
+from .utils.shared_utils import _locate
 import sys, os
 import site
+
 
 def system_file(name):
     """
@@ -20,10 +24,10 @@ def system_file(name):
 
     if h2o_data_path is None:
         if name == "prostate.csv":
-            h2o_data_path = h2o.locate(os.path.join("smalldata", "prostate", name))
+            h2o_data_path = _locate(os.path.join("smalldata", "prostate", name))
 
     if h2o_data_path is None or not os.path.exists(h2o_data_path):
-        raise(ValueError, "This demo depends on " + name + " which could not be found")
+        raise ValueError
 
     return h2o_data_path
 
@@ -44,7 +48,7 @@ def demo(func=None, interactive=True, echo=True, test=False):
     if   func == "gbm":          gbm_demo(         interactive, echo, test)
     elif func == "deeplearning": deeplearning_demo(interactive, echo, test)
     elif func == "glm":          glm_demo(         interactive, echo, test)
-    else: print "Demo for {0} has not been implemented.".format(func)
+    else: print("Demo for {0} has not been implemented.".format(func))
 
 def gbm_demo(interactive, echo, test):
     h2o_data_path = system_file("prostate.csv")
@@ -83,14 +87,14 @@ def gbm_demo(interactive, echo, test):
                      '>>> performance = prostate_gbm.model_performance(test)',
                      '>>> performance.show()\n']
 
-    for line in demo_description: print line
-    print
+    for line in demo_description: print(line)
+    print()
 
     echo_and_interact(demo_commands, interactive, echo)
     if not test: h2o.init()
 
     echo_and_interact(demo_commands, interactive, echo)
-    prostate = h2o.upload_file(path = h2o_data_path)
+    prostate = h2o.upload_file(path=h2o_data_path)
 
     echo_and_interact(demo_commands, interactive, echo)
     prostate.summary()
@@ -155,8 +159,8 @@ def deeplearning_demo(interactive, echo, test):
                      '>>> performance = prostate_dl.model_performance(test)',
                      '>>> performance.show()\n']
 
-    for line in demo_description: print line
-    print
+    for line in demo_description: print(line)
+    print()
 
     echo_and_interact(demo_commands, interactive, echo)
     if not test: h2o.init()
@@ -215,7 +219,7 @@ def glm_demo(interactive, echo, test):
                      '\n# Convert the response columns to factors (for binary classification problems)',
                      '>>> train["CAPSULE"] = train["CAPSULE"].asfactor()',
                      '>>> test["CAPSULE"] = test["CAPSULE"].asfactor()\n',
-                     '\n# Build a (classification) GBM',
+                     '\n# Build a (classification) GLM',
                      '>>> prostate_glm = h2o.glm(x=train[["AGE", "RACE", "PSA", "VOL", "GLEASON"]], '
                      'y=train["CAPSULE"], family="binomial", alpha=[0.5])\n',
                      '\n# Show the model',
@@ -227,14 +231,14 @@ def glm_demo(interactive, echo, test):
                      '>>> performance = prostate_glm.model_performance(test)',
                      '>>> performance.show()\n']
 
-    for line in demo_description: print line
-    print
+    for line in demo_description: print(line)
+    print()
 
     echo_and_interact(demo_commands, interactive, echo)
     if not test: h2o.init()
 
     echo_and_interact(demo_commands, interactive, echo)
-    prostate = h2o.upload_file(path = h2o_data_path)
+    prostate = h2o.upload_file(path=h2o_data_path)
 
     echo_and_interact(demo_commands, interactive, echo)
     prostate.summary()
@@ -266,6 +270,6 @@ def glm_demo(interactive, echo, test):
 def echo_and_interact(demo_commands, interactive, echo, npop=2):
     if demo_commands:
         if echo:
-            for p in range(npop): print demo_commands.pop(0)
+            for p in range(npop): print(demo_commands.pop(0))
         if interactive:
             raw_input('Press ENTER...\n')

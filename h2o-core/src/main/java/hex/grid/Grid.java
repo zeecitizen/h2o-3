@@ -1,87 +1,59 @@
 package hex.grid;
 
+import hex.*;
+import water.*;
+import water.fvec.Frame;
+import water.util.*;
+import water.util.PojoUtils.FieldNaming;
+
 import java.lang.reflect.Array;
 import java.util.Arrays;
 import java.util.Collection;
 
-import hex.Model;
-import water.Futures;
-import water.H2O;
-import water.Key;
-import water.Lockable;
-import water.fvec.Frame;
-import water.util.ArrayUtils;
-import water.util.IcedHashMap;
-import water.util.IcedLong;
-import water.util.PojoUtils;
-import water.util.PojoUtils.FieldNaming;
-import water.util.StringUtils;
-
 /**
- * A Grid of Models representing result of hyper-parameter space exploration.  Lazily filled in,
- * this object represents the potentially infinite variety of hyperparameters of a given model &
- * dataset.
+ * A Grid of Models representing result of hyper-parameter space exploration.
+ * Lazily filled in, this object represents the potentially infinite variety
+ * of hyperparameters of a given model & dataset.
  *
  * @param <MP> type of model build parameters
  */
-public class Grid<MP extends Model.Parameters>
-    extends Lockable<Grid<MP>> {
+public class Grid<MP extends Model.Parameters> extends Lockable<Grid<MP>> {
 
   /**
    * Publicly available Grid prototype - used by REST API.
    *
    * @see hex.schemas.GridSchemaV99
    */
-  public static final Grid GRID_PROTO = new Grid(null, null, null, null, null);
+  public static final Grid GRID_PROTO = new Grid(null, null, null, null);
 
-  /**
-   * A cache of double[] hyper-parameters mapping to Models.
-   */
-  private final IcedHashMap<IcedLong, Key<Model>> _cache = new IcedHashMap<>();
+  // A cache of double[] hyper-parameters mapping to Models.
+  private final IcedHashMap<IcedLong, Key<Model>> _models = new IcedHashMap<>();
 
-  /**
-   * Used "based" model parameters for this grid search.
-   */
+  // Used "based" model parameters for this grid search.
   private final MP _params;
 
-  /**
-   * Failed model parameters - represents points in hyper space for which model generation failed.
-   * If the element is null, then look into
-   */
+  // Failed model parameters - represents points in hyper space for which model
+  // generation failed.  If the element is null, then look into
   private MP[] _failed_params;
 
-  /**
-   * Detailed messages about a failure for given failed model parameters in
-   * <code>_failed_params</code>.
-   */
+  // Detailed messages about a failure for given failed model parameters in
+  // <code>_failed_params</code>.
   private String[] _failure_details;
 
-  /**
-   * Collected stack trace for failure.
-   */
+  // Collected stack trace for failure.
   private String[] _failure_stack_traces;
 
-  /**
-   * Contains "raw" representation of parameters which fail The parameters are represented in
-   * textual form, since simple <code>java.lang.Object</code> cannot be serialized by H2O
-   * serialization.
-   */
+  // Contains "raw" representation of parameters which fail The parameters are
+  // represented in textual form, since simple <code>java.lang.Object</code>
+  // cannot be serialized by H2O serialization.
   private String[][] _failed_raw_params;
 
-  /**
-   * Name of model generated included in this grid.
-   */
-  private final String _modelName;
-
-  /**
-   * Names of used hyper parameters for this grid search.
-   */
+  // Names of used hyper parameters for this grid search.
   private final String[] _hyper_names;
 
-  /**
-   *
-   */
   private final FieldNaming _field_naming_strategy;
+
+  private ScoringInfo[] _scoring_infos = null;
 
   /**
    * Construct a new grid object to store results of grid search.
@@ -89,13 +61,11 @@ public class Grid<MP extends Model.Parameters>
    * @param key        reference to this object
    * @param params     initial parameters used by grid search
    * @param hyperNames names of used hyper parameters
-   * @param modelName  name of model included in this object (e.g., "GBM")
    */
-  protected Grid(Key key, MP params, String[] hyperNames, String modelName, FieldNaming fieldNaming) {
+  protected Grid(Key key, MP params, String[] hyperNames, FieldNaming fieldNaming) {
     super(key);
     _params = params != null ? (MP) params.clone() : null;
     _hyper_names = hyperNames;
-    _modelName = modelName;
     Class<MP> paramsClass = params != null ? (Class<MP>) params.getClass() : null;
     _failed_params = paramsClass != null ? (MP[]) Array.newInstance(paramsClass, 0) : null;
     _failure_details = new String[]{};
@@ -105,13 +75,23 @@ public class Grid<MP extends Model.Parameters>
   }
 
   /**
-   * Returns name of model included in this object.
+   * Returns name of model included in this object.  Note: only sensible for
+   * Grids which search over a single class of Models.
    *
    * @return name of model (for example, "DRF", "GBM")
    */
   public String getModelName() {
-    return _modelName;
+    return _params.algoName();
   }
+
+  public ScoringInfo[] getScoringInfos() {
+    return _scoring_infos;
+  }
+
+  public void setScoringInfos(ScoringInfo[] scoring_infos) {
+    this._scoring_infos = scoring_infos;
+  }
+
 
   /**
    * Ask the Grid for a suggested next hyperparameter value, given an existing Model as a starting
@@ -156,7 +136,7 @@ public class Grid<MP extends Model.Parameters>
   }
 
   Key<Model> getModelKey(long paramsChecksum) {
-    Key<Model> mKey = _cache.get(IcedLong.valueOf(paramsChecksum));
+    Key<Model> mKey = _models.get(IcedLong.valueOf(paramsChecksum));
     return mKey;
   }
 
@@ -164,12 +144,12 @@ public class Grid<MP extends Model.Parameters>
    * parameters are not imutable and model builder modifies them! */
   /* package */
   synchronized Key<Model> putModel(long checksum, Key<Model> modelKey) {
-    return _cache.put(IcedLong.valueOf(checksum), modelKey);
+    return _models.put(IcedLong.valueOf(checksum), modelKey);
   }
 
   /**
    * This method appends a new item to the list of failed model parameters.
-   *
+   * <p/>
    * <p> The failed parameters object represents a point in hyper space which cannot be used for
    * model building. </p>
    *
@@ -204,10 +184,10 @@ public class Grid<MP extends Model.Parameters>
 
   /**
    * This method appends a new item to the list of failed model parameters.
-   *
+   * <p/>
    * <p> The failed parameters object represents a point in hyper space which cannot be used for
    * model building.</p>
-   *
+   * <p/>
    * <p> Should be used only from <code>GridSearch</code> job.</p>
    *
    * @param params model parameters which caused model builder failure
@@ -221,10 +201,10 @@ public class Grid<MP extends Model.Parameters>
 
   /**
    * This method appends a new item to the list of failed hyper-parameters.
-   *
+   * <p/>
    * <p> The failed parameters object represents a point in hyper space which cannot be used to
    * construct a new model parameters.</p>
-   *
+   * <p/>
    * <p> Should be used only from <code>GridSearch</code> job.</p>
    *
    * @param rawParams list of "raw" hyper values which caused a failure to prepare model parameters
@@ -241,7 +221,7 @@ public class Grid<MP extends Model.Parameters>
    * @return list of model keys
    */
   public Key<Model>[] getModelKeys() {
-    return _cache.values().toArray(new Key[_cache.size()]);
+    return _models.values().toArray(new Key[_models.size()]);
   }
 
   /**
@@ -250,7 +230,7 @@ public class Grid<MP extends Model.Parameters>
    * @return all models in this grid
    */
   public Model[] getModels() {
-    Collection<Key<Model>> modelKeys = _cache.values();
+    Collection<Key<Model>> modelKeys = _models.values();
     Model[] models = new Model[modelKeys.size()];
     int i = 0;
     for (Key<Model> mKey : modelKeys) {
@@ -264,7 +244,7 @@ public class Grid<MP extends Model.Parameters>
    * Returns number of models in this grid.
    */
   public int getModelCount() {
-    return _cache.size();
+    return _models.size();
   }
 
   /**
@@ -276,10 +256,10 @@ public class Grid<MP extends Model.Parameters>
 
   /**
    * Returns an array of model parameters which caused model build failure.
-   *
+   * <p/>
    * The null-element in the array means, that model parameters cannot be constructed, and the
    * client should use {@link #getFailedParameters()} to obtain "raw" model parameters.
-   *
+   * <p/>
    * Note: cannot return <code>MP[]</code> because of PUBDEV-1863 See:
    * https://0xdata.atlassian.net/browse/PUBDEV-1863
    */
@@ -294,7 +274,8 @@ public class Grid<MP extends Model.Parameters>
     return _failure_details;
   }
 
-  /** Returns string representation of model build failures'
+  /**
+   * Returns string representation of model build failures'
    * stack traces.
    */
   public String[] getFailureStackTraces() {
@@ -334,16 +315,86 @@ public class Grid<MP extends Model.Parameters>
   // Cleanup models and grid
   @Override
   protected Futures remove_impl(final Futures fs) {
-    for (Key<Model> k : _cache.values()) {
+    for (Key<Model> k : _models.values())
       k.remove(fs);
-    }
-    _cache.clear();
+    _models.clear();
     return fs;
+  }
+
+  /**
+   * Write out K/V pairs
+   */
+  @Override
+  protected AutoBuffer writeAll_impl(AutoBuffer ab) {
+    for (Key<Model> k : _models.values())
+      ab.putKey(k);
+    return super.writeAll_impl(ab);
+  }
+
+  @Override
+  protected Keyed readAll_impl(AutoBuffer ab, Futures fs) {
+    throw H2O.unimpl();
   }
 
   @Override
   protected long checksum_impl() {
     throw H2O.unimpl();
   }
-}
 
+  @Override
+  public Class<water.api.KeyV3.GridKeyV3> makeSchema() {
+    return water.api.KeyV3.GridKeyV3.class;
+  }
+
+  public TwoDimTable createSummaryTable(Key<Model>[] model_ids, String sort_by, boolean decreasing) {
+    if (_hyper_names == null || model_ids == null || model_ids.length == 0) return null;
+    int extra_len = sort_by != null ? 2 : 1;
+    String[] colTypes = new String[_hyper_names.length + extra_len];
+    Arrays.fill(colTypes, "string");
+    String[] colFormats = new String[_hyper_names.length + extra_len];
+    Arrays.fill(colFormats, "%s");
+    String[] colNames = Arrays.copyOf(_hyper_names, _hyper_names.length + extra_len);
+    colNames[_hyper_names.length] = "model_ids";
+    if (sort_by != null)
+      colNames[_hyper_names.length + 1] = sort_by;
+    TwoDimTable table = new TwoDimTable("Hyper-Parameter Search Summary",
+            sort_by != null ? "ordered by " + (decreasing ? "decreasing " : "increasing ") + sort_by : null,
+            new String[_models.size()], colNames, colTypes, colFormats, "");
+    int i = 0;
+    for (Key<Model> km : model_ids) {
+      Model m = DKV.getGet(km);
+      Model.Parameters parms = m._parms;
+      int j;
+      for (j = 0; j < _hyper_names.length; ++j)
+        table.set(i, j, PojoUtils.getFieldValue(parms, _hyper_names[j], _field_naming_strategy));
+      table.set(i, j, km.toString());
+      if (sort_by != null) table.set(i, j + 1, ModelMetrics.getMetricFromModel(km, sort_by));
+      i++;
+    }
+    Log.info(table);
+    return table;
+  }
+
+  public TwoDimTable createScoringHistoryTable() {
+    if (0 == _models.values().size()) {
+      return ScoringInfo.createScoringHistoryTable(_scoring_infos, false, false, ModelCategory.Binomial, false);
+    }
+
+    Key<Model> k = null;
+
+    for (Key<Model> foo : _models.values()) {
+      k = foo;
+      break;
+    }
+
+    Model m = k.get();
+
+    if (null == m) {
+      Log.warn("Cannot create grid scoring history table; Model has been removed: " + k);
+      return ScoringInfo.createScoringHistoryTable(_scoring_infos, false, false, ModelCategory.Binomial, false);
+    }
+
+    ScoringInfo scoring_info = _scoring_infos != null && _scoring_infos.length > 0 ? _scoring_infos[0] : null;
+    return ScoringInfo.createScoringHistoryTable(_scoring_infos, (scoring_info != null ? scoring_info.validation : false), (scoring_info != null ? scoring_info.cross_validation: false), m._output.getModelCategory(), (scoring_info != null ? scoring_info.is_autoencoder : false));
+  }
+}

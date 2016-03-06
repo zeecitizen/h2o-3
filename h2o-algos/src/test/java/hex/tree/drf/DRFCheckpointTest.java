@@ -11,8 +11,8 @@ import water.exceptions.H2OIllegalArgumentException;
 import water.fvec.Frame;
 import water.fvec.Vec;
 
-import static water.serial.ModelSerializationTest.assertTreeEquals;
-import static water.serial.ModelSerializationTest.getTrees;
+import static water.ModelSerializationTest.assertTreeEquals;
+import static water.ModelSerializationTest.getTrees;
 
 public class DRFCheckpointTest extends TestUtil {
 
@@ -72,7 +72,7 @@ public class DRFCheckpointTest extends TestUtil {
     // If classification turn response into categorical
     if (classification) {
       Vec respVec = f.vec(responseIdx);
-      f.replace(responseIdx, respVec.toCategorical()).remove();
+      f.replace(responseIdx, respVec.toCategoricalVec()).remove();
       DKV.put(f._key, f);
     }
     DRFModel model = null;
@@ -80,7 +80,6 @@ public class DRFCheckpointTest extends TestUtil {
     DRFModel modelFinal = null;
     try {
       DRFModel.DRFParameters drfParams = new DRFModel.DRFParameters();
-      drfParams._model_id = Key.make("Initial model");
       drfParams._train = f._key;
       drfParams._response_column = f.name(responseIdx);
       drfParams._ntrees = ntreesInPriorModel;
@@ -88,10 +87,9 @@ public class DRFCheckpointTest extends TestUtil {
       drfParams._max_depth = 10;
       drfParams._score_each_iteration = true;
       drfParams._sample_rate = sampleRateInPriorModel;
-      model = new DRF(drfParams).trainModel().get();
+      model = new DRF(drfParams,Key.<DRFModel>make("Initial model")).trainModel().get();
 
       DRFModel.DRFParameters drfFromCheckpointParams = new DRFModel.DRFParameters();
-      drfFromCheckpointParams._model_id = Key.make("Model from checkpoint");
       drfFromCheckpointParams._train = f._key;
       drfFromCheckpointParams._response_column = f.name(responseIdx);
       drfFromCheckpointParams._ntrees = ntreesInPriorModel + ntreesInNewModel;
@@ -100,18 +98,17 @@ public class DRFCheckpointTest extends TestUtil {
       drfFromCheckpointParams._score_each_iteration = true;
       drfFromCheckpointParams._max_depth = 10;
       drfFromCheckpointParams._sample_rate = sampleRateInNewModel;
-      modelFromCheckpoint = new DRF(drfFromCheckpointParams).trainModel().get();
+      modelFromCheckpoint = new DRF(drfFromCheckpointParams,Key.<DRFModel>make("Model from checkpoint")).trainModel().get();
 
-      // Compute a separated model containing the same numnber of trees as a model built from checkpoint
+      // Compute a separated model containing the same number of trees as a model built from checkpoint
       DRFModel.DRFParameters drfFinalParams = new DRFModel.DRFParameters();
-      drfFinalParams._model_id = Key.make("Validation model");
       drfFinalParams._train = f._key;
       drfFinalParams._response_column = f.name(responseIdx);
       drfFinalParams._ntrees = ntreesInPriorModel + ntreesInNewModel;
       drfFinalParams._seed = 42;
       drfFinalParams._score_each_iteration = true;
       drfFinalParams._max_depth = 10;
-      modelFinal = new DRF(drfFinalParams).trainModel().get();
+      modelFinal = new DRF(drfFinalParams,Key.<DRFModel>make("Validation model")).trainModel().get();
 
       CompressedTree[][] treesFromCheckpoint = getTrees(modelFromCheckpoint);
       CompressedTree[][] treesFromFinalModel = getTrees(modelFinal);

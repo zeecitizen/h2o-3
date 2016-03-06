@@ -15,7 +15,7 @@ class FindHandler extends Handler {
 
   @SuppressWarnings("unused") // called through reflection by RequestServer
   public FindV3 find(int version, FindV3 find) {
-    Frame frame = find.key.createAndFillImpl();
+    Frame frame = find.key._fr;
     // Peel out an optional column; restrict to this column
     if( find.column != null ) {
       Vec vec = frame.vec(find.column);
@@ -65,7 +65,10 @@ class FindHandler extends Handler {
     final long _row;
     final double[] _ds;
     long _prev, _next;
-    Find( long row, double[] ds ) { _row = row; _ds = ds; _prev = -1; _next = Long.MAX_VALUE; }
+    Find( long row, double[] ds ) { 
+      super((byte)(H2O.GUI_PRIORITY - 2));
+      _row = row; _ds = ds; _prev = -1; _next = Long.MAX_VALUE; 
+    }
     @Override public void map( Chunk cs[] ) {
       for( int col = 0; col<cs.length; col++ ) {
         Chunk C = cs[col];

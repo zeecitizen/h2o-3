@@ -290,6 +290,9 @@ final public class Key<T extends Keyed> extends Iced<Key<T>> implements Comparab
   public static <P extends Keyed> Key<P> makeSystem(String s) {
     return make(s,DEFAULT_DESIRED_REPLICA_FACTOR,BUILT_IN_KEY, false);
   }
+  public static <P extends Keyed> Key<P> makeUserHidden(String s) {
+    return make(s,DEFAULT_DESIRED_REPLICA_FACTOR,HIDDEN_USER_KEY, false);
+  }
 
   /**
    * Make a random key, homed to a given node.
@@ -327,7 +330,7 @@ final public class Key<T extends Keyed> extends Iced<Key<T>> implements Comparab
 
 
   // Make a Key which is homed to specific nodes.
-  static <P extends Keyed> Key<P> make(byte[] kb, byte rf, byte systemType, boolean required, H2ONode... replicas) {
+  public static <P extends Keyed> Key<P> make(byte[] kb, byte rf, byte systemType, boolean required, H2ONode... replicas) {
     // no more than 3 replicas allowed to be stored in the key
     assert 0 <=replicas.length && replicas.length<=3;
     assert systemType<32; // only system keys allowed
@@ -358,14 +361,6 @@ final public class Key<T extends Keyed> extends Iced<Key<T>> implements Comparab
     Value val = DKV.get(this);
     if( val!=null ) ((Keyed)val.get()).remove(fs);
     return fs;
-  }
-
-  // Hide a user key by turning it into a system key of type HIDDEN_USER_KEY
-  public static <P extends Keyed> Key<P> makeUserHidden(final Key<P> orig) {
-    if (!orig.user_allowed()) return orig; //already hidden
-    byte[] kb = orig._kb.clone();
-    kb[0] = Key.HIDDEN_USER_KEY;
-    return Key.make(kb);
   }
 
   /** True if a {@link #USER_KEY} and not a system key.
@@ -446,6 +441,7 @@ final public class Key<T extends Keyed> extends Iced<Key<T>> implements Comparab
     if( what.length()==0 ) return null;
     if (what.charAt(0) == MAGIC_CHAR) {
       int len = what.indexOf(MAGIC_CHAR,1);
+      if( len < 0 ) throw new IllegalArgumentException("No matching magic '"+MAGIC_CHAR+"', key name is not legal");
       String tail = what.substring(len+1);
       byte[] res = new byte[(len-1)/2 + tail.length()];
       int r = 0;

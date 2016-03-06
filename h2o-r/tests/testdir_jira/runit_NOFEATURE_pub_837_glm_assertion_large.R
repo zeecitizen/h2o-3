@@ -1,11 +1,13 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../scripts/h2o-r-test-setup.R")
 ##
 # NOPASS TEST: The following bug is associated with JIRA PUB-837
 # 'GLM with Cross Validation: ArrayIndexOutOfBoundsException: 89'
 # Testing glm cross validation performance with adult dataset
 ##
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../h2o-runit.R')
+
+
 
 
 test <- function() {

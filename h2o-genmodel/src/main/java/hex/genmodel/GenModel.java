@@ -197,7 +197,7 @@ public abstract class GenModel implements IGenModel, IGeneratedModel, Serializab
 
     long hash = 0;              // hash for tie-breaking
     if( data != null )
-      for( double d : data ) hash ^= Double.doubleToRawLongBits(d) >> 6; // drop 6 least significants bits of mantisa (layout of long is: 1b sign, 11b exp, 52b mantisa)
+      for( double d : data ) hash ^= Double.doubleToRawLongBits(d) >> 6; // drop 6 least significants bits of mantissa (layout of long is: 1b sign, 11b exp, 52b mantisa)
 
     if (priorClassDist!=null) {
       // Tie-breaking based on prior probabilities
@@ -401,5 +401,7 @@ public abstract class GenModel implements IGenModel, IGeneratedModel, Serializab
   public static double GLM_logitInv( double x ) { return 1.0 / (Math.exp(-x) + 1.0); }
   public static double GLM_logInv( double x ) { return Math.exp(x); }
   public static double GLM_inverseInv( double x ) {  double xx = (x < 0) ? Math.min(-1e-5, x) : Math.max(1e-5, x); return 1.0 / xx; }
-  public static double GLM_tweedieInv( double x, double tweedie_link_power ) { return Math.pow(x, 1/ tweedie_link_power); }
+  public static double GLM_tweedieInv( double x, double tweedie_link_power ) {
+    return tweedie_link_power == 0?Math.max(2e-16,Math.exp(x)):Math.pow(x, 1.0/ tweedie_link_power);
+  }
 }

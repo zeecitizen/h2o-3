@@ -1,10 +1,12 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../scripts/h2o-r-test-setup.R")
 # Parse the header,test  and train files
 # Build glm model with lambda search
 # Predict using all models and calculate auc for each model
 # Compare the aucs returned with those calculated by ROCR package
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../h2o-runit.R')
+
+
 
 test.pub.822 <- function() {
 print("Parse header file")

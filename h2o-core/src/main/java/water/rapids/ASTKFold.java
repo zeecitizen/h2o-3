@@ -4,6 +4,7 @@ import water.MRTask;
 import water.fvec.Chunk;
 import water.fvec.Frame;
 import water.fvec.Vec;
+import water.util.VecUtils;
 
 import java.util.Random;
 
@@ -45,7 +46,7 @@ public class ASTKFold extends ASTPrim {
     // therefore, have a seed per class to be used by the map call
     if( !(y.isCategorical() || (y.isNumeric() && y.isInt())) )
       throw new IllegalArgumentException("stratification only applies to integer and categorical columns. Got: " + y.get_type_str());
-    final long[] classes = new Vec.CollectDomain().doAll(y).domain();
+    final long[] classes = new VecUtils.CollectDomain().doAll(y).domain();
     final int nClass = y.isNumeric() ? classes.length : y.domain().length;
     final long[] seeds = new long[nClass]; // seed for each regular fold column (one per class)
     for( int i=0;i<nClass;++i)
@@ -53,7 +54,7 @@ public class ASTKFold extends ASTPrim {
 
     return new MRTask() {
 
-      private int getFoldId(int absoluteRow, long seed) {
+      private int getFoldId(long absoluteRow, long seed) {
         return Math.abs(getRNG(absoluteRow + seed).nextInt()) % nfolds;
       }
 
@@ -77,7 +78,7 @@ public class ASTKFold extends ASTPrim {
       //      Downside is this performs nfolds*nClass passes over each Chunk. For
       //      "reasonable" classification problems, this could be 100 passes per Chunk.
       @Override public void map(Chunk[] y) {
-        int start = (int)y[0].start();
+        long start = y[0].start();
         for(int testFold=0; testFold < nfolds; ++testFold) {
           for(int classLabel = 0; classLabel < nClass; ++classLabel) {
             for(int row=0;row<y[0]._len;++row ) {

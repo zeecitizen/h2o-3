@@ -14,6 +14,7 @@ public class DRFV3 extends SharedTreeV3<DRF,DRFV3, DRFV3.DRFParametersV3> {
         "nfolds",
         "keep_cross_validation_predictions",
         "score_each_iteration",
+        "score_tree_interval",
         "fold_assignment",
         "fold_column",
 				"response_column",
@@ -33,12 +34,17 @@ public class DRFV3 extends SharedTreeV3<DRF,DRFV3, DRFV3.DRFParametersV3> {
         "nbins_top_level",
 				"nbins_cats",
 				"r2_stopping",
+        "stopping_rounds",
+        "stopping_metric",
+        "stopping_tolerance",
+        "max_runtime_secs",
 				"seed",
 				"build_tree_one_node",
         "mtries",
         "sample_rate",
         "binomial_double_trees",
-        "checkpoint"
+        "checkpoint",
+        "col_sample_rate_per_tree"
     };
 
     // Input fields

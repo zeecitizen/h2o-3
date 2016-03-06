@@ -38,7 +38,24 @@ trap cleanup SIGTERM SIGINT
 # kbn: Rather than let it default heap to 1/4 of available dram,
 # ece: use default heap size until PUBDEV-2142 resolved
 # make it consistent for test. It's 2G is h2o-algos. So mimic that.
-JVM="nice java -ea -cp build/classes/test${SEP}build/classes/main${SEP}../h2o-genmodel/build/libs/h2o-genmodel.jar${SEP}../lib/*"
+
+# Find java command
+if [ -z "$TEST_JAVA_HOME" ]; then
+  # Use default
+  JAVA_CMD="java"
+else
+  # Use test java home
+  JAVA_CMD="$TEST_JAVA_HOME/bin/java"
+  # Increase XMX since JAVA_HOME can point to java6
+  JAVA6_REGEXP=".*1\.6.*"
+  if [[ $TEST_JAVA_HOME =~ $JAVA6_REGEXP ]]; then
+    JAVA_CMD="${JAVA_CMD}"
+  fi
+fi
+# Command to invoke test.  Note the explicit 3g sizes; if the JVM runs out of
+# memory on these tests, we need to diagnose the extra memory requirements
+JVM="nice $JAVA_CMD -Xmx3g -Xms3g -ea -cp build/classes/test${SEP}build/classes/main${SEP}../h2o-genmodel/build/libs/h2o-genmodel.jar${SEP}../lib/*"
+echo "$JVM" > $OUTDIR/jvm_cmd.txt
 
 # Tests
 # Must run first, before the cloud locks (because it tests cloud locking)
@@ -59,6 +76,11 @@ JUNIT_RUNNER="water.junit.H2OTestRunner"
 # '/usr/bin/sort' needed to avoid windows native sort when run in cygwin
 (cd src/test/java; /usr/bin/find . -name '*.java' | cut -c3- | sed 's/.....$//' | sed -e 's/\//./g') | grep -v $JUNIT_TESTS_SLOW | grep -v $JUNIT_TESTS_BOOT | /usr/bin/sort > $OUTDIR/tests.txt
 
+# Output the comma-separated list of ignored/dooonly tests
+# Ignored tests trump do-only tests
+echo $IGNORE > $OUTDIR/tests.ignore.txt
+echo $DOONLY > $OUTDIR/tests.doonly.txt
+
 # Launch 4 helper JVMs.  All output redir'd at the OS level to sandbox files.
 CLUSTER_NAME=junit_cluster_$$
 CLUSTER_BASEPORT=43000
@@ -69,7 +91,7 @@ $JVM water.H2O -name $CLUSTER_NAME -baseport $CLUSTER_BASEPORT --ga_opt_out 1> $
 
 # Launch last driver JVM.  All output redir'd at the OS level to sandbox files.
 echo Running h2o-core junit tests...
-($JVM -Dai.h2o.name=$CLUSTER_NAME -Dai.h2o.baseport=$CLUSTER_BASEPORT -Dai.h2o.ga_opt_out=yes $JUNIT_RUNNER $JUNIT_TESTS_BOOT `cat $OUTDIR/tests.txt` 2>&1 ; echo $? > $OUTDIR/status.0) 1> $OUTDIR/out.0 2>&1
+($JVM -Ddoonly.tests=$DOONLY -Dignore.tests=$IGNORE -Dbuild.id=$BUILD_ID -Djob.name=$JOB_NAME -Dgit.commit=$GIT_COMMIT -Dgit.branch=$GIT_BRANCH -Dai.h2o.name=$CLUSTER_NAME -Dai.h2o.baseport=$CLUSTER_BASEPORT -Dai.h2o.ga_opt_out=yes $JUNIT_RUNNER $JUNIT_TESTS_BOOT `cat $OUTDIR/tests.txt` 2>&1 ; echo $? > $OUTDIR/status.0) 1> $OUTDIR/out.0 2>&1
 
 grep EXECUTION $OUTDIR/out.0 | cut "-d " -f22,19 | awk '{print $2 " " $1}'| sort -gr | head -n 10 >> $OUTDIR/out.0
 

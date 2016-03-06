@@ -2,49 +2,22 @@ package water.api;
 
 import com.google.code.regexp.Matcher;
 import com.google.code.regexp.Pattern;
-
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.lang.reflect.Method;
-import java.net.MalformedURLException;
-import java.net.ServerSocket;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Date;
-import java.util.LinkedHashMap;
-import java.util.Properties;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
-
-import water.DKV;
-import water.H2O;
-import water.H2OError;
-import water.H2OModelBuilderError;
-import water.H2ONode;
-import water.HeartBeatThread;
-import water.NanoHTTPD;
-import water.exceptions.H2OAbstractRuntimeException;
-import water.exceptions.H2OFailException;
-import water.exceptions.H2OIllegalArgumentException;
-import water.exceptions.H2OModelBuilderIllegalArgumentException;
-import water.exceptions.H2ONotFoundArgumentException;
+import water.*;
+import water.exceptions.*;
 import water.fvec.Frame;
 import water.init.NodePersistentStorage;
 import water.nbhm.NonBlockingHashMap;
 import water.rapids.Assembly;
-import water.util.GAUtils;
-import water.util.GetLogsFromNode;
-import water.util.HttpResponseStatus;
-import water.util.JCodeGen;
-import water.util.Log;
-import water.util.PojoUtils;
+import water.util.*;
+
+import java.io.*;
+import java.lang.reflect.Method;
+import java.net.MalformedURLException;
+import java.text.SimpleDateFormat;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 /**
  * This is a simple web server which accepts HTTP requests and routes them
@@ -86,7 +59,6 @@ public class RequestServer extends NanoHTTPD {
 
   static public RequestServer SERVER;
   private RequestServer() {}
-  private RequestServer( ServerSocket socket ) throws IOException { super(socket,null); }
 
 
   // Handlers ------------------------------------------------------------
@@ -95,8 +67,8 @@ public class RequestServer extends NanoHTTPD {
   // The list is searched in-order, first match gets dispatched.
   private static final LinkedHashMap<java.util.regex.Pattern,Route> _routes = new LinkedHashMap<>();   // explicit routes registered below
   private static final LinkedHashMap<java.util.regex.Pattern,Route> _fallbacks= new LinkedHashMap<>(); // routes that are version fallbacks (e.g., we asked for v5 but v2 is the latest)
-  public static final int numRoutes() { return _routes.size(); }
-  public static final Collection<Route> routes() { return _routes.values(); }
+  public static int numRoutes() { return _routes.size(); }
+  public static Collection<Route> routes() { return _routes.values(); }
 
   private static Pattern version_pattern = null;
   private static Pattern getVersionPattern() {
@@ -111,7 +83,6 @@ public class RequestServer extends NanoHTTPD {
   // (e.g., /foo/baz and /foo) you MUST register them in decreasing order of specificity.
   static {
     // Data
-    // TODO: ImportFiles should be a POST!
     register("/3/CreateFrame","POST",CreateFrameHandler.class,"run"        , null,"Create a synthetic H2O Frame.");
     register("/3/SplitFrame" ,"POST",SplitFrameHandler.class,"run"         , null,"Split a H2O Frame.");
     register("/3/Interaction","POST",InteractionHandler.class,"run"        , null,"Create interactions between categorical columns.");
@@ -127,11 +98,11 @@ public class RequestServer extends NanoHTTPD {
     register("/3/Cloud",      "GET", CloudHandler.class,  "status", null, "Determine the status of the nodes in the H2O cloud.");
     register("/3/Cloud",                  "HEAD",CloudHandler.class, "head", null, "Determine the status of the nodes in the H2O cloud.");
     register("/3/Jobs"       ,"GET", JobsHandler.class,   "list", null,   "Get a list of all the H2O Jobs (long-running actions).");
-    register("/3/Timeline"   ,"GET",TimelineHandler   .class,"fetch"       , null,"Something something something.");
-    register("/3/Profiler"   ,"GET",ProfilerHandler   .class,"fetch"       , null,"Something something something.");
-    register("/3/JStack"     ,"GET",JStackHandler     .class,"fetch"       , null,"Something something something.");
-    register("/3/NetworkTest","GET",NetworkTestHandler.class,"fetch"       , null,"Something something something.");
-    register("/3/UnlockKeys", "POST", UnlockKeysHandler.class, "unlock", null, "Unlock all keys in the H2O distributed K/V store, to attempt to recover from a crash.");
+    register("/3/Timeline"   ,"GET",TimelineHandler   .class,"fetch"       , null,"Debugging tool that provides information on current communication between nodes.");
+    register("/3/Profiler"   ,"GET",ProfilerHandler   .class,"fetch"       , null,"Report real-time profiling information for all nodes (sorted, aggregated stack traces).");
+    register("/3/JStack"     ,"GET",JStackHandler     .class,"fetch"       , null,"Report stack traces for all threads on all nodes.");
+    register("/3/NetworkTest","GET",NetworkTestHandler.class,"fetch"       , null,"Run a network test to measure the performance of the cluster interconnect.");
+    register("/3/UnlockKeys" ,"POST",UnlockKeysHandler.class,"unlock"      , null, "Unlock all keys in the H2O distributed K/V store, to attempt to recover from a crash.");
     register("/3/Shutdown"   ,"POST",ShutdownHandler  .class,"shutdown"    , null,"Shut down the cluster");
 
     // REST only, no html:
@@ -224,10 +195,6 @@ public class RequestServer extends NanoHTTPD {
             "Return all grids from H2O distributed K/V store.");
 
 
-    register("/3/Configuration/ModelBuilders/visibility"         ,"POST"  ,ModelBuildersHandler.class, "setVisibility", null,
-      "Set Model Builders visibility level.");
-    register("/3/Configuration/ModelBuilders/visibility"         ,"GET"   ,ModelBuildersHandler.class, "getVisibility", null,
-      "Get Model Builders visibility level.");
     register("/3/ModelBuilders/(?<algo>.*)/model_id"             ,"POST"  ,ModelBuildersHandler.class, "calcModelId", null,
       "Return a new unique model_id for the specified algorithm.");
     register("/3/ModelBuilders/(?<algo>.*)"                      ,"GET"   ,ModelBuildersHandler.class, "fetch", null,
@@ -255,7 +222,10 @@ public class RequestServer extends NanoHTTPD {
       "Return the scoring metrics for the specified Frame with the specified Model.  If the Frame has already been scored with the Model then cached results will be returned; otherwise predictions for all rows in the Frame will be generated and the metrics will be returned.");
     register("/3/Predictions/models/(?<model>.*)/frames/(?<frame>.*)"     ,"POST"  ,ModelMetricsHandler.class, "predict", null,
       "Score (generate predictions) for the specified Frame with the specified Model.  Both the Frame of predictions and the metrics will be returned.");
-
+    
+    register("/4/Predictions/models/(?<model>.*)/frames/(?<frame>.*)"     ,"POST"  ,ModelMetricsHandler.class, "predict2", null,
+            "Score (generate predictions) for the specified Frame with the specified Model.  Both the Frame of predictions and the metrics will be returned.");
+    
     register("/3/WaterMeterCpuTicks/(?<nodeidx>.*)"                       ,"GET"   ,WaterMeterCpuTicksHandler.class, "fetch", null,
       "Return a CPU usage snapshot of all cores of all nodes in the H2O cluster.");
     register("/3/WaterMeterIo/(?<nodeidx>.*)"                             ,"GET"   ,WaterMeterIoHandler.class, "fetch", null,
@@ -297,34 +267,16 @@ public class RequestServer extends NanoHTTPD {
     register("/99/Rapids"                                          ,"POST"  ,RapidsHandler.class, "exec", null, "Execute an Rapids AST.");
     register("/99/Assembly.java/(?<assembly_id>.*)/(?<pojo_name>.*)"   ,"GET"   ,AssemblyHandler.class, "toJava", null, "Generate a Java POJO from the Assembly");
     register("/99/Assembly"                                        ,"POST"  ,AssemblyHandler.class, "fit", null, "Fit an assembly to an input frame");
-    register("/3/DownloadDataset"                                  ,"GET"   ,DownloadDataHandler.class, "fetch", null, "Download something something.");
-    register("/3/DownloadDataset.bin"                              ,"GET"   ,DownloadDataHandler.class, "fetchStreaming", null, "Download something something via streaming response");
+    register("/3/DownloadDataset"                                  ,"GET"   ,DownloadDataHandler.class, "fetch", null, "Download dataset as a CSV.");
+    register("/3/DownloadDataset.bin"                              ,"GET"   ,DownloadDataHandler.class, "fetchStreaming", null, "Download dataset as a CSV.");
     register("/3/DKV/(?<key>.*)"                                   ,"DELETE",RemoveHandler.class, "remove", null, "Remove an arbitrary key from the H2O distributed K/V store.");
     register("/3/DKV"                                              ,"DELETE",RemoveAllHandler.class, "remove", null, "Remove all keys from the H2O distributed K/V store.");
     register("/3/LogAndEcho"                                       ,"POST"  ,LogAndEchoHandler.class, "echo", null, "Save a message to the H2O logfile.");
     register("/3/InitID"                                           ,"GET"   ,InitIDHandler.class, "issue", null, "Issue a new session ID.");
+    register("/3/InitID"                                           ,"DELETE",InitIDHandler.class, "endSession", null, "End a session.");
     register("/3/GarbageCollect"                                   ,"POST"  ,GarbageCollectHandler.class, "gc", null, "Explicitly call System.gc().");
 
     register("/99/Sample"                                          ,"GET",CloudHandler      .class,"status"      , null,"Example of an experimental endpoint.  Call via /EXPERIMENTAL/Sample.  Experimental endpoints can change at any moment.");
-  }
-
-  /**
-   * Register an HTTP request handler method for a given URL pattern, with parameters extracted from the URI.
-   * <p>
-   * URIs which match this pattern will have their parameters collected from the path and from the query params
-   *
-   * @param uri_pattern_raw regular expression which matches the URL path for this request handler; parameters that are embedded in the path must be captured with &lt;code&gt;(?&lt;parm&gt;.*)&lt;/code&gt; syntax
-   * @param http_method HTTP verb (GET, POST, DELETE) this handler will accept
-   * @param handler_class class which contains the handler method
-   * @param handler_method name of the handler method
-   * @param doc_method name of a method which returns GitHub Flavored Markdown documentation for the request
-   * @param summary short help string which summarizes the functionality of this endpoint
-   * @see Route
-   * @see water.api.RequestServer
-   * @return the Route for this request
-   */
-  public static Route register(String uri_pattern_raw, String http_method, Class<? extends Handler> handler_class, String handler_method, String doc_method, String summary) {
-    return register(uri_pattern_raw, http_method, handler_class, handler_method, doc_method, summary, HandlerFactory.DEFAULT);
   }
 
   /**
@@ -404,11 +356,35 @@ public class RequestServer extends NanoHTTPD {
 
     assert lookup(handler_method, uri_pattern_raw)==null; // Not shadowed
     Pattern uri_pattern = Pattern.compile(uri_pattern_raw);
-    Route route = new Route(http_method, uri_pattern_raw, uri_pattern, summary, handler_class, meth, doc_meth, params_list.toArray(new String[params_list.size()]), handler_factory);
+    Route route = new Route(http_method,
+                            uri_pattern_raw,
+                            uri_pattern, summary,
+                            handler_class, meth,
+                            doc_meth,
+                            params_list.toArray(new String[params_list.size()]),
+                            handler_factory);
     _routes.put(uri_pattern.pattern(), route);
     return route;
   }
 
+  /**
+   * Register an HTTP request handler method for a given URL pattern, with parameters extracted from the URI.
+   * <p>
+   * URIs which match this pattern will have their parameters collected from the path and from the query params
+   *
+   * @param uri_pattern_raw regular expression which matches the URL path for this request handler; parameters that are embedded in the path must be captured with &lt;code&gt;(?&lt;parm&gt;.*)&lt;/code&gt; syntax
+   * @param http_method HTTP verb (GET, POST, DELETE) this handler will accept
+   * @param handler_class class which contains the handler method
+   * @param handler_method name of the handler method
+   * @param doc_method name of a method which returns GitHub Flavored Markdown documentation for the request
+   * @param summary short help string which summarizes the functionality of this endpoint
+   * @see Route
+   * @see water.api.RequestServer
+   * @return the Route for this request
+   */
+  public static Route register(String uri_pattern_raw, String http_method, Class<? extends Handler> handler_class, String handler_method, String doc_method, String summary) {
+    return register(uri_pattern_raw, http_method, handler_class, handler_method, doc_method, summary, HandlerFactory.DEFAULT);
+  }
 
   // Lookup the method/url in the register list, and return a matching Method
   protected static Route lookup( String http_method, String uri ) {
@@ -449,7 +425,15 @@ public class RequestServer extends NanoHTTPD {
     for (int i = version; i > route_version && i >= Route.MIN_VERSION; i--) {
       String fallback_route_uri = "/" + i + "/" + route_m.group(2);
       Pattern fallback_route_pattern = Pattern.compile(fallback_route_uri);
-      Route generated = new Route(fallback._http_method, fallback_route_uri, fallback_route_pattern, fallback._summary, fallback._handler_class, fallback._handler_method, fallback._doc_method, fallback._path_params, fallback._handler_factory);
+      Route generated = new Route(fallback._http_method,
+                                  fallback_route_uri,
+                                  fallback_route_pattern,
+                                  fallback._summary,
+                                  fallback._handler_class,
+                                  fallback._handler_method,
+                                  fallback._doc_method,
+                                  fallback._path_params,
+                                  fallback._handler_factory);
       _fallbacks.put(fallback_route_pattern.pattern(), generated);
     }
 
@@ -603,9 +587,6 @@ public class RequestServer extends NanoHTTPD {
         } else {
           return response404(method + " " + uri, type);
         }
-      } else if(route._handler_class ==  water.api.DownloadDataHandler.class) {
-        // DownloadDataHandler will throw H2ONotFoundException if the resource is not found
-        return wrapDownloadData(HTTP_OK, handle(type, route, version, parms));
       } else {
         capturePathParms(parms, versioned_path, route); // get any parameters like /Frames/<key>
         logged = maybeLogRequest(method, uri, route._url_pattern.namedPattern(), parms, header);
@@ -720,13 +701,6 @@ public class RequestServer extends NanoHTTPD {
     default:
       throw H2O.unimpl("Unknown type to wrap(): " + type);
     }
-  }
-
-  private Response wrapDownloadData(String http_code, Schema s) {
-    DownloadDataV3 dd = (DownloadDataV3)s;
-    Response res = new Response(http_code, MIME_DEFAULT_BINARY, dd.csv);
-    res.addHeader("Content-Disposition", "filename=" + dd.filename);
-    return res;
   }
 
 

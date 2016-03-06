@@ -5,23 +5,18 @@ import Jama.SingularValueDecomposition;
 import hex.DataInfo;
 
 import hex.ModelBuilder;
+import hex.ModelMetrics;
 import hex.ModelCategory;
-import hex.glrm.EmbeddedGLRM;
 import hex.glrm.GLRM;
 import hex.glrm.GLRMModel;
 import hex.gram.Gram;
 import hex.gram.Gram.GramTask;
-import hex.schemas.ModelBuilderSchema;
-import hex.schemas.PCAV3;
 
 import hex.pca.PCAModel.PCAParameters;
-import hex.svd.EmbeddedSVD;
 import hex.svd.SVD;
 import hex.svd.SVDModel;
 import water.*;
-import water.fvec.Frame;
 import water.util.ArrayUtils;
-import water.util.Log;
 import water.util.PrettyPrint;
 import water.util.TwoDimTable;
 
@@ -37,48 +32,25 @@ import java.util.Arrays;
 public class PCA extends ModelBuilder<PCAModel,PCAModel.PCAParameters,PCAModel.PCAOutput> {
   // Number of columns in training set (p)
   private transient int _ncolExp;    // With categoricals expanded into 0/1 indicator cols
+  @Override protected PCADriver trainModelImpl() { return new PCADriver(); }
+  @Override public ModelCategory[] can_build() { return new ModelCategory[]{ ModelCategory.Clustering }; }
 
-  @Override
-  public ModelBuilderSchema schema() {
-    return new PCAV3();
-  }
-
-  @Override protected Job<PCAModel> trainModelImpl(long work, boolean restartTimer) {
-    return start(new PCADriver(), work, restartTimer);
-  }
-
-  @Override
-  public long progressUnits() {
-    return _parms._pca_method == PCAParameters.Method.GramSVD ? 5 : 3;
-  }
-
-  @Override
-  public ModelCategory[] can_build() {
-    return new ModelCategory[]{ ModelCategory.Clustering };
-  }
-
-  @Override public BuilderVisibility builderVisibility() { return BuilderVisibility.Stable; };
-
-  @Override
-  protected void checkMemoryFootPrint() {
+  @Override protected void checkMemoryFootPrint() {
     HeartBeat hb = H2O.SELF._heartbeat;
-    double p = _train.degreesOfFreedom();
+    double p = hex.util.LinearAlgebraUtils.numColsExp(_train,true);
     long mem_usage = (long)(hb._cpus_allowed * p*p * 8/*doubles*/ * Math.log((double)_train.lastVec().nChunks())/Math.log(2.)); //one gram per core
-    long max_mem = hb.get_max_mem();
+    long max_mem = hb.get_free_mem();
     if (mem_usage > max_mem) {
       String msg = "Gram matrices (one per thread) won't fit in the driver node's memory ("
               + PrettyPrint.bytes(mem_usage) + " > " + PrettyPrint.bytes(max_mem)
               + ") - try reducing the number of columns and/or the number of categorical factors.";
       error("_train", msg);
-      cancel(msg);
     }
   }
 
   // Called from an http request
-  public PCA(PCAParameters parms) {
-    super("PCA", parms);
-    init(false);
-  }
+  public PCA(PCAParameters parms) { super(parms); init(false); }
+  public PCA(boolean startup_once) { super(new PCAParameters(),startup_once); }
 
   @Override
   public void init(boolean expensive) {
@@ -87,7 +59,7 @@ public class PCA extends ModelBuilder<PCAModel,PCAModel.PCAParameters,PCAModel.P
       error("_max_iterations", "max_iterations must be between 1 and 1e6 inclusive");
 
     if (_train == null) return;
-    _ncolExp = _train.numColsExp(_parms._use_all_factor_levels, false);
+    _ncolExp = hex.util.LinearAlgebraUtils.numColsExp(_train,_parms._use_all_factor_levels);
     // if (_ncolExp < 2) error("_train", "_train must have more than one column when categoricals are expanded");
 
     // TODO: Initialize _parms._k = min(ncolExp(_train), nrow(_train)) if not set
@@ -99,8 +71,7 @@ public class PCA extends ModelBuilder<PCAModel,PCAModel.PCAParameters,PCAModel.P
     if (_parms._pca_method != PCAParameters.Method.GLRM && expensive && error_count() == 0) checkMemoryFootPrint();
   }
 
-  class PCADriver extends H2O.H2OCountedCompleter<PCADriver> {
-    protected PCADriver() { super(true); } // bump driver priority
+  class PCADriver extends Driver {
 
     protected void buildTables(PCAModel pca, String[] rowNames) {
       // Eigenvectors are just the V matrix
@@ -203,40 +174,47 @@ public class PCA extends ModelBuilder<PCAModel,PCAModel.PCAParameters,PCAModel.P
     }
 
     // Main worker thread
-    @Override protected void compute2() {
+    @Override
+    public void compute2() {
       PCAModel model = null;
       DataInfo dinfo = null;
 
       try {
+        Scope.enter();
         init(true);   // Initialize parameters
-        _parms.read_lock_frames(PCA.this); // Fetch & read-lock input frames
+        _parms.read_lock_frames(_job); // Fetch & read-lock input frames
         if (error_count() > 0) throw new IllegalArgumentException("Found validation errors: " + validationErrors());
 
         // The model to be built
         model = new PCAModel(dest(), _parms, new PCAModel.PCAOutput(PCA.this));
-        model.delete_and_lock(_key);
+        model.delete_and_lock(_job);
 
         if(_parms._pca_method == PCAParameters.Method.GramSVD) {
-          dinfo = new DataInfo(Key.make(), _train, _valid, 0, _parms._use_all_factor_levels, _parms._transform, DataInfo.TransformType.NONE, /* skipMissing */ !_parms._impute_missing, /* imputeMissing */ _parms._impute_missing, /* missingBucket */ false, /* weights */ false, /* offset */ false, /* fold */ false, /* intercept */ false);
+          dinfo = new DataInfo(_train, _valid, 0, _parms._use_all_factor_levels, _parms._transform, DataInfo.TransformType.NONE, /* skipMissing */ !_parms._impute_missing, /* imputeMissing */ _parms._impute_missing, /* missingBucket */ false, /* weights */ false, /* offset */ false, /* fold */ false, /* intercept */ false);
           DKV.put(dinfo._key, dinfo);
           
           // Calculate and save Gram matrix of training data
           // NOTE: Gram computes A'A/n where n = nrow(A) = number of rows in training set (excluding rows with NAs)
-          update(1, "Begin distributed calculation of Gram matrix");
-          GramTask gtsk = new GramTask(self(), dinfo).doAll(dinfo._adaptedFrame);
+          _job.update(1, "Begin distributed calculation of Gram matrix");
+          GramTask gtsk = new GramTask(_job._key, dinfo).doAll(dinfo._adaptedFrame);
           Gram gram = gtsk._gram;   // TODO: This ends up with all NaNs if training data has too many missing values
           assert gram.fullN() == _ncolExp;
           model._output._nobs = gtsk._nobs;
 
+          // Cannot calculate SVD if all rows contain missing value(s) and hence were skipped
+          if(gtsk._nobs == 0)
+            error("_train", "Every row in _train contains at least one missing value. Consider setting impute_missing = TRUE or using pca_method = 'GLRM' instead.");
+          if (error_count() > 0) throw new IllegalArgumentException("Found validation errors: " + validationErrors());
+
           // Compute SVD of Gram A'A/n using JAMA library
           // Note: Singular values ordered in weakly descending order by algorithm
-          update(1, "Calculating SVD of Gram matrix locally");
+          _job.update(1, "Calculating SVD of Gram matrix locally");
           Matrix gramJ = new Matrix(gtsk._gram.getXX());
           SingularValueDecomposition svdJ = gramJ.svd();
-          update(1, "Computing stats from SVD");
+          _job.update(1, "Computing stats from SVD");
           computeStatsFillModel(model, dinfo, svdJ, gram, gtsk._nobs);
 
-        } else if(_parms._pca_method == PCAParameters.Method.Power) {
+        } else if(_parms._pca_method == PCAParameters.Method.Power || _parms._pca_method == PCAParameters.Method.Randomized) {
           SVDModel.SVDParameters parms = new SVDModel.SVDParameters();
           parms._train = _parms._train;
           parms._valid = _parms._valid;
@@ -249,24 +227,24 @@ public class PCA extends ModelBuilder<PCAModel,PCAModel.PCAParameters,PCAModel.P
           parms._max_iterations = _parms._max_iterations;
           parms._seed = _parms._seed;
 
+          // Set method for computing SVD accordingly
+          if(_parms._pca_method == PCAParameters.Method.Power)
+            parms._svd_method = SVDModel.SVDParameters.Method.Power;
+          else if(_parms._pca_method == PCAParameters.Method.Randomized)
+            parms._svd_method = SVDModel.SVDParameters.Method.Randomized;
+
           // Calculate standard deviation, but not projection
           parms._only_v = false;
           parms._keep_u = false;
           parms._save_v_frame = false;
 
-          SVDModel svd = null;
-          SVD job = null;
-          try {
-            job = new EmbeddedSVD(_key, _progressKey, parms);
-            svd = job.trainModel().get();
-            if (job.isCancelledOrCrashed())
-              PCA.this.cancel();
-          } finally {
-            if (job != null) job.remove();
-            if (svd != null) svd.remove();
-          }
+          // Build an SVD model
+          SVDModel svd = new SVD(parms, _job).trainModelNested();
+          if (stop_requested()) return;
+          svd.remove(); // Remove from DKV
+
           // Recover PCA results from SVD model
-          update(1, "Computing stats from SVD");
+          _job.update(1, "Computing stats from SVD");
           computeStatsFillModel(model, svd);
 
         } else if(_parms._pca_method == PCAParameters.Method.GLRM) {
@@ -288,61 +266,37 @@ public class PCA extends ModelBuilder<PCAModel,PCAModel.PCAParameters,PCAModel.P
           parms._regularization_y = GLRMModel.GLRMParameters.Regularizer.None;
           parms._init = GLRM.Initialization.PlusPlus;
 
-          GLRMModel glrm = null;
-          GLRM job = null;
-          try {
-            job = new EmbeddedGLRM(_key, _progressKey, parms);
-            glrm = job.trainModel().get();
-            if (job.isCancelledOrCrashed())
-              PCA.this.cancel();
-          } finally {
-            if (job != null) job.remove();
-            if (glrm != null) {
-              // glrm._parms._loading_key.get().delete();
-              glrm._output._loading_key.get().delete();
-              glrm.remove();
-            }
-          }
+          // Build an SVD model
+          GLRMModel glrm = new GLRM(parms, _job).trainModelNested();
+          if (stop_requested()) return;
+          glrm._output._representation_key.get().delete();
+          glrm.remove(); // Remove from DKV
+
           // Recover PCA results from GLRM model
-          update(1, "Computing stats from GLRM decomposition");
+          _job.update(1, "Computing stats from GLRM decomposition");
           computeStatsFillModel(model, glrm);
         }
-        update(1, "Scoring and computing metrics on training data");
+        _job.update(1, "Scoring and computing metrics on training data");
         if (_parms._compute_metrics) {
           model.score(_parms.train()).delete(); // This scores on the training data and appends a ModelMetrics
-          ModelMetricsPCA mm = DKV.getGet(model._output._model_metrics[model._output._model_metrics.length - 1]);
+          ModelMetrics mm = ModelMetrics.getFromDKV(model,_parms.train());
           model._output._training_metrics = mm;
         }
 
         // At the end: validation scoring (no need to gather scoring history)
-        update(1, "Scoring and computing metrics on validation data");
+        _job.update(1, "Scoring and computing metrics on validation data");
         if (_valid != null) {
-          Frame pred = model.score(_parms.valid()); //this appends a ModelMetrics on the validation set
-          model._output._validation_metrics = DKV.getGet(model._output._model_metrics[model._output._model_metrics.length - 1]);
-          pred.delete();
+          model.score(_parms.valid()).delete(); //this appends a ModelMetrics on the validation set
+          model._output._validation_metrics = ModelMetrics.getFromDKV(model,_parms.valid());
         }
-        model.update(self());
-        done();
-      } catch (Throwable t) {
-        Job thisJob = DKV.getGet(_key);
-        if (thisJob._state == JobState.CANCELLED) {
-          Log.info("Job cancelled by user.");
-        } else {
-          t.printStackTrace();
-          failed(t);
-          throw t;
-        }
+        model.update(_job);
       } finally {
-        updateModelOutput();
-        _parms.read_unlock_frames(PCA.this);
-        if (model != null) model.unlock(_key);
+        _parms.read_unlock_frames(_job);
+        if (model != null) model.unlock(_job);
         if (dinfo != null) dinfo.remove();
+        Scope.exit();
       }
       tryComplete();
-    }
-
-    Key self() {
-      return _key;
     }
   }
 }

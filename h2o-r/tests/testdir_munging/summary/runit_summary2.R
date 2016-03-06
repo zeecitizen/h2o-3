@@ -1,5 +1,7 @@
 setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../../h2o-runit.R')
+source("../../../scripts/h2o-r-test-setup.R")
+
+
 
 test.summary2 <- function() {
   Log.info("Importing iris.csv data...\n")
@@ -8,6 +10,8 @@ test.summary2 <- function() {
 
   Log.info("Check that summary works...")
   print(summary(iris.hex)) 
+  Log.info("Check that exact summary works...")
+  print(summary(iris.hex, exact_quantiles=TRUE)) 
 
   Log.info("Summary from R's iris data: ")
   summary(iris)

@@ -1,7 +1,9 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../../scripts/h2o-r-test-setup.R")
 ####### This tests weights in deeplearning for gamma by comparing results with expected behaviour  ######
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../../h2o-runit.R')
+
+
 
 test <- function(h) {
 	data = read.csv(file =locate("smalldata/glm_test/cancar_logIn.csv"),header = T)
@@ -30,7 +32,7 @@ test <- function(h) {
 	hh = h2o.deeplearning(x = myX,y = "Loss",distribution ="gamma",hidden = c(1),epochs = 1000,train_samples_per_iteration = -1,
                       reproducible = T,activation = "Tanh",balance_classes = F,force_load_balance = F,
                       seed = 2353123,tweedie_power = 1.5,score_training_samples = 0,score_validation_samples = 0,
-                      training_frame = cancar) 
+                      training_frame = cancar, stopping_rounds=0)
 	hh@model$training_metrics@metrics$mean_residual_deviance
 	mean_deviance = hh@model$training_metrics@metrics$mean_residual_deviance
 	ph = as.data.frame(h2o.predict(hh,newdata = cancar))
@@ -39,10 +41,10 @@ test <- function(h) {
 	print(mean(ph[,1]))
 	print(min(ph[,1]))
 	print(max(ph[,1]))
-	expect_equal(-4.315, mean_deviance, tolerance=1e-2)
-	expect_equal(0.0444, mean(ph[,1]), tolerance=1e-2)
-	expect_equal(0.0233, min(ph[,1]), tolerance=1e-1)
-	expect_equal(0.0739, max(ph[,1]), tolerance=1e-1)
+	expect_equal(-4.315048, mean_deviance, tolerance=1e-5)
+	expect_equal(0.0443679, mean(ph[,1]), tolerance=1e-5)
+	expect_equal(0.02331547, min(ph[,1]), tolerance=1e-5)
+	expect_equal(0.07392279, max(ph[,1]), tolerance=1e-5)
 
 	#With weights
 	#gg = gbm(formula = Loss~Class+Merit + C1M3 + C4M3, distribution = "gamma",data = data,
@@ -54,7 +56,7 @@ test <- function(h) {
 	hh = h2o.deeplearning(x = myX,y = "Loss",distribution ="gamma",hidden = c(1),epochs = 1000,train_samples_per_iteration = -1,
                       reproducible = T,activation = "Tanh",balance_classes = F,force_load_balance = F,
                       seed = 2353123,tweedie_power = 1.5,score_training_samples = 0,score_validation_samples = 0,
-                      weights_column = "Insured",training_frame = cancar) 
+                      weights_column = "Insured",training_frame = cancar, stopping_rounds=0)
 	hh@model$training_metrics@metrics$mean_residual_deviance  
 	mean_deviance = hh@model$training_metrics@metrics$mean_residual_deviance
 	ph = as.data.frame(h2o.predict(hh,newdata = cancar)) #mean = 0.04399   mean = 0.04423
@@ -63,10 +65,10 @@ test <- function(h) {
 	print(mean(ph[,1]))
 	print(min(ph[,1]))
 	print(max(ph[,1]))
-	expect_equal(-5.1648, mean_deviance, tolerance=1e-2)
-	expect_equal(0.04371, mean(ph[,1]), tolerance=1e-2)
-	expect_equal(0.02286, min(ph[,1]), tolerance=1e-1)
-	expect_equal(0.07271, max(ph[,1]), tolerance=1e-1)
+	expect_equal(-5.164816, mean_deviance, tolerance=1e-5)
+	expect_equal(0.04430686, mean(ph[,1]), tolerance=1e-5)
+	expect_equal(0.02298768, min(ph[,1]), tolerance=1e-5)
+	expect_equal(0.07382703, max(ph[,1]), tolerance=1e-5)
 
 	
 }

@@ -1,18 +1,26 @@
 package hex.deeplearning;
 
-import hex.deeplearning.DeepLearningParameters.Activation;
-import hex.deeplearning.DeepLearningParameters.InitialWeightDistribution;
-import hex.deeplearning.DeepLearningParameters.Loss;
+import hex.ScoringInfo;
+import hex.deeplearning.DeepLearningModel.DeepLearningParameters;
+import hex.deeplearning.DeepLearningModel.DeepLearningParameters.Activation;
+import hex.deeplearning.DeepLearningModel.DeepLearningParameters.InitialWeightDistribution;
+import hex.deeplearning.DeepLearningModel.DeepLearningParameters.Loss;
 import hex.genmodel.GenModel;
-import org.junit.*;
-import water.*;
+import org.junit.Assert;
+import org.junit.BeforeClass;
+import org.junit.Ignore;
+import org.junit.Test;
+import water.DKV;
+import water.Key;
+import water.TestUtil;
 import water.fvec.Frame;
 import water.fvec.Vec;
-import water.util.*;
+import water.util.ArrayUtils;
+import water.util.Log;
+import water.util.MathUtils;
+import water.util.RandomUtils;
 
 import java.util.Random;
-
-import static hex.deeplearning.DeepLearningModel.DeepLearningScoring;
 
 public class DeepLearningIrisTest extends TestUtil {
   static final String PATH = "smalldata/iris/iris.csv";
@@ -116,12 +124,12 @@ public class DeepLearningIrisTest extends TestUtil {
                               // of classes is not known unless we visit
                               // all the response data - force that now.
                               String respname = _train.lastVecName();
-                              Vec resp = _train.lastVec().toCategorical();
+                              Vec resp = _train.lastVec().toCategoricalVec();
                               _train.remove(respname).remove();
                               _train.add(respname, resp);
                               DKV.put(_train);
 
-                              Vec vresp = _test.lastVec().toCategorical();
+                              Vec vresp = _test.lastVec().toCategoricalVec();
                               _test.remove(respname).remove();
                               _test.add(respname, vresp);
                               DKV.put(_test);
@@ -169,23 +177,19 @@ public class DeepLearningIrisTest extends TestUtil {
                             p._force_load_balance = false; //keep just 1 chunk for reproducibility
                             p._overwrite_with_best_model = false;
                             p._replicate_training_data = false;
+                            p._mini_batch_size = 1;
                             p._single_node_mode = true;
                             p._epochs = 0;
                             p._elastic_averaging = false;
-                            DeepLearning dl = new DeepLearning(p);
-                            try {
-                              mymodel = dl.trainModel().get();
-                            } finally {
-                              dl.remove();
-                            }
+                            mymodel = new DeepLearning(p).trainModel().get();
                             p._epochs = epoch;
 
                             Neurons[] neurons = DeepLearningTask.makeNeuronsForTraining(mymodel.model_info());
 
                             // use the same random weights for the reference implementation
                             Neurons l = neurons[1];
-                            for (int o = 0; o < l._a.size(); o++) {
-                              for (int i = 0; i < l._previous._a.size(); i++) {
+                            for (int o = 0; o < l._a[0].size(); o++) {
+                              for (int i = 0; i < l._previous._a[0].size(); i++) {
 //                                System.out.println("initial weight[" + o + "]=" + l._w[o * l._previous._a.length + i]);
                                 ref._nn.ihWeights[i][o] = l._w.get(o, i);
                               }
@@ -193,8 +197,8 @@ public class DeepLearningIrisTest extends TestUtil {
 //                              System.out.println("initial bias[" + o + "]=" + l._b[o]);
                             }
                             l = neurons[2];
-                            for (int o = 0; o < l._a.size(); o++) {
-                              for (int i = 0; i < l._previous._a.size(); i++) {
+                            for (int o = 0; o < l._a[0].size(); o++) {
+                              for (int i = 0; i < l._previous._a[0].size(); i++) {
 //                                System.out.println("initial weight[" + o + "]=" + l._w[o * l._previous._a.length + i]);
                                 ref._nn.hoWeights[i][o] = l._w.get(o, i);
                               }
@@ -207,12 +211,8 @@ public class DeepLearningIrisTest extends TestUtil {
 
                             // Train H2O
                             mymodel.delete();
-                            dl = new DeepLearning(p);
-                            try {
-                              mymodel = dl.trainModel().get();
-                            } finally {
-                              dl.remove();
-                            }
+                            DeepLearning dl = new DeepLearning(p);
+                            mymodel = dl.trainModel().get();
                             Assert.assertTrue(mymodel.model_info().get_processed_total() == epoch * dl.train().numRows());
 
                             /**
@@ -226,8 +226,8 @@ public class DeepLearningIrisTest extends TestUtil {
                              */
                             neurons = DeepLearningTask.makeNeuronsForTesting(mymodel.model_info()); //link the weights to the neurons, for easy access
                             l = neurons[1];
-                            for (int o = 0; o < l._a.size(); o++) {
-                              for (int i = 0; i < l._previous._a.size(); i++) {
+                            for (int o = 0; o < l._a[0].size(); o++) {
+                              for (int i = 0; i < l._previous._a[0].size(); i++) {
                                 double a = ref._nn.ihWeights[i][o];
                                 double b = l._w.get(o, i);
                                 compareVal(a, b, abseps, releps);
@@ -243,8 +243,8 @@ public class DeepLearningIrisTest extends TestUtil {
                              * Compare weights and biases for output layer
                              */
                             l = neurons[2];
-                            for (int o = 0; o < l._a.size(); o++) {
-                              for (int i = 0; i < l._previous._a.size(); i++) {
+                            for (int o = 0; o < l._a[0].size(); o++) {
+                              for (int i = 0; i < l._previous._a[0].size(); i++) {
                                 double a = ref._nn.hoWeights[i][o];
                                 double b = l._w.get(o, i);
                                 compareVal(a, b, abseps, releps);
@@ -266,7 +266,7 @@ public class DeepLearningIrisTest extends TestUtil {
                             try {
                               for (int i = 0; i < _test.numRows(); ++i) {
                                 // Reference predictions
-                                double[] xValues = new double[neurons[0]._a.size()];
+                                double[] xValues = new double[neurons[0]._a[0].size()];
                                 System.arraycopy(ref._testData[i], 0, xValues, 0, xValues.length);
                                 double[] ref_preds = ref._nn.ComputeOutputs(xValues);
 
@@ -307,7 +307,8 @@ public class DeepLearningIrisTest extends TestUtil {
 
                             // get the actual best error on training data
                             float best_err = Float.MAX_VALUE;
-                            for (DeepLearningScoring err : mymodel.scoring_history()) {
+                            for (ScoringInfo e : mymodel.scoring_history()) {
+                              DeepLearningScoringInfo err = (DeepLearningScoringInfo) e;
                               best_err = Math.min(best_err, (float) (Double.isNaN(err.scored_train._classError) ? best_err : err.scored_train._classError)); //multi-class classification
                             }
                             Log.info("Actual best error : " + best_err * 100 + "%.");

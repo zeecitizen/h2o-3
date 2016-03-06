@@ -1,15 +1,9 @@
 package hex.kmeans;
 
-import hex.ClusteringModelBuilder;
-import hex.DataInfo;
-import hex.ModelCategory;
-import hex.ModelMetricsClustering;
-import hex.schemas.KMeansV3;
-import hex.schemas.ModelBuilderSchema;
+import hex.*;
 import org.joda.time.format.DateTimeFormat;
 import org.joda.time.format.DateTimeFormatter;
 import water.*;
-import water.H2O.H2OCountedCompleter;
 import water.exceptions.H2OModelBuilderIllegalArgumentException;
 import water.fvec.Chunk;
 import water.fvec.Frame;
@@ -27,47 +21,28 @@ import java.util.Random;
  * http://www.youtube.com/watch?v=cigXAxV3XcY
  */
 public class KMeans extends ClusteringModelBuilder<KMeansModel,KMeansModel.KMeansParameters,KMeansModel.KMeansOutput> {
-  @Override public ModelCategory[] can_build() {
-    return new ModelCategory[]{ ModelCategory.Clustering };
-  }
-
-  @Override public BuilderVisibility builderVisibility() { return BuilderVisibility.Stable; };
-
-  public enum Initialization {
-    Random, PlusPlus, Furthest, User
-  }
-
   // Convergence tolerance
   final private double TOLERANCE = 1e-6;
 
+  @Override public ModelCategory[] can_build() { return new ModelCategory[]{ ModelCategory.Clustering }; }
+  public enum Initialization { Random, PlusPlus, Furthest, User }
+  /** Start the KMeans training Job on an F/J thread. */
+  @Override protected KMeansDriver trainModelImpl() { return new KMeansDriver();  }
+
   // Called from an http request
-  public KMeans(Key dest, String desc, KMeansModel.KMeansParameters parms) { super(dest, desc, parms); init(false); }
-  public KMeans( KMeansModel.KMeansParameters parms ) { super("K-means",parms); init(false); }
+  public KMeans( KMeansModel.KMeansParameters parms         ) { super(parms    ); init(false); }
+  public KMeans( KMeansModel.KMeansParameters parms, Job job) { super(parms,job); init(false); }
+  public KMeans(boolean startup_once) { super(new KMeansModel.KMeansParameters(),startup_once); }
 
-  public ModelBuilderSchema schema() { return new KMeansV3(); }
-
-  protected void checkMemoryFootPrint() {
+  @Override protected void checkMemoryFootPrint() {
     long mem_usage = 8 /*doubles*/ * _parms._k * _train.numCols() * (_parms._standardize ? 2 : 1);
-    long max_mem = H2O.SELF.get_max_mem();
+    long max_mem = H2O.SELF._heartbeat.get_free_mem();
     if (mem_usage > max_mem) {
       String msg = "Centroids won't fit in the driver node's memory ("
               + PrettyPrint.bytes(mem_usage) + " > " + PrettyPrint.bytes(max_mem)
               + ") - try reducing the number of columns and/or the number of categorical factors.";
       error("_train", msg);
-      cancel(msg);
     }
-  }
-
-  /** Start the KMeans training Job on an F/J thread.
-   * @param work
-   * @param restartTimer*/
-  @Override protected Job<KMeansModel> trainModelImpl(long work, boolean restartTimer) {
-    return start(new KMeansDriver(), work, restartTimer);
-  }
-
-  @Override
-  public long progressUnits() {
-    return _parms._max_iterations;
   }
 
   /** Initialize the ModelBuilder, validating all arguments and preparing the
@@ -92,8 +67,7 @@ public class KMeans extends ClusteringModelBuilder<KMeansModel,KMeansModel.KMean
   }
 
   // ----------------------
-  private class KMeansDriver extends H2OCountedCompleter<KMeansDriver> {
-    private KMeansDriver() { super(true); } // bump priority of drivers
+  private final class KMeansDriver extends Driver {
     private String[][] _isCats;  // Categorical columns
 
     // Initialize cluster centers
@@ -144,13 +118,13 @@ public class KMeans extends ClusteringModelBuilder<KMeansModel,KMeansModel.KMean
             centers = ArrayUtils.append(centers, sampler._sampled);
 
             // Fill in sample centers into the model
-            if (!isRunning()) return null; // Stopped/cancelled
+            if (stop_requested()) return null; // Stopped/cancelled
             model._output._centers_raw = destandardize(centers, _isCats, means, mults);
             model._output._tot_withinss = sqr._sqr / _train.numRows();
 
             model._output._iterations++;     // One iteration done
 
-            model.update(_key); // Make early version of model visible, but don't update progress using update(1)
+            model.update(_job); // Make early version of model visible, but don't update progress using update(1)
           }
           // Recluster down to k cluster centers
           centers = recluster(centers, rand, _parms._k, _parms._init, _isCats);
@@ -237,7 +211,7 @@ public class KMeans extends ClusteringModelBuilder<KMeansModel,KMeansModel.KMean
 
     // Stopping criteria
     boolean isDone( KMeansModel model, double[][] newCenters, double[][] oldCenters ) {
-      if( !isRunning() ) return true; // Stopped/cancelled
+      if( stop_requested() ) return true; // Stopped/cancelled
       // Stopped for running out iterations
       if( model._output._iterations >= _parms._max_iterations) return true;
 
@@ -257,19 +231,21 @@ public class KMeans extends ClusteringModelBuilder<KMeansModel,KMeansModel.KMean
     }
 
     // Main worker thread
-    @Override protected void compute2() {
+    @Override
+    public void compute2() {
 
       KMeansModel model = null;
       try {
+        Scope.enter();
         init(true);
         // Do lock even before checking the errors, since this block is finalized by unlock
         // (not the best solution, but the code is more readable)
-        _parms.read_lock_frames(KMeans.this); // Fetch & read-lock input frames
+        _parms.read_lock_frames(_job); // Fetch & read-lock input frames
         // Something goes wrong
         if( error_count() > 0 ) throw H2OModelBuilderIllegalArgumentException.makeFromBuilder(KMeans.this);
         // The model to be built
         model = new KMeansModel(dest(), _parms, new KMeansModel.KMeansOutput(KMeans.this));
-        model.delete_and_lock(_key);
+        model.delete_and_lock(_job);
 
         //
         final Vec vecs[] = _train.vecs();
@@ -303,8 +279,8 @@ public class KMeans extends ClusteringModelBuilder<KMeansModel,KMeansModel.KMean
           oldCenters = centers;
           centers = computeStatsFillModel(task, model, vecs, means, mults, impute_cat);
 
-          model.update(_key); // Update model in K/V store
-          update(1);          // One unit of work
+          model.update(_job); // Update model in K/V store
+          _job.update(1);     // One unit of work
           if (model._parms._score_each_iteration)
             Log.info(model._output._model_summary);
         }
@@ -313,46 +289,17 @@ public class KMeans extends ClusteringModelBuilder<KMeansModel,KMeansModel.KMean
 //        Log.info(model._output._scoring_history);
 //        Log.info(((ModelMetricsClustering)model._output._training_metrics).createCentroidStatsTable().toString());
 
-        // FIXME: Remove (most of) this code - once it passes...
-        // PUBDEV-871: Double-check the training metrics (gathered by computeStatsFillModel) and the scoring logic by scoring on the training set
-        if (false) {
-          assert((ArrayUtils.sum(model._output._size) - _parms.train().numRows()) <= 1);
-
-//          Log.info(model._output._model_summary);
-//          Log.info(model._output._scoring_history);
-//          Log.info(((ModelMetricsClustering)model._output._training_metrics).createCentroidStatsTable().toString());
-          model.score(_parms.train()).delete(); //this scores on the training data and appends a ModelMetrics
-          ModelMetricsClustering mm = DKV.getGet(model._output._model_metrics[model._output._model_metrics.length - 1]);
-          assert(Arrays.equals(mm._size, ((ModelMetricsClustering) model._output._training_metrics)._size));
-          for (int i=0; i<_parms._k; ++i) {
-            assert(MathUtils.compare(mm._withinss[i], ((ModelMetricsClustering) model._output._training_metrics)._withinss[i], 1e-6, 1e-6));
-          }
-          assert(MathUtils.compare(mm._totss, ((ModelMetricsClustering) model._output._training_metrics)._totss, 1e-6, 1e-6));
-          assert(MathUtils.compare(mm._betweenss, ((ModelMetricsClustering) model._output._training_metrics)._betweenss, 1e-6, 1e-6));
-          assert(MathUtils.compare(mm._tot_withinss, ((ModelMetricsClustering) model._output._training_metrics)._tot_withinss, 1e-6, 1e-6));
-        }
         // At the end: validation scoring (no need to gather scoring history)
         if (_valid != null) {
-          Frame pred = model.score(_parms.valid()); //this appends a ModelMetrics on the validation set
-          model._output._validation_metrics = DKV.getGet(model._output._model_metrics[model._output._model_metrics.length-1]);
-          pred.delete();
-          model.update(_key); // Update model in K/V store
+          model.score(_parms.valid()).delete(); //this appends a ModelMetrics on the validation set
+          model._output._validation_metrics = ModelMetrics.getFromDKV(model,_parms.valid());
+          model.update(_job); // Update model in K/V store
         }
-        done();                 // Job done!
 
-      } catch( Throwable t ) {
-        Job thisJob = DKV.getGet(_key);
-        if (thisJob._state == JobState.CANCELLED) {
-          Log.info("Job cancelled by user.");
-        } else {
-          t.printStackTrace();
-          failed(t);
-          throw t;
-        }
       } finally {
-        updateModelOutput();
-        if( model != null ) model.unlock(_key);
-        _parms.read_unlock_frames(KMeans.this);
+        if( model != null ) model.unlock(_job);
+        _parms.read_unlock_frames(_job);
+        Scope.exit();
       }
       tryComplete();
     }
@@ -414,7 +361,7 @@ public class KMeans extends ClusteringModelBuilder<KMeansModel,KMeansModel.KMean
         assert(col < table.getColDim());
         DateTimeFormatter fmt = DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss");
         table.set(row, col++, fmt.print(output._training_time_ms[i]));
-        table.set(row, col++, PrettyPrint.msecs(output._training_time_ms[i]-_start_time, true));
+        table.set(row, col++, PrettyPrint.msecs(output._training_time_ms[i]-_job.start_time(), true));
         table.set(row, col++, i);
         table.set(row, col++, output._avg_centroids_chg[i]);
         table.set(row, col++, output._history_withinss[i]);
@@ -570,10 +517,11 @@ public class KMeans extends ClusteringModelBuilder<KMeansModel,KMeansModel.KMean
       int N = cs.length - (_hasWeight?1:0);
       double[] values = new double[N];
       ArrayList<double[]> list = new ArrayList<>();
-      Random rand = RandomUtils.getRNG(_seed + cs[0].start());
+      Random rand = RandomUtils.getRNG(0);
       ClusterDist cd = new ClusterDist();
 
       for( int row = 0; row < cs[0]._len; row++ ) {
+        rand.setSeed(_seed + cs[0].start()+row);
         data(values, cs, row, _means, _mults, _modes);
         double sqr = minSqr(_centers, values, _isCats, cd);
         if( _probability * sqr > rand.nextDouble() * _sqr )

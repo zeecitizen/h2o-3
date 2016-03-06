@@ -1,154 +1,155 @@
-import itertools, inspect
-import expr,frame
+from __future__ import print_function
+from __future__ import absolute_import
+from opcode import *
+from six import PY2
+import inspect
+from .expr import ExprNode, ASTId
+from . import h2o
 
-classes = (
-  "BinOp",
-  "Compare",
-  "Call",
-  "Lambda",
-  "Name",
-  "Num",
-  "Str",
-  "List",
-  "Tuple",
-  "Subscript",
-  "Index",
-  "Attribute",
-)
-
-cmpops = {
-  "Gt": ">",
-  "GtE": ">=",
-  "Lt": "<",
-  "LtE": "<=",
-  "Eq": "==",
-  "NotEq": "!=",
+BYTECODE_INSTRS = {
+  "BINARY_SUBSCR"      : "cols",  # column slice; could be row slice?
+  "UNARY_POSITIVE"     : "+",
+  "UNARY_NEGATIVE"     : "-",
+  "UNARY_NOT"          : "!",
+  "BINARY_POWER"       : "**",
+  "BINARY_MULTIPLY"    : "*",
+  "BINARY_FLOOR_DIVIDE": "//",
+  "BINARY_TRUE_DIVIDE" : "/",
+  "BINARY_DIVIDE"      : "/",
+  "BINARY_MODULO"      : "%",
+  "BINARY_ADD"         : "+",
+  "BINARY_SUBTRACT"    : "-",
+  "BINARY_AND"         : "&",
+  "BINARY_OR"          : "|",
+  "COMPARE_OP"         : "",  # some cmp_op
+  "CALL_FUNCTION"      : "",  # some function call, have nargs in ops list...
 }
 
-binops = {
-  "Add": "+",
-  "Sub": "-",
-  "Mult": "*",
-  "Div": "/",
-  "Mod": "%",
-  "BitOr": "|",
-  "BitAnd": "&",
-  "Pow": "**",
-  "FloorDiv":"//",
-}
-
-unop = {
-  "Not": "!",
-  "UAdd":"+",
-  "USub":"-",
-}
-
-valid_node_types = tuple(itertools.chain(
-  *[
-    classes,
-    cmpops.keys(),
-    binops.keys(),
-    unop.keys(),
-]))
+def is_bytecode_instruction(instr): return instr in BYTECODE_INSTRS
+def is_comp(instr):                 return "COMPARE" in instr
+def is_binary(instr):               return "BINARY" in instr
+def is_unary(instr):                return "UNARY" in instr
+def is_func(instr):                 return "CALL_FUNCTION" == instr
+def is_load_fast(instr):            return "LOAD_FAST" == instr
+def is_attr(instr):                 return "LOAD_ATTR" == instr
+def is_load_global(instr):          return "LOAD_GLOBAL" == instr
+def is_return(instr):               return "RETURN_VALUE" == instr
 
 
-def _ast_deparse(node):
-  """ Deparse ast.Node into Rapids compatible format """
-  return ASTDeparser(node).deparse()
+def _bytecode_decompile_lambda(co):
+  code = co.co_code
+  n = len(code)
+  i = 0
+  ops = []
+  while i < n:
+    op = code[i]
+    if PY2:
+      op = ord(op)
+    args = []
+    i += 1
+    if op >= HAVE_ARGUMENT:
+      oparg = code[i] + code[i+1]*256
+      if PY2:
+        oparg = ord(code[i]) + ord(code[i + 1]) * 256
+      i += 2
+      if op in hasconst:        args.append(co.co_consts[oparg]) # LOAD_CONST
+      elif op in hasname:       args.append(co.co_names[oparg])  # LOAD_CONST
+      elif op in hasjrel:       raise ValueError("unimpl: op in hasjrel")
+      elif op in haslocal:      args.append(co.co_varnames[oparg])  # LOAD_FAST
+      elif op in hascompare:    args.append(cmp_op[oparg])  # COMPARE_OP
+      elif is_func(opname[op]): args.append(oparg)  # oparg == nargs(fcn)
+    ops.append( [opname[op], args] )
+  return _lambda_bytecode_to_ast(co,ops)
 
+def _lambda_bytecode_to_ast(co,ops):
+  # have a stack of ops, read from R->L to get correct oops
+  s = len(ops) - 1
+  keys = [o[0] for o in ops]
+  result = [ASTId("{")] + [ASTId(arg) for arg in co.co_varnames] + [ASTId(".")]
+  instr = keys[s]
+  if is_return(instr):
+    s-=1
+    instr = keys[s]
+  if is_bytecode_instruction(instr) or is_load_fast(instr) or is_load_global(instr):
+    body,s = _opcode_read_arg(s,ops,keys)
+  else:
+    raise ValueError("unimpl bytecode instr: " + instr)
+  if s > 0:
+    print("Dumping disassembled code: ")
+    for i in range(len(ops)):
+      if i == s: print(i, " --> " + str(ops[i]))
+      else:      print(i, str(ops[i]).rjust(5))
+    raise ValueError("Unexpected bytecode disassembly @ " + str(s) )
+  result += [body] + [ASTId("}")]
+  return result
 
-def _name(node):
-  return node.__class__.__name__
+def _opcode_read_arg(start_index,ops,keys):
+  instr = keys[start_index]
+  return_idx = start_index-1
+  if is_bytecode_instruction(instr):
+    if is_binary(instr):  return _binop_bc(BYTECODE_INSTRS[instr],return_idx,ops,keys)
+    elif is_comp(instr):  return _binop_bc(ops[start_index][1][0],return_idx,ops,keys)
+    elif is_unary(instr): return _unop_bc(BYTECODE_INSTRS[instr],return_idx,ops,keys)
+    elif is_func(instr):  return _func_bc(ops[start_index][1][0],return_idx,ops,keys)
+    else:                 raise ValueError("unimpl bytecode op: " + instr)
+  elif is_load_fast(instr):   return [_load_fast(ops[start_index][1][0]), return_idx]
+  elif is_load_global(instr): return [_load_global(ops[start_index][1][0]), return_idx]
+  return [ops[start_index][1][0], return_idx]
 
+def _binop_bc(op,idx,ops,keys):
+  rite,idx= _opcode_read_arg(idx,ops,keys)
+  left,idx= _opcode_read_arg(idx,ops,keys)
+  return [ExprNode(op,left,rite),idx]
 
-class ASTDeparser:
+def _unop_bc(op,idx,ops,keys):
+  arg,idx= _opcode_read_arg(idx,ops,keys)
+  return [ExprNode(op,arg),idx]
 
-  def __init__(self,node):
-    node_type = _name(node)
-    if node_type not in valid_node_types:
-      raise ValueError("Node type " + node_type + " not supported.")
-    self.node=node  # IN
+def _func_bc(nargs,idx,ops,keys):
+  named_args = {}
+  unnamed_args = []
+  while nargs > 0:
+    if nargs >=256:  # named args ( foo(50,True,x=10) ) read first  ( right -> left )
+      arg,idx=_opcode_read_arg(idx,ops,keys)
+      named_args[ops[idx][1][0]] = arg
+      idx-=1      # skip the LOAD_CONST for the named args
+      nargs-=256  # drop 256
+    else:
+      arg,idx=_opcode_read_arg(idx,ops,keys)
+      unnamed_args.insert(0, arg)
+      nargs-=1
+  op = ops[idx][1][0]
+  frcls = h2o.H2OFrame
+  if op not in dir(frcls):
+    raise ValueError("Unimplemented: op <{}> not bound in H2OFrame".format(op))
+  if is_attr(ops[idx][0]):
+    if PY2:
+      argspec = inspect.getargspec(getattr(frcls, op))
+      argnames = argspec.args[1:]
+      argdefs  = argspec.defaults or ()
+    else:
+      argspec = inspect.signature(getattr(frcls,op))
+      argnames = list(argspec.parameters.keys())[1:]
+      argdefs = [i.default for i in list(argspec.parameters.values())[1:]]
+    args = unnamed_args + list(argdefs[len(unnamed_args):])
+    for a in named_args: args[argnames.index(a)] = named_args[a]
+  if op=="ceil": op = "ceiling"
+  if op=="sum" and len(args) > 0 and args[0]: op="sumNA"
+  if op=="min" and len(args) > 0 and args[0]: op="minNA"
+  if op=="max" and len(args) > 0 and args[0]: op="maxNA"
+  idx-=1
+  if is_bytecode_instruction(ops[idx][0]):
+    arg,idx = _opcode_read_arg(idx,ops,keys)
+    args.insert(0, arg)
+  elif is_load_fast(ops[idx][0]):
+    args.insert(0, _load_fast(ops[idx][1][0]))
+    idx-=1
+  return [ExprNode(op,*args),idx]
 
-  @staticmethod
-  def _visit_BinOp(binop_node):
-    op = binops[_name(binop_node.op)]
-    left = ASTDeparser(binop_node.left).deparse()
-    rite = ASTDeparser(binop_node.right).deparse()
-    return expr.ExprNode(op,left,rite)
+def _load_fast(x):
+  return ASTId(x)
 
-  @staticmethod
-  def _visit_Call(call_node):
-    op = call_node.func.attr
-    args = [ASTDeparser(call_node.func.value).deparse()]
-    if op == "ifelse" and args[0].name == "h2o":
-      args = []
-    args +=  [ASTDeparser(arg).deparse() for arg in call_node.args]
-    args += [ASTDeparser(arg.value).deparse() for arg in call_node.keywords]
-    if call_node.kwargs is not None:
-      raise ValueError("unimpl: kwargs in _visit_Call")
-    if call_node.starargs is not None:
-      raise ValueError("unimpl: starargs in _visit_Call")
-    return expr.ExprNode(op,*args)
-
-  @staticmethod
-  def _visit_Attribute(attr_node):
-    op = attr_node.attr
-    obj = ASTDeparser(attr_node.value).deparse()
-    default_args = inspect.getargspec(getattr(frame.H2OFrame,op))[3]
-    return expr.ExprNode(op,obj,*default_args)
-
-  @staticmethod
-  def _visit_Lambda(lambda_node):
-    args = [ASTId("{")] + [ASTDeparser(arg).deparse() for arg in lambda_node.args.args] + [ASTId(".")]
-    args += [ASTDeparser(lambda_node.body).deparse()] + [ASTId("}")]
-    return args
-
-  @staticmethod
-  def _visit_Compare(compare_node):
-    if len(compare_node.ops) > 1 or len(compare_node.comparators) > 1:
-      raise ValueError("unimpl: more than 1 compare op in _visit_Compare")
-    op = cmpops[_name(compare_node.ops[0])]
-    left = ASTDeparser(compare_node.left).deparse()
-    rite = ASTDeparser(compare_node.comparators[0]).deparse()
-    return expr.ExprNode(op,left,rite)
-
-  @staticmethod
-  def _visit_Name(name_node):
-    if name_node.id in ["True","False"]:
-      return bool(name_node.id)
-    return ASTId(name_node.id)
-
-  @staticmethod
-  def _visit_Num(num_node):
-    return num_node.n
-
-  @staticmethod
-  def _visit_Str(str_node):
-    return str_node.s
-
-  @staticmethod
-  def _visit_List(list_node):
-    return [ASTDeparser(node).deparse() for node in list_node.elts]
-
-  @staticmethod
-  def _visit_Subscript(subscript_node):
-    fr = ASTDeparser(subscript_node.value).deparse()
-    cols = ASTDeparser(subscript_node.slice).deparse()
-    return expr.ExprNode("cols", fr, cols)
-
-  @staticmethod
-  def _visit_Index(index_node):
-    return ASTDeparser(index_node.value).deparse()
-
-  def deparse(self):
-    return getattr(self,"_visit_"+_name(self.node))(self.node)
-
-
-class ASTId:
-  def __init__(self, name=None):
-    if name is None:
-      raise ValueError("Attempted to make ASTId with no name.")
-    self.name=name
-
-  def __repr__(self):
-    return self.name
+def _load_global(x):
+  if x == 'True': return True
+  elif x == 'False': return False
+  return x

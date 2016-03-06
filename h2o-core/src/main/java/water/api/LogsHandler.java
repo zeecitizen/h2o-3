@@ -16,6 +16,7 @@ public class LogsHandler extends Handler {
     public boolean success = false;
 
     public GetLogTask() {
+      super( H2O.MIN_HI_PRIORITY);
       log = null;
     }
 
@@ -27,13 +28,11 @@ public class LogsHandler extends Handler {
         }
 
         if (name.equals("stdout") || name.equals("stderr")) {
-          LinuxProcFileReader lpfr = new LinuxProcFileReader();
-          lpfr.read();
-          if (! lpfr.valid()) {
+          if (! LinuxProcFileReader.refresh()) {
             log = "This option only works for Linux hosts";
           }
           else {
-            String pid = lpfr.getProcessID();
+            int pid = LinuxProcFileReader.getProcessID();
             String fdFileName = "/proc/" + pid + "/fd/" + (name.equals("stdout") ? "1" : "2");
             File f = new File(fdFileName);
             logPathFilename = f.getCanonicalPath();
@@ -107,10 +106,6 @@ public class LogsHandler extends Handler {
     @Override public void compute2() {
       doIt();
       tryComplete();
-    }
-
-    @Override public byte priority() {
-      return H2O.MIN_HI_PRIORITY;
     }
   }
 

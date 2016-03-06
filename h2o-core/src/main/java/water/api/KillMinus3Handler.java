@@ -1,5 +1,6 @@
 package water.api;
 
+import water.H2O;
 import water.MRTask;
 import water.exceptions.H2OIllegalArgumentException;
 
@@ -23,15 +24,17 @@ public class KillMinus3Handler extends Handler {
   }
 
   public KillMinus3V3 killm3(int version, KillMinus3V3 u) {
-      new MRTask() {
+      new MRTask((byte)(H2O.MIN_HI_PRIORITY - 1)) {
         @Override public void setupLocal() {
           try {
             String cmd = "/bin/kill -3 " + getProcessId();
             java.lang.Runtime.getRuntime().exec(cmd);
+          } catch( java.io.IOException ioe ) {
+            // Silently ignore if, e.g. /bin/kill does not exist on windows
           } catch (Exception xe) {
-              xe.printStackTrace();
-              throw new H2OIllegalArgumentException("");
-            }
+            xe.printStackTrace();
+            throw new H2OIllegalArgumentException("");
+          }
         }
       }.doAllNodes();
     return u;

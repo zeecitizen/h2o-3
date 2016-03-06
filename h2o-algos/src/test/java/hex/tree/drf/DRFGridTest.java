@@ -16,6 +16,7 @@ import hex.Model;
 import hex.grid.Grid;
 import hex.grid.GridSearch;
 import water.DKV;
+import water.Job;
 import water.Key;
 import water.TestUtil;
 import water.fvec.Frame;
@@ -23,20 +24,14 @@ import water.fvec.Vec;
 import water.test.util.GridTestUtils;
 import water.util.ArrayUtils;
 
-import static hex.grid.ModelFactories.DRF_MODEL_FACTORY;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static water.util.ArrayUtils.interval;
 
 public class DRFGridTest extends TestUtil {
+  @BeforeClass() public static void setup() { stall_till_cloudsize(5); }
 
-  @BeforeClass()
-  public static void setup() {
-    stall_till_cloudsize(5);
-  }
-
-  @Test
-  public void testCarsGrid() {
+  @Test public void testCarsGrid() {
     Grid<DRFModel.DRFParameters> grid = null;
     Frame fr = null;
     Vec old = null;
@@ -44,17 +39,19 @@ public class DRFGridTest extends TestUtil {
       fr = parse_test_file("smalldata/junit/cars.csv");
       fr.remove("name").remove(); // Remove unique id
       old = fr.remove("cylinders");
-      fr.add("cylinders", old.toCategorical()); // response to last column
+      fr.add("cylinders", old.toCategoricalVec()); // response to last column
       DKV.put(fr);
 
       // Setup hyperparameter search space
-      HashMap<String, Object[]> hyperParms = new HashMap<>();
-      hyperParms.put("_ntrees", new Integer[]{2, 4});
-      hyperParms.put("_max_depth", new Integer[]{10, 20});
-      hyperParms.put("_mtries", new Integer[]{-1, 4});
-      Float[] legalSampleRateOpts = new Float[]{0.5f};
-      Float[] illegalSampleRateOpts = new Float[]{1f};
-      hyperParms.put("_sample_rate", ArrayUtils.join(legalSampleRateOpts, illegalSampleRateOpts));
+      final Float[] legalSampleRateOpts = new Float[]{0.5f};
+      final Float[] illegalSampleRateOpts = new Float[]{1f};
+      HashMap<String, Object[]> hyperParms = new HashMap<String, Object[]>() {{
+        put("_ntrees", new Integer[]{2, 4});
+        put("_max_depth", new Integer[]{10, 20});
+        put("_mtries", new Integer[]{-1, 4});
+        put("_sample_rate", ArrayUtils.join(legalSampleRateOpts, illegalSampleRateOpts));
+      }};
+
       // Name of used hyper parameters
       String[] hyperParamNames = hyperParms.keySet().toArray(new String[hyperParms.size()]);
       Arrays.sort(hyperParamNames);
@@ -65,7 +62,7 @@ public class DRFGridTest extends TestUtil {
       params._train = fr._key;
       params._response_column = "cylinders";
       // Get the Grid for this modeling class and frame
-      GridSearch gs = GridSearch.startGridSearch(params, hyperParms, DRF_MODEL_FACTORY);
+      Job<Grid> gs = GridSearch.startGridSearch(null, params, hyperParms);
       grid = (Grid<DRFModel.DRFParameters>) gs.get();
       // Make sure number of produced models match size of specified hyper space
       Assert.assertEquals("Size of grid should match to size of hyper space", hyperSpaceSize,
@@ -96,7 +93,6 @@ public class DRFGridTest extends TestUtil {
                                       usedModelParams);
       // Verify model failure
       Map<String, Set<Object>> failedHyperParams = GridTestUtils.initMap(hyperParamNames);
-      ;
       for (Model.Parameters failedParams : grid.getFailedParameters()) {
         GridTestUtils.extractParams(failedHyperParams, failedParams, hyperParamNames);
       }
@@ -133,11 +129,12 @@ public class DRFGridTest extends TestUtil {
       DKV.put(fr);
 
       // Setup random hyperparameter search space
-      HashMap<String, Object[]> hyperParms = new HashMap<>();
-      hyperParms.put("_ntrees", new Integer[]{5, 5});
-      hyperParms.put("_max_depth", new Integer[]{2, 2});
-      hyperParms.put("_mtries", new Integer[]{-1, -1});
-      hyperParms.put("_sample_rate", new Float[]{.1f, .1f});
+      HashMap<String, Object[]> hyperParms = new HashMap<String, Object[]>() {{
+        put("_ntrees", new Integer[]{5, 5});
+        put("_max_depth", new Integer[]{2, 2});
+        put("_mtries", new Integer[]{-1, -1});
+        put("_sample_rate", new Float[]{.1f, .1f});
+      }};
 
       // Fire off a grid search
       DRFModel.DRFParameters params = new DRFModel.DRFParameters();
@@ -145,8 +142,8 @@ public class DRFGridTest extends TestUtil {
       params._response_column = "economy";
 
       // Get the Grid for this modeling class and frame
-      GridSearch gs = GridSearch.startGridSearch(params, hyperParms, DRF_MODEL_FACTORY);
-      grid = (Grid) gs.get();
+      Job<Grid> gs = GridSearch.startGridSearch(null, params, hyperParms);
+      grid = gs.get();
 
       // Check that duplicate model have not been constructed
       Model[] models = grid.getModels();
@@ -238,8 +235,8 @@ public class DRFGridTest extends TestUtil {
       params._train = fr._key;
       params._response_column = "economy (mpg)";
       // Get the Grid for this modeling class and frame
-      GridSearch gs = GridSearch.startGridSearch(params, hyperParms, DRF_MODEL_FACTORY);
-      grid = (Grid) gs.get();
+      Job<Grid> gs = GridSearch.startGridSearch(null, params, hyperParms);
+      grid = gs.get();
 
       System.out.println("Test seed: " + seed);
       System.out.println("ntrees search space: " + Arrays.toString(ntreesSpace));
@@ -275,16 +272,7 @@ public class DRFGridTest extends TestUtil {
       params._ntrees = ntreeVal;
       params._max_depth = maxDepthVal;
       params._mtries = mtriesVal;
-      DRF job = null;
-      try {
-        job = new DRF(params);
-        drfRebuilt = job.trainModel().get();
-      } finally {
-        if (job != null) {
-          job.remove();
-        }
-      }
-      assertTrue(job._state == water.Job.JobState.DONE);
+      drfRebuilt = new DRF(params).trainModel().get();
 
       // Make sure the MSE metrics match
       //double fromGridMSE = drfFromGrid._output._scored_train[drfFromGrid._output._ntrees]._mse;

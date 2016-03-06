@@ -38,7 +38,7 @@
 #' @param sep (Optional) The field separator character. Values on each line of
 #'        the file are separated by this character. If \code{sep = ""}, the
 #'        parser will automatically detect the separator.
-#' @param col.names (Optional) A Frame object containing a single
+#' @param col.names (Optional) An H2OFrame object containing a single
 #'        delimited line with the column names for the file.
 #' @param col.types (Optional) A vector to specify whether columns should be
 #'        forced to a certain type upon import parsing.
@@ -49,11 +49,13 @@
 #'        synchronously instead of polling.  This can be faster for small
 #'        datasets but loses the progress bar.
 #' @examples
+#' \donttest{
 #' h2o.init(ip = "localhost", port = 54321, startH2O = TRUE)
 #' prosPath = system.file("extdata", "prostate.csv", package = "h2o")
 #' prostate.hex = h2o.uploadFile(path = prosPath, destination_frame = "prostate.hex")
 #' class(prostate.hex)
 #' summary(prostate.hex)
+#' }
 #' @name h2o.importFile
 #' @export
 h2o.importFolder <- function(path, pattern = "", destination_frame = "", parse = TRUE, header = NA, sep = "",
@@ -86,10 +88,10 @@ h2o.importFolder <- function(path, pattern = "", destination_frame = "", parse =
   if(length(res$files) <= 0L) stop("all files failed to import")
   if(parse) {
     srcKey <- res$destination_frames
-    return( h2o.parseRaw(data=.newFrame(op="ImportFolder",id=srcKey), destination_frame=destination_frame,
+    return( h2o.parseRaw(data=.newH2OFrame(op="ImportFolder",id=srcKey,-1,-1), destination_frame=destination_frame,
                          header=header, sep=sep, col.names=col.names, col.types=col.types, na.strings=na.strings) )
   }
-  myData <- lapply(res$destination_frames, function(x) .newFrame( op="ImportFolder", id=x))  # do not gc, H2O handles these nfs:// vecs
+  myData <- lapply(res$destination_frames, function(x) .newH2OFrame( op="ImportFolder", id=x,-1,-1))  # do not gc, H2O handles these nfs:// vecs
   if(length(res$destination_frames) == 1L)
     return( myData[[1L]] )
   else
@@ -134,12 +136,13 @@ h2o.uploadFile <- function(path, destination_frame = "",
 
   .h2o.gc()  # Clear out H2O to make space for new file
   path <- normalizePath(path, winslash = "/")
-  srcKey <- .key.make(path)
+  srcKey <- .key.make( path )
   urlSuffix <- sprintf("PostFile?destination_frame=%s",  curlEscape(srcKey))
   fileUploadInfo <- fileUpload(path)
   .h2o.doSafePOST(h2oRestApiVersion = .h2o.__REST_API_VERSION, urlSuffix = urlSuffix, fileUploadInfo = fileUploadInfo)
 
-  assign("rawData",.newFrame(op="PostFile",id=srcKey))
+  rawData <- .newH2OFrame(op="PostFile",id=srcKey,-1,-1)
+  destination_frame <- if( destination_frame == "" ) .key.make(strsplit(basename(path), "\\.")[[1]][1]) else destination_frame
   if (parse) {
     h2o.parseRaw(data=rawData, destination_frame=destination_frame, header=header, sep=sep, col.names=col.names, col.types=col.types, na.strings=na.strings, blocking=!progressBar, parse_type = parse_type)
   } else {

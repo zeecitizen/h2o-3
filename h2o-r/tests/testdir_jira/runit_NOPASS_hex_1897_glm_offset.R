@@ -1,10 +1,12 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../scripts/h2o-r-test-setup.R")
 ## This test is to check the offset argument for GLM
 ## The test will import the prostate data set,
 ## runs glm with and without intecept and create predictions from both models,
 ## compare the two h2o glm models with a glmnet model ran without offset.
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../h2o-runit.R')
+
+
 
 test.GLM.offset <- function() {
 

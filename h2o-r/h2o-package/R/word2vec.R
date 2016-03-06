@@ -24,11 +24,11 @@
 ##  @param sentSampleRate - Sampling rate in sentences to generate new n-grams
 ##  @param initLearningRate - Starting alpha value.  This tempers the effect of progressive information as learning progresses.
 ##  @param epochs - Number of iterations data is run through.
-h2o.word2vec <- function(trainingFrame, minWordFreq, wordModel, normModel, negExCnt = NULL,
+h2o.word2vec <- function(trainingH2OFrame, minWordFreq, wordModel, normModel, negExCnt = NULL,
          vecSize, windowSize, sentSampleRate, initLearningRate, epochs) {
 
   # param checking
-  if (!is.Frame(trainingFrame)) stop("`data` must be an Frame object")
+  if (!is.H2OFrame(trainingH2OFrame)) stop("`data` must be an H2OFrame object")
   if (missing(wordModel) || !(wordModel %in% c("SkipGram", "CBOW"))) stop("`wordModel` must be one of \"SkipGram\" or \"CBOW\"")
   if (missing(normModel) || !(normModel %in% c("HSM", "NegSampling"))) stop("`normModel` must be onf of \"HSM\" or \"NegSampling\"")
   if (!is.null(negExCnt)) {
@@ -40,10 +40,10 @@ h2o.word2vec <- function(trainingFrame, minWordFreq, wordModel, normModel, negEx
   if (missing(sentSampleRate) || !is.numeric(sentSampleRate)) stop("`sentSampleRate` must be numeric")
   if (missing(initLearningRate) || !is.numeric(initLearningRate)) stop("`initLearningRate` must be numeric")
   if (missing(epochs) || !is.numeric(epochs)) stop("`epochs` must be numeric")
-  if (!is.Frame(trainingFrame)) invisible(nrow(trainingFrame))  # try to force the eval of the frame
-  if (!is.Frame(trainingFrame)) stop("Could not evaluate `trainingFrame` as an Frame object")
+  if (!is.H2OFrame(trainingH2OFrame)) invisible(nrow(trainingH2OFrame))  # try to force the eval of the frame
+  if (!is.H2OFrame(trainingH2OFrame)) stop("Could not evaluate `trainingH2OFrame` as an H2OFrame object")
 
-  params <- list(training_frame = attr(.eval.frame(trainingFrame), "id"),
+  params <- list(training_frame = h2o.getId(trainingH2OFrame),
                  wordModel = wordModel,
                  normModel = normModel,
                  minWordFreq = minWordFreq,
@@ -54,11 +54,11 @@ h2o.word2vec <- function(trainingFrame, minWordFreq, wordModel, normModel, negEx
                  initLearningRate = initLearningRate,
                  epochs = epochs)
 
-  res <- .h2o.__remoteSend(trainingFrame@conn, .h2o.__W2V, .params = params)
-  .h2o.__waitOnJob(trainingFrame@conn, res$job)
-  dest_key <- .h2o.__remoteSend(trainingFrame@conn, paste0(.h2o.__JOBS, "/", res$job))$jobs[[1L]]$dest$name
+  res <- .h2o.__remoteSend(.h2o.__W2V, .params = params)
+  .h2o.__waitOnJob(res$job)
+  dest_key <- .h2o.__remoteSend(paste0(.h2o.__JOBS, "/", res$job))$jobs[[1L]]$dest$name
   w2vmodel <- h2o.getModel(dest_key)
-  new("H2OW2V", h2o = trainingFrame@conn, key = dest_key, train.data=trainingFrame)
+  new("H2OW2V", h2o = trainingH2OFrame@conn, key = dest_key, train.data=trainingH2OFrame)
 }
 
 ##
@@ -76,7 +76,7 @@ function(word2vec, target, count) {
   if (missing(count)) stop("`count` must be specified")
   if (!is.numeric(count)) stop("`count` must be numeric")
 
-  params <- list(key = attr(.eval.frame(word2vec),"id"), target=target, cnt=count)
+  params <- list(key = h2o.getId(word2vec), target=target, cnt=count)
   if (length(target) == 1L) {
     res <- .h2o.__remoteSend(word2vec@conn, .h2o.__SYNONYMS, .params = params)
     fr <- data.frame(synonyms = res$synonyms, cosine.similarity = res$cos_sim)

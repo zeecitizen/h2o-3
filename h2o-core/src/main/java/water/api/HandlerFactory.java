@@ -8,7 +8,7 @@ public interface HandlerFactory {
 
   /** Shared default factory to create handler by using no-arg ctor
    * and reflection. */
-  public static HandlerFactory DEFAULT = new HandlerFactory() {
+  HandlerFactory DEFAULT = new HandlerFactory() {
 
     @Override
     public Handler create(Class<? extends Handler> handlerClz) throws Exception {
@@ -16,5 +16,5 @@ public interface HandlerFactory {
     }
   };
 
-  public Handler create(Class<? extends Handler> handler) throws Exception;
+  Handler create(Class<? extends Handler> handler) throws Exception;
 }

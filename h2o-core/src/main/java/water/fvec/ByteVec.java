@@ -15,7 +15,7 @@ import water.H2O;
  */
 public class ByteVec extends Vec {
 
-  public ByteVec( Key key, long espc[] ) { super(key,espc); }
+  public ByteVec( Key key, int rowLayout ) { super(key, rowLayout); }
 
   @Override public C1NChunk chunkForChunkIdx(int cidx) { return (C1NChunk)super.chunkForChunkIdx(cidx); }
 
@@ -78,7 +78,7 @@ public class ByteVec extends Vec {
       @Override public int read(byte[] b, int off, int len) {
         if( b==null ) { // Back-channel read of cidx
           if ( _cidx > _pidx) { // Remove prev chunk from memory
-            Value v = H2O.get(chunkKey(_pidx++));
+            Value v = Value.STORE_get(chunkKey(_pidx++));
             if (v != null && v.isPersisted()) {
               v.freePOJO();           // Eagerly toss from memory
               v.freeMem();

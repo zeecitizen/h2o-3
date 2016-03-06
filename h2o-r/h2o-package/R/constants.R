@@ -21,9 +21,9 @@ assign("LOG_FILE_NAME", NULL,  .pkg.env)
 #' Map of operations known to H2O
 #'
 .h2o.primitives = c( 
-  "*", "+", "/", "-", 
+  "*", "+", "/", "-", "^", "%%", "%/%",
   "==", "!=", "<", ">", "<=", ">=",
-   "cos", "sin", "acos", "cosh", "tan", "tanh", "exp", "log", "sqrt", 
+  "cos", "sin", "acos", "cosh", "tan", "tanh", "exp", "log", "sqrt", 
   "abs", "ceiling", "floor", 
   "mean", "sd", "sum", "prod", "all", "any", "min", "max", 
   "is.factor", "nrow", "ncol", "length" 
@@ -38,8 +38,8 @@ assign("LOG_FILE_NAME", NULL,  .pkg.env)
                    data.frame(type = "numeric",   scalar = FALSE, row.names = "double[]",     stringsAsFactors = FALSE),
                    data.frame(type = "numeric",   scalar = TRUE,  row.names = "float",        stringsAsFactors = FALSE),
                    data.frame(type = "numeric",   scalar = FALSE, row.names = "float[]",      stringsAsFactors = FALSE),
-                   data.frame(type = "Frame",     scalar = TRUE,  row.names = "Key",          stringsAsFactors = FALSE),
-                   data.frame(type = "Frame",     scalar = TRUE,  row.names = "Key<Frame>",   stringsAsFactors = FALSE),
+                   data.frame(type = "H2OFrame",  scalar = TRUE,  row.names = "Key",          stringsAsFactors = FALSE),
+                   data.frame(type = "H2OFrame",  scalar = TRUE,  row.names = "Key<Frame>",   stringsAsFactors = FALSE),
                    data.frame(type = "character", scalar = TRUE,  row.names = "Key<Key>",     stringsAsFactors = FALSE),
                    data.frame(type = "H2OModel",  scalar = TRUE,  row.names = "Key<Model>",   stringsAsFactors = FALSE),
                    data.frame(type = "numeric",   scalar = TRUE,  row.names = "int",          stringsAsFactors = FALSE),
@@ -74,7 +74,7 @@ assign("LOG_FILE_NAME", NULL,  .pkg.env)
 .h2o.__COL_SUMMARY <- function(key, col) URLencode(paste(.h2o.__FRAMES, key, "columns", col, "summary", sep = "/"))
 .h2o.__COL_DOMAIN  <- function(key, col) URLencode(paste(.h2o.__FRAMES, key, "columns", col, "domain", sep = "/"))
 
-#' Frame Manipulation
+#' H2OFrame Manipulation
 .h2o.__CREATE_FRAME   <- "CreateFrame"
 
 .h2o.__GLMMakeModel <- "MakeGLMModel"
@@ -87,7 +87,7 @@ assign("LOG_FILE_NAME", NULL,  .pkg.env)
 
 #' Export Files Endpoint Generator
 .h2o.__EXPORT_FILES <- function(frame,path,force) {
-  paste0("Frames/", attr(.eval.frame(frame),"id"), "/export/",path,"/overwrite/",force)
+  paste0("Frames/", h2o.getId(frame), "/export/",path,"/overwrite/",force)
 }
 
 #' Model Endpoint
@@ -114,10 +114,17 @@ assign("LOG_FILE_NAME", NULL,  .pkg.env)
 
 # Grid search 
 .h2o.__GRID <- function(algo) paste0("Grid/", algo)
-.h2o.__GRIDS <- function(model) {
-    if (missing(model)) {
+.h2o.__GRIDS <- function(grid_id, sort_by, decreasing) {
+    if (missing(grid_id)) {
         "/Grids"
     } else {
-        paste0("Grids/", model)
+        url <- paste0("Grids/", grid_id)
+        if (! missing(sort_by)) {
+            url <- paste0(url, "?sort_by=", sort_by)
+            if (! missing(decreasing)) {
+                url <- paste0(url, "&decreasing=", decreasing)
+            }
+        }
+         url
     }
 }

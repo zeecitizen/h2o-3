@@ -10,31 +10,35 @@ import java.util.Arrays;
 import java.util.Random;
 
 public abstract class FrameTask<T extends FrameTask<T>> extends MRTask<T>{
+  protected boolean _sparse;
   protected transient DataInfo _dinfo;
   public DataInfo dinfo() { return _dinfo; }
   final Key _dinfoKey;
   final int [] _activeCols;
-  final protected Key _jobKey;
+  final protected Key<Job> _jobKey;
 
   protected float _useFraction = 1.0f;
   private final long _seed;
   protected boolean _shuffle = false;
   private final int _iteration;
 
-  public FrameTask(Key jobKey, DataInfo dinfo) {
-    this(jobKey, dinfo, 0xDECAFBEE, -1);
+  public FrameTask(Key<Job> jobKey, DataInfo dinfo) {
+    this(jobKey, dinfo, 0xDECAFBEE, -1, false);
   }
-  public FrameTask(Key jobKey, DataInfo dinfo, long seed, int iteration) {
-    this(jobKey,dinfo._key,dinfo._activeCols,seed,iteration);
+  public FrameTask(Key<Job> jobKey, DataInfo dinfo, long seed, int iteration, boolean sparse) {
+    this(jobKey,dinfo._key,dinfo._activeCols,seed,iteration, sparse,null);
   }
-  private FrameTask(Key jobKey, Key dinfoKey, int [] activeCols,long seed, int iteration) {
-    super(null);
-    assert dinfoKey == null || DKV.get(dinfoKey) != null;
+  public FrameTask(Key<Job> jobKey, DataInfo dinfo, long seed, int iteration, boolean sparse, H2O.H2OCountedCompleter cmp) {
+    this(jobKey,dinfo._key,dinfo._activeCols,seed,iteration, sparse,cmp);
+  }
+  private FrameTask(Key<Job> jobKey, Key dinfoKey, int [] activeCols,long seed, int iteration, boolean sparse, H2O.H2OCountedCompleter cmp) {
+    super(cmp);
     _jobKey = jobKey;
     _dinfoKey = dinfoKey;
     _activeCols = activeCols;
     _seed = seed;
     _iteration = iteration;
+    _sparse = sparse;
   }
   @Override protected void setupLocal(){
     DataInfo dinfo = DKV.get(_dinfoKey).get();
@@ -63,18 +67,23 @@ public abstract class FrameTask<T extends FrameTask<T>> extends MRTask<T>{
   protected void processRow(long gid, DataInfo.Row r){throw new RuntimeException("should've been overridden!");}
   protected void processRow(long gid, DataInfo.Row r, NewChunk [] outputs){throw new RuntimeException("should've been overridden!");}
 
-  /**
-   * Mini-Batch update of model parameters
-   * @param n number of trained examples in this last mini batch
-   */
-  protected void applyMiniBatchUpdate(int n){}
+  // mini-batch version - for DL only for now
+  protected void processRow(long gid, DataInfo.Row r, int mb){throw new RuntimeException("should've been overridden!");}
 
   /**
-   * Return the mini-batch size
-   * Note: If this is overridden, then applyMiniBatch must be overridden as well to perform the model/weight mini-batch update
-   * @return
+   * Mini-Batch update of model parameters
+   * @param seed
+   * @param responses
+   * @param offsets
+   * @param n actual number of rows in this minibatch
    */
-  protected int getMiniBatchSize(){ return 1; }
+  protected void processMiniBatch(long seed, double[] responses, double[] offsets, int n){}
+
+  /**
+   * Note: If this is overridden, then applyMiniBatch must be overridden as well to perform the model/weight mini-batch update
+   * @return Return the mini-batch size
+   */
+  protected int getMiniBatchSize(){ return 0; }
 
   /**
    * Override this to initialize at the beginning of chunk processing.
@@ -92,15 +101,22 @@ public abstract class FrameTask<T extends FrameTask<T>> extends MRTask<T>{
    * and adapts response according to the CaseMode/CaseValue if set.
    */
   @Override public final void map(Chunk [] chunks, NewChunk [] outputs) {
-    if (_jobKey != null && !Job.isRunning(_jobKey)) return;
+    if(_jobKey.get() != null && _jobKey.get().stop_requested()) throw new Job.JobCancelledException();
     final int nrows = chunks[0]._len;
     final long offset = chunks[0].start();
     boolean doWork = chunkInit();
     if (!doWork) return;
-    final boolean obs_weights = _dinfo._weights && !_fr.vecs()[_dinfo.weightChunkId()].isConst();
-    final double global_weight_sum = obs_weights ? _fr.vecs()[_dinfo.weightChunkId()].mean() * _fr.numRows() : 0;
+    final boolean obs_weights = _dinfo._weights
+            && !_fr.vecs()[_dinfo.weightChunkId()].isConst() //if all constant weights (such as 1) -> doesn't count as obs weights
+            && !(_fr.vecs()[_dinfo.weightChunkId()].isBinary()); //special case for cross-val      -> doesn't count as obs weights
+    final double global_weight_sum = obs_weights ? Math.round(_fr.vecs()[_dinfo.weightChunkId()].mean() * _fr.numRows()) : 0;
 
-    DataInfo.Row row = _dinfo.newDenseRow();
+    DataInfo.Row row = null;
+    DataInfo.Row[] rows = null;
+    if (_sparse)
+      rows = _dinfo.extractSparseRows(chunks);
+    else
+      row = _dinfo.newDenseRow();
     double[] weight_map = null;
     double relative_chunk_weight = 1;
     //TODO: store node-local helper arrays in _dinfo -> avoid re-allocation and construction
@@ -108,7 +124,7 @@ public abstract class FrameTask<T extends FrameTask<T>> extends MRTask<T>{
       weight_map = new double[nrows];
       double weight_sum = 0;
       for (int i = 0; i < nrows; ++i) {
-        row = _dinfo.extractDenseRow(chunks, i, row);
+        row = _sparse ? rows[i] : _dinfo.extractDenseRow(chunks, i, row);
         weight_sum += row.weight;
         weight_map[i] = weight_sum;
         assert (i == 0 || row.weight == 0 || weight_map[i] > weight_map[i - 1]);
@@ -138,8 +154,13 @@ public abstract class FrameTask<T extends FrameTask<T>> extends MRTask<T>{
       ArrayUtils.shuffleArray(shufIdx, skip_rng);
     }
 
+    double[] responses = new double[getMiniBatchSize()];
+    double[] offsets   = new double[getMiniBatchSize()];
+
+    long seed = 0;
     final int miniBatchSize = getMiniBatchSize();
     long num_processed_rows = 0;
+    long num_skipped_rows = 0;
     int miniBatchCounter = 0;
     for(int rep = 0; rep < repeats; ++rep) {
       for(int row_idx = 0; row_idx < nrows; ++row_idx){
@@ -166,27 +187,40 @@ public abstract class FrameTask<T extends FrameTask<T>> extends MRTask<T>{
         }
         assert(r >= 0 && r<=nrows);
 
-        row = _dinfo.extractDenseRow(chunks, r, row);
-        if(!row.bad) {
+        row = _sparse ? rows[r] : _dinfo.extractDenseRow(chunks, r, row);
+        if(row.bad || row.weight == 0) {
+          num_skipped_rows++;
+          continue;
+        } else {
           assert(row.weight > 0); //check that we never process a row that was held out via row.weight = 0
-          long seed = offset + rep * nrows + r;
-          miniBatchCounter++;
-          if (outputs != null && outputs.length > 0)
-            processRow(seed++, row, outputs);
-          else
-            processRow(seed++, row);
+          seed = offset + rep * nrows + r;
+          if (outputs != null && outputs.length > 0) {
+            assert(miniBatchSize==0);
+            processRow(seed, row, outputs);
+          }
+          else {
+            if (miniBatchSize > 0) { //DL
+              processRow(seed, row, miniBatchCounter);
+              responses[miniBatchCounter] = row.response != null && row.response.length > 0 ? row.response(0) : 0 /*autoencoder dummy*/;
+              offsets[miniBatchCounter] = row.offset;
+              miniBatchCounter++;
+            }
+            else //all other algos
+              processRow(seed, row);
+          }
         }
         num_processed_rows++;
         if (miniBatchCounter > 0 && miniBatchCounter % miniBatchSize == 0) {
-          applyMiniBatchUpdate(miniBatchCounter);
+          processMiniBatch(seed, responses, offsets, miniBatchCounter);
           miniBatchCounter = 0;
         }
       }
     }
-    if (miniBatchCounter>0)
-      applyMiniBatchUpdate(miniBatchCounter); //finish up the last piece
+    if (miniBatchCounter>0) {
+      processMiniBatch(seed, responses, offsets, miniBatchCounter); //last bit
+    }
 
-    assert(fraction != 1 || num_processed_rows == repeats * nrows);
+    assert(fraction != 1 || num_processed_rows + num_skipped_rows == repeats * nrows);
     chunkDone(num_processed_rows);
   }
 
@@ -199,7 +233,8 @@ public abstract class FrameTask<T extends FrameTask<T>> extends MRTask<T>{
     @Override
     public void map(Chunk[] cs) {
       // fill up _row with the data of row with global id _gid
-      if (cs[0].start() <= _gid && cs[0].start()+cs[0].len() > _gid) {
+      long start = cs[0].start();
+      if (start <= _gid && cs[0].start()+cs[0].len() > _gid) {
         _row = _di.newDenseRow();
         _di.extractDenseRow(cs, (int)(_gid-cs[0].start()), _row);
       }

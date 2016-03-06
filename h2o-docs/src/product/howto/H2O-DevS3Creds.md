@@ -16,7 +16,7 @@ For security reasons, we recommend writing a script to read the access credentia
 
 When running H2O in standalone mode using the simple Java launch command, we can pass in the S3 credentials in two ways. 
 
-- You can pass in credentials in standalone mode the same way as accessing data from HDFS on Hadoop. Create a `core-site.xml` file and pass it in with the flag `-hdfs_config`. For an example `core-site.xml` file, refer to [Core-site.xml](#Example). 
+- You can pass in credentials in standalone mode by creating a `core-site.xml` file and pass it in with the flag `-hdfs_config`. For an example `core-site.xml` file, refer to [Core-site.xml](#Example). 
 
  0. Edit the properties in the core-site.xml file to include your Access Key ID and Access Key as shown in the following example:
    
@@ -65,21 +65,20 @@ For more information, refer to the [H2O EC2 repo](https://github.com/h2oai/h2o-3
 Build a cluster of EC2 instances by running the following commands on the host that can access the nodes using a public DNS name. 
 
 0. Edit `h2o-cluster-launch-instances.py` to include your SSH key name and security group name, as well as any other environment-specific variables. 
-
-	```
- 	./h2o-cluster-launch-instances.py
- 	./h2o-cluster-distribute-h2o.sh  
+        
+   ```		
+   ./h2o-cluster-launch-instances.py
+   ./h2o-cluster-distribute-h2o.sh  
+   ```		
  
-	``` 
- 
-   --OR--
-   
- 	```
- 	./h2o-cluster-launch-instances.py
- 	./h2o-cluster-download-h2o.sh
-	```
-   >**Note**: The second method may be faster than the first, since download pulls from S3. 
+    --OR--
+		
+   ```		  
+   ./h2o-cluster-launch-instances.py
+   ./h2o-cluster-download-h2o.sh
+   ```		
 
+   **Note**: The second method may be faster than the first, since download pulls from S3. 
 
 0. Distribute the credentials using `./h2o-cluster-distribute-aws-credentials.sh`. 
   >**Note**: If you are running H2O using an IAM role, it is not necessary to distribute the AWS credentials to all the nodes in the cluster. The latest version of H2O can access the temporary access key. 
@@ -98,7 +97,7 @@ Build a cluster of EC2 instances by running the following commands on the host t
   - To stop H2O: `./h2o-cluster-stop-h2o.sh`
   - To shut down the cluster, use your [Amazon AWS console](http://docs.aws.amazon.com/ElasticMapReduce/latest/DeveloperGuide/UsingEMR_TerminateJobFlow.html) to shut down the cluster manually. 
 
-
+ >**Note**: To successfully import data, the data must reside in the same location on all nodes. 
 
 ---
 

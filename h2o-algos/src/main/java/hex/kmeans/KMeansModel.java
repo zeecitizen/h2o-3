@@ -4,6 +4,7 @@ import hex.ClusteringModel;
 import hex.ModelMetrics;
 import hex.ModelMetricsClustering;
 import water.DKV;
+import water.Job;
 import water.Key;
 import water.MRTask;
 import water.codegen.CodeGenerator;
@@ -18,6 +19,10 @@ import water.util.SBPrintStream;
 public class KMeansModel extends ClusteringModel<KMeansModel,KMeansModel.KMeansParameters,KMeansModel.KMeansOutput> {
 
   public static class KMeansParameters extends ClusteringModel.ClusteringParameters {
+    public String algoName() { return "KMeans"; }
+    public String fullName() { return "K-means"; }
+    public String javaName() { return KMeansModel.class.getName(); }
+    @Override public long progressUnits() { return _max_iterations; }
     public int _max_iterations = 1000;     // Max iterations
     public boolean _standardize = true;    // Standardize columns
     public long _seed = System.nanoTime(); // RNG seed
@@ -25,6 +30,7 @@ public class KMeansModel extends ClusteringModel<KMeansModel,KMeansModel.KMeansP
     public Key<Frame> _user_points;
     public boolean _pred_indicator = false;   // For internal use only: generate indicator cols during prediction
                                               // Ex: k = 4, cluster = 3 -> [0, 0, 1, 0]
+    @Override protected long nFoldSeed() { return _seed; }
   }
 
   public static class KMeansOutput extends ClusteringModel.ClusteringOutput {
@@ -66,9 +72,9 @@ public class KMeansModel extends ClusteringModel<KMeansModel,KMeansModel.KMeansP
     return new ModelMetricsClustering.MetricBuilderClustering(_output.nfeatures(),_parms._k);
   }
 
-  @Override protected Frame predictScoreImpl(Frame orig, Frame adaptedFr, String destination_key) {
+  @Override protected Frame predictScoreImpl(Frame orig, Frame adaptedFr, String destination_key, final Job j) {
     if (!_parms._pred_indicator) {
-      return super.predictScoreImpl(orig, adaptedFr, destination_key);
+      return super.predictScoreImpl(orig, adaptedFr, destination_key, j);
     } else {
       final int len = _parms._k;
       String prefix = "cluster_";
@@ -77,6 +83,7 @@ public class KMeansModel extends ClusteringModel<KMeansModel,KMeansModel.KMeansP
         adaptFrm.add(prefix + Double.toString(c+1), adaptFrm.anyVec().makeZero());
       new MRTask() {
         @Override public void map( Chunk chks[] ) {
+          if (isCancelled() || j != null && j.stop_requested()) return;
           double tmp [] = new double[_output._names.length];
           double preds[] = new double[len];
           for(int row = 0; row < chks[0]._len; row++) {
@@ -84,6 +91,7 @@ public class KMeansModel extends ClusteringModel<KMeansModel,KMeansModel.KMeansP
             for(int c = 0; c < preds.length; c++)
               chks[_output._names.length + c].set(row, p[c]);
           }
+          if (j != null) j.update(1);
         }
       }.doAll(adaptFrm);
 
@@ -93,7 +101,7 @@ public class KMeansModel extends ClusteringModel<KMeansModel,KMeansModel.KMeansP
 
       f = new Frame((null == destination_key ? Key.make() : Key.make(destination_key)), f.names(), f.vecs());
       DKV.put(f);
-      makeMetricBuilder(null).makeModelMetrics(this, orig);
+      makeMetricBuilder(null).makeModelMetrics(this, orig, null, null);
       return f;
     }
   }
@@ -144,32 +152,41 @@ public class KMeansModel extends ClusteringModel<KMeansModel,KMeansModel.KMeansP
                                              CodeGeneratorPipeline classCtx,
                                              CodeGeneratorPipeline fileCtx,
                                              final boolean verboseCode) {
+    // This is model name
+    final String mname = JCodeGen.toJavaId(_key.toString());
+
     if(_parms._standardize) {
-      classCtx.add(new CodeGenerator() {
+      fileCtx.add(new CodeGenerator() {
         @Override
         public void generate(JCodeSB out) {
-          JCodeGen.toStaticVar(out, "MEANS", _output._normSub,
-                               "Column means of training data");
-          JCodeGen.toStaticVar(out, "MULTS", _output._normMul,
-                               "Reciprocal of column standard deviations of training data");
-          JCodeGen.toStaticVar(out, "CENTERS", _output._centers_std_raw,
-                               "Normalized cluster centers[K][features]");
+          JCodeGen.toClassWithArray(out, null, mname + "_MEANS", _output._normSub,
+                                    "Column means of training data");
+          JCodeGen.toClassWithArray(out, null, mname + "_MULTS", _output._normMul,
+                                    "Reciprocal of column standard deviations of training data");
+          JCodeGen.toClassWithArray(out, null, mname + "_CENTERS", _output._centers_std_raw,
+                                    "Normalized cluster centers[K][features]");
         }
       });
 
       // Predict function body: main work function is a utility in GenModel class.
-      body.ip("preds[0] = KMeans_closest(CENTERS,data,DOMAINS,MEANS,MULTS);").nl(); // at function level
+      body.ip("preds[0] = KMeans_closest(")
+          .pj(mname + "_CENTERS", "VALUES")
+          .p(", data, DOMAINS, ")
+          .pj(mname + "_MEANS", "VALUES").p(", ")
+          .pj(mname + "_MULTS", "VALUES").p(");").nl(); // at function level
     } else {
-      classCtx.add(new CodeGenerator() {
+      fileCtx.add(new CodeGenerator() {
         @Override
         public void generate(JCodeSB out) {
-          JCodeGen.toStaticVar(out, "CENTERS", _output._centers_raw,
-                               "Denormalized cluster centers[K][features]");
+          JCodeGen.toClassWithArray(out, null, mname + "_CENTERS", _output._centers_raw,
+                                    "Denormalized cluster centers[K][features]");
         }
       });
 
       // Predict function body: main work function is a utility in GenModel class.
-      body.ip("preds[0] = KMeans_closest(CENTERS,data,DOMAINS,null,null);").nl(); // at function level
+      body.ip("preds[0] = KMeans_closest(")
+          .pj(mname + "_CENTERS", "VALUES")
+          .p(",data, DOMAINS, null, null);").nl(); // at function level
     }
   }
 

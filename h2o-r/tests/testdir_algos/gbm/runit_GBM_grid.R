@@ -1,5 +1,7 @@
 setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../../h2o-runit.R')
+source("../../../scripts/h2o-r-test-setup.R")
+
+
 
 check.gbm.grid <- function() {
   iris.hex <- h2o.uploadFile(locate("smalldata/iris/iris.csv"), destination_frame="iris.hex")
@@ -35,7 +37,20 @@ check.gbm.grid <- function() {
   cat("\n\n Grid search results:")
   print(gg)
 
-  
+  # Test grid sorting
+  ascending = h2o.getGrid(grid_id = gg@grid_id, sort_by =  "accuracy", decreasing = FALSE)
+  descending = h2o.getGrid(grid_id = gg@grid_id, sort_by =  "accuracy", decreasing = TRUE)
+
+  ascending = h2o.getGrid(grid_id = gg@grid_id, sort_by =  "mse", decreasing = FALSE)
+  descending = h2o.getGrid(grid_id = gg@grid_id, sort_by =  "mse", decreasing = TRUE)
+
+
+  ascending_model_ids <- ascending@model_ids
+  descending_model_ids <- descending@model_ids
+
+  expect_equal(length(ascending_model_ids), length(descending_model_ids))
+  expect_equal(length(ascending_model_ids), size_of_hyper_space)
+  expect_equal(rev(ascending_model_ids), descending_model_ids)
 }
 
 doTest("GBM Grid Search: iteration over parameters", check.gbm.grid)

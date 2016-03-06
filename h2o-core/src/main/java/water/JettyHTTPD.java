@@ -187,9 +187,7 @@ public class JettyHTTPD {
 //    _server.setThreadPool(p);
 
     Connector connector=new SocketConnector();
-    if (_ip != null) {
-      connector.setHost(_ip);
-    }
+    connector.setHost(_ip);
     connector.setPort(_port);
 
     createServer(connector);
@@ -378,7 +376,7 @@ public class JettyHTTPD {
         //
         // Here is an example of how to upload a file from the command line.
         //
-        // curl -v -F "file=@allyears2k_headers.zip" "http://localhost:54321/PostFile.bin?destination_frame=a.zip"
+        // curl -v -F "file=@allyears2k_headers.zip" "http://localhost:54321/3/PostFile.bin?destination_frame=a.zip"
         //
         // JSON Payload returned is:
         //     { "destination_frame": "key_name", "total_bytes": nnn }
@@ -504,6 +502,7 @@ public class JettyHTTPD {
     response.setHeader("X-h2o-build-project-version", H2O.ABV.projectVersion());
     response.setHeader("X-h2o-rest-api-version-max", Integer.toString(water.api.RequestServer.H2O_REST_API_VERSION));
     response.setHeader("X-h2o-cluster-id", Long.toString(H2O.CLUSTER_ID));
+    response.setHeader("X-h2o-cluster-good", Boolean.toString(H2O.CLOUD.healthy()));
   }
 
   public static class H2oDatasetServlet extends HttpServlet {
@@ -647,7 +646,9 @@ public class JettyHTTPD {
           (new Thread() {
             public void run() {
               boolean [] confirmations = new boolean[H2O.CLOUD.size()];
-              confirmations[H2O.SELF.index()] = true;
+              if (H2O.SELF.index() >= 0) {
+                confirmations[H2O.SELF.index()] = true;
+              }
               for(H2ONode n:H2O.CLOUD._memary) {
                 if(n != H2O.SELF)
                   new RPC(n, new ShutdownTsk(H2O.SELF,n.index(), 1000, confirmations)).call();

@@ -8,7 +8,7 @@ import water.util.ArrayUtils;
 
 public class ModelAdaptTest extends TestUtil {
 
-  @BeforeClass public static void stall() { stall_till_cloudsize(1); }
+  @BeforeClass public static void stall() { stall_till_cloudsize(5); }
 
 
   // Private junk model class to test Adaption logic
@@ -16,7 +16,12 @@ public class ModelAdaptTest extends TestUtil {
     AModel( Key key, Parameters p, Output o ) { super(key,p,o); }
     @Override protected double[] score0(double data[/*ncols*/], double preds[/*nclasses+1*/]) { throw H2O.unimpl(); }
     @Override public ModelMetrics.MetricBuilder makeMetricBuilder(String[] domain) { throw H2O.unimpl(); }
-    static class AParms extends Model.Parameters { }
+    static class AParms extends Model.Parameters {
+      public String algoName() { return "A"; }
+      public String fullName() { return "A"; }
+      public String javaName() { return AModel.class.getName(); }
+      @Override public long progressUnits() { return 0; }
+    }
     static class AOutput extends Model.Output { }
   }
 

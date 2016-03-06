@@ -1,17 +1,30 @@
-"""
-Regression Models
-"""
+from __future__ import absolute_import
+from __future__ import division
+from past.utils import old_div
+from .model_base import ModelBase
 
-import math
-from metrics_base import *
 
 class H2ORegressionModel(ModelBase):
-  """
-  Class for Regression models.  
-  """
-  def __init__(self, dest_key, model_json):
-    super(H2ORegressionModel, self).__init__(dest_key, model_json,H2ORegressionModelMetrics)
 
+  def _make_model(self):
+    return H2ORegressionModel()
+
+  def plot(self, timestep="AUTO", metric="AUTO", **kwargs):
+    """
+    Plots training set (and validation set if available) scoring history for an H2ORegressionModel. The timestep and metric
+    arguments are restricted to what is available in its scoring history.
+
+    :param timestep: A unit of measurement for the x-axis.
+    :param metric: A unit of measurement for the y-axis.
+    :return: A scoring history plot.
+    """
+
+    if self._model_json["algo"] in ("deeplearning", "drf", "gbm"):
+      if metric == "AUTO": metric = "MSE"
+      elif metric not in ("MSE","deviance"):
+        raise ValueError("metric for H2ORegressionModel must be one of: AUTO, MSE, deviance")
+
+    self._plot(timestep=timestep, metric=metric, **kwargs)
 
 def _mean_var(frame, weights=None):
   """
@@ -21,7 +34,7 @@ def _mean_var(frame, weights=None):
   :param weights: optional weights column
   :return: The (weighted) mean and variance
   """
-  return frame.mean(), frame.var()
+  return frame.mean()[0], frame.var()
 
 
 def h2o_mean_absolute_error(y_actual, y_predicted, weights=None):
@@ -35,7 +48,7 @@ def h2o_mean_absolute_error(y_actual, y_predicted, weights=None):
 
   """
   ModelBase._check_targets(y_actual, y_predicted)
-  return (y_predicted-y_actual).abs().mean()
+  return (y_predicted-y_actual).abs().mean()[0]
 
 
 def h2o_mean_squared_error(y_actual, y_predicted, weights=None):
@@ -48,7 +61,7 @@ def h2o_mean_squared_error(y_actual, y_predicted, weights=None):
   :return: loss (float) (best is 0.0)
   """
   ModelBase._check_targets(y_actual, y_predicted)
-  return ((y_predicted-y_actual)**2).mean()
+  return ((y_predicted-y_actual)**2).mean()[0]
 
 
 def h2o_median_absolute_error(y_actual, y_predicted):
@@ -78,7 +91,7 @@ def h2o_explained_variance_score(y_actual, y_predicted, weights=None):
   _, denominator = _mean_var(y_actual, weights)
   if denominator == 0.0:
     return 1. if numerator == 0 else 0.  # 0/0 => 1, otherwise, 0
-  return 1 - numerator / denominator
+  return 1 - old_div(numerator, denominator)
 
 
 def h2o_r2_score(y_actual, y_predicted, weights=1.):
@@ -92,8 +105,8 @@ def h2o_r2_score(y_actual, y_predicted, weights=1.):
   """
   ModelBase._check_targets(y_actual, y_predicted)
   numerator   = (weights * (y_actual - y_predicted) ** 2).sum()
-  denominator = (weights * (y_actual - y_actual.mean()) ** 2).sum()
+  denominator = (weights * (y_actual - y_actual.mean()[0]) ** 2).sum()
 
   if denominator == 0.0:
     return 1. if numerator == 0. else 0.  # 0/0 => 1, else 0
-  return 1 - numerator / denominator
+  return 1 - old_div(numerator, denominator)

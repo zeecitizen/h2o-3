@@ -2,8 +2,9 @@ package hex.schemas;
 
 import hex.Distribution;
 import hex.deeplearning.DeepLearning;
-import hex.deeplearning.DeepLearningParameters;
+import hex.deeplearning.DeepLearningModel.DeepLearningParameters;
 import water.api.API;
+import water.api.KeyV3;
 import water.api.ModelParametersSchema;
 
 public class DeepLearningV3 extends ModelBuilderSchema<DeepLearning,DeepLearningV3,DeepLearningV3.DeepLearningParametersV3> {
@@ -31,8 +32,10 @@ public class DeepLearningV3 extends ModelBuilderSchema<DeepLearning,DeepLearning
         "max_confusion_matrix_size",
         "max_hit_ratio_k",
         "checkpoint",
+        "pretrained_autoencoder",
         "overwrite_with_best_model",
         "use_all_factor_levels",
+        "standardize",
         "activation",
         "hidden",
         "epochs",
@@ -58,6 +61,7 @@ public class DeepLearningV3 extends ModelBuilderSchema<DeepLearning,DeepLearning
         "initial_weight_scale",
         "loss",
         "distribution",
+        "quantile_alpha",
         "tweedie_power",
         "score_interval",
         "score_training_samples",
@@ -65,6 +69,10 @@ public class DeepLearningV3 extends ModelBuilderSchema<DeepLearning,DeepLearning
         "score_duty_cycle",
         "classification_stop",
         "regression_stop",
+        "stopping_rounds",
+        "stopping_metric",
+        "stopping_tolerance",
+        "max_runtime_secs",
         "score_validation_sampling",
         "diagnostics",
         "fast_mode",
@@ -83,10 +91,10 @@ public class DeepLearningV3 extends ModelBuilderSchema<DeepLearning,DeepLearning
         "max_categorical_features",
         "reproducible",
         "export_weights_and_biases",
-//        "mini_batch_size",
-//        "elastic_averaging",
-//        "elastic_averaging_moving_rate",
-//        "elastic_averaging_regularization"
+        "mini_batch_size",
+        "elastic_averaging",
+        "elastic_averaging_moving_rate",
+        "elastic_averaging_regularization"
     };
 
   /*Imbalanced Classes*/
@@ -130,7 +138,7 @@ public class DeepLearningV3 extends ModelBuilderSchema<DeepLearning,DeepLearning
      * If enabled, store the best model under the destination key of this model at the end of training.
      * Only applicable if training is not cancelled.
      */
-    @API(help = "If enabled, override the final model with the best model found during training", level = API.Level.expert, direction=API.Direction.INOUT)
+    @API(help = "If enabled, override the final model with the best model found during training", level = API.Level.expert, direction=API.Direction.INOUT, gridable = true)
     public boolean overwrite_with_best_model;
 
     @API(help = "Auto-Encoder", level = API.Level.secondary, direction=API.Direction.INOUT)
@@ -139,17 +147,22 @@ public class DeepLearningV3 extends ModelBuilderSchema<DeepLearning,DeepLearning
     @API(help="Use all factor levels of categorical variables. Otherwise, the first factor level is omitted (without loss of accuracy). Useful for variable importances and auto-enabled for autoencoder.", level = API.Level.secondary, direction=API.Direction.INOUT, gridable = true)
     public boolean use_all_factor_levels;
 
+    @API(help="If enabled, automatically standardize the data. If disabled, the user must provide properly scaled input data.", level = API.Level.secondary, direction=API.Direction.INOUT, gridable = true)
+    public boolean standardize;
+
     /*Neural Net Topology*/
     /**
      * The activation function (non-linearity) to be used the neurons in the hidden layers.
      * Tanh: Hyperbolic tangent function (same as scaled and shifted sigmoid).
-     * Rectifier: Chooses the maximum of (0, x) where x is the input value.
+     * Rectifier: Rectifier Linear Unit: Chooses the maximum of (0, x) where x is the input value.
      * Maxout: Choose the maximum coordinate of the input vector.
+     * ExpRectifier: Exponential Rectifier Linear Unit function (http://arxiv.org/pdf/1511.07289v2.pdf)
      * With Dropout: Zero out a random user-given fraction of the
      *      incoming weights to each hidden layer during training, for each
      *      training row. This effectively trains exponentially many models at
      *      once, and can improve generalization.
      */
+    //@API(help = "Activation function", values = { "Tanh", "TanhWithDropout", "Rectifier", "RectifierWithDropout", "Maxout", "MaxoutWithDropout", "ExpRectifier", "ExpRectifierWithDropout" }, level=API.Level.critical, direction=API.Direction.INOUT, gridable = true)
     @API(help = "Activation function", values = { "Tanh", "TanhWithDropout", "Rectifier", "RectifierWithDropout", "Maxout", "MaxoutWithDropout" }, level=API.Level.critical, direction=API.Direction.INOUT, gridable = true)
     public DeepLearningParameters.Activation activation;
 
@@ -300,7 +313,7 @@ public class DeepLearningV3 extends ModelBuilderSchema<DeepLearning,DeepLearning
      * of training samples.
      * This parameter is only active if adaptive learning rate is disabled.
      */
-    @API(help = "Number of training samples for which momentum increases", /* dmin = 1, */ level = API.Level.expert, direction=API.Direction.INOUT)
+    @API(help = "Number of training samples for which momentum increases", /* dmin = 1, */ level = API.Level.expert, direction=API.Direction.INOUT, gridable = true)
     public double momentum_ramp;
 
     /**
@@ -391,14 +404,17 @@ public class DeepLearningV3 extends ModelBuilderSchema<DeepLearning,DeepLearning
      * be used for classification as well (where it emphasizes the error on all
      * output classes, not just for the actual class).
      */
-    @API(help = "Loss function", values = { "Automatic", "CrossEntropy", "Quadratic", "Huber", "Absolute" }, required = false, level = API.Level.secondary, direction=API.Direction.INOUT, gridable = true)
+    @API(help = "Loss function", values = { "Automatic", "CrossEntropy", "Quadratic", "Huber", "Absolute", "Quantile" }, required = false, level = API.Level.secondary, direction=API.Direction.INOUT, gridable = true)
     public DeepLearningParameters.Loss loss;
 
-    @API(help = "Distribution function", values = { "AUTO", "bernoulli", "multinomial", "gaussian", "poisson", "gamma", "tweedie" }, level = API.Level.secondary, gridable = true)
+    @API(help = "Distribution function", values = { "AUTO", "bernoulli", "multinomial", "gaussian", "poisson", "gamma", "tweedie", "laplace", "huber", "quantile" }, level = API.Level.secondary, gridable = true)
     public Distribution.Family distribution;
 
-    @API(help = "Tweedie Power", level = API.Level.secondary)
+    @API(help = "Tweedie Power", level = API.Level.secondary, gridable = true)
     public double tweedie_power;
+
+    @API(help="Desired quantile for quantile regression (from 0.0 to 1.0)", level = API.Level.secondary, gridable = true)
+    public double quantile_alpha;
 
     /*Scoring*/
     /**
@@ -515,7 +531,7 @@ public class DeepLearningV3 extends ModelBuilderSchema<DeepLearning,DeepLearning
     @API(help = "Handling of missing values. Either Skip or MeanImputation.", values = { "Skip", "MeanImputation" }, level = API.Level.expert, direction=API.Direction.INOUT, gridable = true)
     public DeepLearningParameters.MissingValuesHandling missing_values_handling;
 
-    @API(help = "Sparse data handling (Deprecated).", level = API.Level.expert, direction=API.Direction.INOUT, gridable = true)
+    @API(help = "Sparse data handling (more efficient for data with lots of 0 values).", level = API.Level.expert, direction=API.Direction.INOUT, gridable = true)
     public boolean sparse;
 
     @API(help = "Use a column major weight matrix for input layer. Can speed up forward propagation, but might slow down backpropagation (Deprecated).", level = API.Level.expert, direction=API.Direction.INOUT, gridable = true)
@@ -536,16 +552,19 @@ public class DeepLearningV3 extends ModelBuilderSchema<DeepLearning,DeepLearning
     @API(help = "Whether to export Neural Network weights and biases to H2O Frames", level = API.Level.expert, direction=API.Direction.INOUT)
     public boolean export_weights_and_biases;
 
-//    @API(help = "Mini-batch size (use 1 for stochastic gradient descent)", level = API.Level.expert, direction=API.Direction.INOUT)
-//    public int mini_batch_size;
+    @API(help = "Mini-batch size (smaller leads to better fit, larger can speed up and generalize better)", level = API.Level.expert, direction=API.Direction.INOUT)
+    public int mini_batch_size;
 
-//    @API(help = "Elastic averaging between compute nodes can improve distributed model convergence", level = API.Level.expert, direction=API.Direction.INOUT)
-//    public boolean elastic_averaging;
-//
-//    @API(help = "Elastic averaging moving rate (only if elastic averaging is enabled).", level = API.Level.expert, direction=API.Direction.INOUT)
-//    public double elastic_averaging_moving_rate;
-//
-//    @API(help = "Elastic averaging regularization strength (only if elastic averaging is enabled).", level = API.Level.expert, direction=API.Direction.INOUT)
-//    public double elastic_averaging_regularization;
+    @API(help = "Elastic averaging between compute nodes can improve distributed model convergence (Experimental)", level = API.Level.expert, direction=API.Direction.INOUT, gridable = true)
+    public boolean elastic_averaging;
+
+    @API(help = "Elastic averaging moving rate (only if elastic averaging is enabled).", level = API.Level.expert, direction=API.Direction.INOUT, gridable = true)
+    public double elastic_averaging_moving_rate;
+
+    @API(help = "Elastic averaging regularization strength (only if elastic averaging is enabled).", level = API.Level.expert, direction=API.Direction.INOUT, gridable = true)
+    public double elastic_averaging_regularization;
+
+    @API(help = "Pretrained autoencoder model to initialize this model with.", level = API.Level.expert, direction=API.Direction.INOUT)
+    public KeyV3.ModelKeyV3 pretrained_autoencoder;
   }
 }

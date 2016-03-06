@@ -1,5 +1,7 @@
 setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../../h2o-runit.R')
+source("../../../scripts/h2o-r-test-setup.R")
+
+
 
 test.apply <- function() {
   hex <- h2o.importFile(locate("smalldata/logreg/prostate.csv"))
@@ -44,6 +46,17 @@ test.apply <- function() {
 
   zzz <- 2.5
   print(apply( hex, 2, function(x) { zzz }))
+
+
+  # PUBDEV-1749
+  fun1 <- function(x) { x + x }
+  fun <-  function(x) { x * fun1(x) }
+  print(apply(hex, 2, fun))
+
+
+  lookup <- as.h2o(data.frame(matrix(rnorm(100), ncol=50, nrow=50)))
+  i <- 4 
+  print(apply(as.h2o(1:50), 1, function(x) { lookup[i,] - lookup[10,] }))
 
   
 }

@@ -7,7 +7,7 @@ import water.fvec.Frame;
 import water.util.Log;
 
 public class UnlockTest extends TestUtil {
-  public UnlockTest() { super(3); }
+  @BeforeClass() public static void setup() { stall_till_cloudsize(5); }
 
   @Test
   public void run() {
@@ -17,8 +17,8 @@ public class UnlockTest extends TestUtil {
     Frame fr1 = new Frame(Key.make(), f.names(), f.vecs());
     Frame fr2 = new Frame(Key.make(), f.names(), f.vecs());
     // Lock the frames against writes
-    fr1.delete_and_lock(null);
-    fr2.delete_and_lock(null);
+    fr1.delete_and_lock();
+    fr2.delete_and_lock();
     int i = 0;
     try {
       // try to delete the write-locked frames -> will throw an exception

@@ -13,11 +13,10 @@ import java.util.Arrays;
  *
  *  Returns a set of grouping columns, with the single answer column, with one
  *  row per unique group.
- *  
+ *
  */
 class ASTDdply extends ASTPrim {
-  @Override
-  public String[] args() { return new String[]{"ary", "groupByCols", "fun"}; }
+  @Override public String[] args() { return new String[]{"ary", "groupByCols", "fun"}; }
   @Override int nargs() { return 1+3; } // (ddply data [group-by-cols] fcn )
   @Override public String str() { return "ddply"; }
   @Override Val apply( Env env, Env.StackHelp stk, AST asts[] ) {
@@ -59,7 +58,7 @@ class ASTDdply extends ASTPrim {
     // same Chunk layout, except each Chunk will be the filter rows numbers; a
     // list of the Chunk-relative row-numbers for that group in an original
     // data Chunk.  Each Vec will have a *different* number of rows.
-    Vec[] vgrps = new BuildGroup(gbCols,gss).doAll(gss.size(),fr).close();
+    Vec[] vgrps = new BuildGroup(gbCols,gss).doAll(gss.size(), Vec.T_NUM, fr).close();
 
     // Pass 3: For each group, build a full frame for the group, run the
     // function on it and tear the frame down.
@@ -116,7 +115,7 @@ class ASTDdply extends ASTPrim {
       Futures fs = new Futures();
       Vec[] vgrps = new Vec[_gss.size()];
       for( int i = 0; i < vgrps.length; i++ )
-        vgrps[i] = _appendables[i].close(fs);
+        vgrps[i] = _appendables[i].close(_appendables[i].compute_rowLayout(),fs);
       fs.blockForPending();
       return vgrps;
     }
@@ -132,14 +131,8 @@ class ASTDdply extends ASTPrim {
 
     RemoteRapids( Frame data, Key<Vec> vKey, AST fun, ASTFun scope) {
       _data = data; _vKey=vKey; _fun=fun; _scope = scope;
-      // Always 1 higher priority than calling thread... because the caller will
-      // block & burn a thread waiting for this MRTask to complete.
-      Thread cThr = Thread.currentThread();
-      _priority = (byte)((cThr instanceof H2O.FJWThr) ? ((H2O.FJWThr)cThr)._priority+1 : super.priority());
     }
 
-    final private byte _priority;
-    @Override public byte priority() { return _priority; }
     @Override public void compute2() {
       assert _vKey.home();
       final Vec gvec = DKV.getGet(_vKey);
@@ -155,7 +148,7 @@ class ASTDdply extends ASTPrim {
       final Vec[] groupVecs = new Vec[_data.numCols()];
       Futures fs = new Futures();
       for( int i=0; i<_data.numCols(); i++ )
-        DKV.put(groupVecs[i] = new Vec(groupKeys[i], gvec._espc, gvec.domain(), gvec.get_type()), fs);
+        DKV.put(groupVecs[i] = new Vec(groupKeys[i], gvec._rowLayout, gvec.domain(), gvec.get_type()), fs);
       fs.blockForPending();
       // Fill in the chunks
       new MRTask() {
@@ -172,11 +165,11 @@ class ASTDdply extends ASTPrim {
       Frame groupFrame = new Frame(_data._names,groupVecs);
 
       // Now run the function on the group frame
-      Env env = new Env();
-      env._scope = _scope;      // Build an environment with proper lookup scope
-      Val val = new ASTExec( new AST[]{_fun,new ASTFrame(groupFrame)}).exec(env);
-      assert env.sp()==0;
-
+      Session ses = new Session();
+      // Build an environment with proper lookup scope, and execute in a temp session
+      Val val = ses.exec(new ASTExec( new AST[]{_fun,new ASTFrame(groupFrame)}), _scope);
+      val = ses.end(val);
+      
       // Result into a double[]
       if( val.isFrame() ) {
         Frame res = val.getFrame();
@@ -187,9 +180,11 @@ class ASTDdply extends ASTPrim {
           _result[i] = res.vec(i).at(0);
       } else if( val.isNum() ) {
         _result = new double[]{val.getNum()};
+      } else if( val.isNums() ) {
+        _result = val.getNums();
       } else throw new IllegalArgumentException("ddply must return either a number or a frame, not a "+val);
-
-
+      
+      
       // Cleanup
       groupFrame.delete();      // Delete the Frame holding WrappedVecs over SubsetChunks
       gvec.remove();            // Delete the group-defining Vec

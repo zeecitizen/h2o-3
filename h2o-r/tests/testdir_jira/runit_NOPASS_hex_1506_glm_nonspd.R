@@ -1,3 +1,5 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../scripts/h2o-r-test-setup.R")
 ######################################################################
 # Test for HEX-1506
 # h2o.glm() should return warning if matrix is non-SPD
@@ -5,9 +7,9 @@
 
 # setwd("/Users/tomk/0xdata/ws/h2o/R/tests/testdir_jira")
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+
 options(echo=TRUE)
-source('../h2o-runit.R')
+
 
 heading("BEGIN TEST")
 check.hex_1506 <- function() {

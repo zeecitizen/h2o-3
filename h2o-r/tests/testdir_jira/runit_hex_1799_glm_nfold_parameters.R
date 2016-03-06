@@ -1,15 +1,9 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../scripts/h2o-r-test-setup.R")
 ######################################################################################
 # Test for HEX-1799
 # h2o.glm with nfolds >= 2 should have model parameters that match the main glm model.
 ######################################################################################
-
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-options(echo=TRUE)
-source('../h2o-runit.R')
-
-heading("BEGIN TEST")
-
-
 hex_1799_test <-
 function() {
 

@@ -1,10 +1,12 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../scripts/h2o-r-test-setup.R")
 # Parse the header,test  and train files, transform all columns to enums.
 # 
 # It is passing on 1,2 JVMs, but failing on 3JVMs
 #
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../h2o-runit.R')
+
+
 
 test.pub.895 <- function() {
 print("Parse header file")

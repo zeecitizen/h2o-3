@@ -1,11 +1,13 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../scripts/h2o-r-test-setup.R")
 ##
 # NOPASS TEST: The following bug is associated with JIRA PUB-965
 # 'Determine 'correct' behavior for link functions'
 # Testing GLM on prostate dataset with BINOMIAL family and log link
 ##
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../h2o-runit.R')
+
+
 
 
 test.linkFunctions <- function() {

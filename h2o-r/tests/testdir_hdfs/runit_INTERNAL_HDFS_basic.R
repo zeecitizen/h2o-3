@@ -1,9 +1,11 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../scripts/h2o-r-test-setup.R")
 #----------------------------------------------------------------------
 # Purpose:  This test exercises HDFS operations from R.
 #----------------------------------------------------------------------
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../h2o-runit.R')
+
+
 
 #----------------------------------------------------------------------
 # Parameters for the test.
@@ -11,10 +13,10 @@ source('../h2o-runit.R')
 
 # Check if we are running inside the H2O network by seeing if we can touch
 # the namenode.
-running_inside_h2o = is.running.internal.to.h2o()
+hadoop_namenode_is_accessible = hadoop.namenode.is.accessible()
 
-if (running_inside_h2o) {
-    hdfs_name_node = H2O.INTERNAL.HDFS.NAME.NODE
+if (hadoop_namenode_is_accessible) {
+    hdfs_name_node = HADOOP.NAMENODE
     hdfs_iris_file = "/datasets/runit/iris_wheader.csv"
     hdfs_iris_dir  = "/datasets/runit/iris_test_train"
 } else {
@@ -41,7 +43,7 @@ check.hdfs_basic <- function() {
   if (n != 150) {
       stop("nrows is wrong")
   }
-  if (class(iris.hex) != "Frame") {
+  if (class(iris.hex) != "H2OFrame") {
       stop("iris.hex is the wrong type")
   }
   print ("Import worked")
@@ -60,7 +62,7 @@ check.hdfs_basic <- function() {
   if (n != 150) {
       stop("nrows is wrong")
   }
-  if (class(iris.dir.hex) != "Frame") {
+  if (class(iris.dir.hex) != "H2OFrame") {
       stop("iris.dir.hex is the wrong type")
   }
   print ("Import worked")

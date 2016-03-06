@@ -1,10 +1,12 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../scripts/h2o-r-test-setup.R")
 #'
 #' PUB-685: Throw error when MARGIN = c(1,2)
 #'
 #'
 #' Ensure that an error about the margin is thrown when passing in c(1,2) for the MARGIN in apply
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../h2o-runit.R')
+
+
 
 test.pub_685_margin.err.throw <- function() {
   hex <- as.h2o(iris[,1:4])

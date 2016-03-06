@@ -1,7 +1,6 @@
 package water.parser;
 
 import org.apache.commons.lang.math.NumberUtils;
-import water.exceptions.H2OParseSetupException;
 import water.fvec.Vec;
 import water.fvec.FileVec;
 import water.Key;
@@ -468,7 +467,7 @@ MAIN_LOOP:
       String[] firstLine = determineTokens(lines[0], _setup._separator, _setup._single_quotes);
       if (_setup._column_names != null) {
         for (int i = 0; hasHdr && i < firstLine.length; ++i)
-          hasHdr = _setup._column_names[i].equalsIgnoreCase(firstLine[i]);
+          hasHdr = (_setup._column_names[i] == firstLine[i]) || (_setup._column_names[i] != null && _setup._column_names[i].equalsIgnoreCase(firstLine[i]));
       } else { // declared to have header, but no column names provided, assume header exist in all files
         _setup._column_names = firstLine;
       }
@@ -625,15 +624,15 @@ MAIN_LOOP:
 
     String[] lines = getFirstLines(bits);
     if(lines.length==0 )
-      throw new H2OParseSetupException("No data!");
+      throw new H2OParseException("No data!");
 
     // Guess the separator, columns, & header
     String[] labels;
     final String[][] data = new String[lines.length][];
     if( lines.length == 1 ) {       // Ummm??? Only 1 line?
       if( sep == GUESS_SEP) {
-        if (lines[0].split(",").length > 2) sep = (byte) ',';
-        else if (lines[0].split(" ").length > 2) sep = ' ';
+        if (lines[0].split(",").length > 1) sep = (byte) ',';
+        else if (lines[0].split(" ").length > 1) sep = ' ';
         else { //one item, guess type
           data[0] = new String[]{lines[0]};
           byte[] ctypes = new byte[1];
@@ -658,7 +657,7 @@ MAIN_LOOP:
       data[0] = determineTokens(lines[0], sep, singleQuotes);
       ncols = (ncols > 0) ? ncols : data[0].length;
       if( checkHeader == GUESS_HEADER) {
-        if (ParseSetup.allStrings(data[0])) {
+        if (ParseSetup.allStrings(data[0]) && !data[0][0].isEmpty()) {
           labels = data[0];
           checkHeader = HAS_HEADER;
         } else {
@@ -699,11 +698,11 @@ MAIN_LOOP:
       // See if compatible headers
       if( columnNames != null && labels != null ) {
         if( labels.length != columnNames.length )
-          throw new H2OParseSetupException("Already have "+columnNames.length+" column labels, but found "+labels.length+" in this file");
+          throw new H2OParseException("Already have "+columnNames.length+" column labels, but found "+labels.length+" in this file");
         else {
           for( int i = 0; i < labels.length; ++i )
             if( !labels[i].equalsIgnoreCase(columnNames[i]) ) {
-              throw new H2OParseSetupException("Column "+(i+1)+" label '"+labels[i]+"' does not match '"+columnNames[i]+"'");
+              throw new H2OParseException("Column "+(i+1)+" label '"+labels[i]+"' does not match '"+columnNames[i]+"'");
             }
           labels = columnNames; // Keep prior case & count in any case
         }

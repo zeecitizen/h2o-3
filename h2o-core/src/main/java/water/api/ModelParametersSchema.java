@@ -1,24 +1,15 @@
 package water.api;
 
-import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
 import hex.Model;
-import water.AutoBuffer;
-import water.DKV;
-import water.H2O;
-import water.Key;
-import water.Value;
+import hex.ScoreKeeper;
+import water.*;
 import water.api.KeyV3.FrameKeyV3;
 import water.api.KeyV3.ModelKeyV3;
 import water.fvec.Frame;
 import water.util.PojoUtils;
+
+import java.lang.reflect.Field;
+import java.util.*;
 
 /**
  * An instance of a ModelParameters schema contains the Model build parameters (e.g., K and max_iterations for KMeans).
@@ -30,16 +21,10 @@ public class ModelParametersSchema<P extends Model.Parameters, S extends ModelPa
   // NOTE:
   // Parameters must be ordered for the UI
   ////////////////////////////////////////
-
-		public String[] fields() {
-				Class<? extends ModelParametersSchema> this_clz = this.getClass();
-				try {
-				    return (String[]) this_clz.getField("fields").get(this_clz);
-				}
-				catch (Exception e) {
-						throw H2O.fail("Caught exception from accessing the schema field list for: " + this);
-				}
-		}
+  public String[] fields() {
+    try { return (String[]) getClass().getField("fields").get(getClass()); }
+    catch (Exception e) { throw H2O.fail("Caught exception from accessing the schema field list", e);  }
+  }
 
   ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   // CAREFUL: This class has its own JSON serializer.  If you add a field here you probably also want to add it to the serializer!
@@ -60,6 +45,9 @@ public class ModelParametersSchema<P extends Model.Parameters, S extends ModelPa
 
   @API(help="Keep cross-validation model predictions", level = API.Level.expert, direction=API.Direction.INOUT)
   public boolean keep_cross_validation_predictions;
+
+  @API(help="Allow parallel training of cross-validation models", direction=API.Direction.INOUT, level = API.Level.expert)
+  public boolean parallelize_cross_validation;
 
   @API(help = "Response column", is_member_of_frames = {"training_frame", "validation_frame"}, is_mutually_exclusive_with = {"ignored_columns"}, direction = API.Direction.INOUT, gridable = true)
   public FrameV3.ColSpecifierV3 response_column;
@@ -93,6 +81,26 @@ public class ModelParametersSchema<P extends Model.Parameters, S extends ModelPa
   @API(help = "Model checkpoint to resume training with", level = API.Level.secondary, direction=API.Direction.INOUT)
   public ModelKeyV3 checkpoint;
 
+  /**
+   * Early stopping based on convergence of stopping_metric.
+   * Stop if simple moving average of length k of the stopping_metric does not improve (by stopping_tolerance) for k=stopping_rounds scoring events."
+   * Can only trigger after at least 2k scoring events. Use 0 to disable.
+   */
+  @API(help = "Early stopping based on convergence of stopping_metric. Stop if simple moving average of length k of the stopping_metric does not improve for k:=stopping_rounds scoring events (0 to disable)", level = API.Level.secondary, direction=API.Direction.INOUT, gridable = true)
+  public int stopping_rounds;
+
+  @API(help = "Maximum allowed runtime in seconds for model training. Use 0 to disable.", level = API.Level.secondary, direction=API.Direction.INOUT, gridable = true)
+  public double max_runtime_secs;
+
+  /**
+   * Metric to use for convergence checking, only for _stopping_rounds > 0
+   */
+  @API(help = "Metric to use for early stopping (AUTO: logloss for classification, deviance for regression)", values = {"AUTO", "deviance", "logloss", "MSE", "AUC", "lift_top_group", "r2", "misclassification"}, level = API.Level.secondary, direction=API.Direction.INOUT, gridable = true)
+  public ScoreKeeper.StoppingMetric stopping_metric;
+
+  @API(help = "Relative tolerance for metric-based stopping criterion Relative tolerance for metric-based stopping criterion (stop if relative improvement is not at least this much)", level = API.Level.secondary, direction=API.Direction.INOUT, gridable = true)
+  public double stopping_tolerance;
+
   protected static String[] append_field_arrays(String[] first, String[] second) {
     String[] appended = new String[first.length + second.length];
     System.arraycopy(first, 0, appended, 0, first.length);
@@ -101,7 +109,7 @@ public class ModelParametersSchema<P extends Model.Parameters, S extends ModelPa
   }
 
   public S fillFromImpl(P impl) {
-    PojoUtils.copyProperties(this, impl, PojoUtils.FieldNaming.ORIGIN_HAS_UNDERSCORES );
+    PojoUtils.copyProperties(this, impl, PojoUtils.FieldNaming.ORIGIN_HAS_UNDERSCORES);
 
     if (null != impl._train) {
       Value v = DKV.get(impl._train);
@@ -123,8 +131,9 @@ public class ModelParametersSchema<P extends Model.Parameters, S extends ModelPa
   public P fillImpl(P impl) {
     super.fillImpl(impl);
 
-    impl._train = (null == this.training_frame ? null : Key.<Frame>make(this.training_frame.name));
+    impl._train = (null == this.  training_frame ? null : Key.<Frame>make(this.  training_frame.name));
     impl._valid = (null == this.validation_frame ? null : Key.<Frame>make(this.validation_frame.name));
+    impl._max_runtime_secs = nfolds > 0 ? max_runtime_secs / (nfolds+1) : max_runtime_secs;
 
     return impl;
   }

@@ -1,7 +1,11 @@
 package water.util;
 
-import static java.lang.Double.isNaN;
+import water.fvec.C1SChunk;
+import water.fvec.C2SChunk;
+import water.fvec.C4SChunk;
+import water.fvec.Chunk;
 
+import static java.lang.Double.isNaN;
 import java.util.concurrent.TimeUnit;
 
 public class PrettyPrint {
@@ -29,18 +33,19 @@ public class PrettyPrint {
 
   // Return X such that (bytes < 1L<<(X*10))
   static int byteScale(long bytes) {
+    if (bytes<0) return -1;
     for( int i=0; i<6; i++ )
       if( bytes < 1L<<(i*10) )
         return i;
     return 6;
   }
   static double bytesScaled(long bytes, int scale) {
-    if( scale == 0 ) return bytes;
+    if( scale <= 0 ) return bytes;
     return bytes / (double)(1L<<((scale-1)*10));
   }
-  static final String[] SCALE = new String[] {"N/A","%4.0f  B","%.1f KB","%.1f MB","%.2f GB","%.3f TB","%.3f PB"};
+  static final String[] SCALE = new String[] {"N/A (-ve)","Zero  ","%4.0f  B","%.1f KB","%.1f MB","%.2f GB","%.3f TB","%.3f PB"};
   public static String bytes(long bytes) { return bytes(bytes,byteScale(bytes)); }
-  static String bytes(long bytes, int scale) { return String.format(SCALE[scale],bytesScaled(bytes,scale)); }
+  static String bytes(long bytes, int scale) { return String.format(SCALE[scale+1],bytesScaled(bytes,scale)); }
   public static String bytesPerSecond(long bytes) {
     if( bytes < 0 ) return "N/A";
     return bytes(bytes)+"/S";
@@ -105,6 +110,31 @@ public class PrettyPrint {
     long hi0 = (hi>>48)&0xFFFFL;
     long hi1 = (hi>> 0)&0xFFFFFFFFFFFFL;
     return String.format("%08X-%04X-%04X-%04X-%012X",lo0,lo1,lo2,hi0,hi1);
+  }
+
+  public static String number(Chunk chk, double d, int precision) {
+    long l = (long)d;
+    if( (double)l == d ) return Long.toString(l);
+    if( precision > 0 ) return x2(d,PrettyPrint.pow10(-precision));
+    Class chunkClass = chk.getClass();
+    if( chunkClass == C1SChunk.class ) return x2(d,((C1SChunk)chk).scale());
+    if( chunkClass == C2SChunk.class ) return x2(d,((C2SChunk)chk).scale());
+    if( chunkClass == C4SChunk.class ) return x2(d,((C4SChunk)chk).scale());
+    return Double.toString(d);
+  }
+
+  private static String x2( double d, double scale ) {
+    String s = Double.toString(d);
+    // Double math roundoff error means sometimes we get very long trailing
+    // strings of junk 0's with 1 digit at the end... when we *know* the data
+    // has only "scale" digits.  Chop back to actual digits
+    int ex = (int)Math.log10(scale);
+    int x = s.indexOf('.');
+    int y = x+1+(-ex);
+    if( x != -1 && y < s.length() ) s = s.substring(0,x+1+(-ex));
+    while( s.charAt(s.length()-1)=='0' )
+      s = s.substring(0,s.length()-1);
+    return s;
   }
 
   public static String formatPct(double pct) {

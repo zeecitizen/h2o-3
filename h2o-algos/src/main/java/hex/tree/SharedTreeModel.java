@@ -1,35 +1,22 @@
 package hex.tree;
 
-import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-
-import hex.Distribution;
-import hex.Model;
-import hex.ModelMetrics;
-import hex.ModelMetricsBinomial;
-import hex.ModelMetricsMultinomial;
-import hex.ModelMetricsRegression;
-import hex.ScoreKeeper;
-import hex.VarImp;
-import water.DKV;
-import water.Futures;
-import water.H2O;
-import water.Key;
+import hex.*;
+import water.*;
 import water.codegen.CodeGenerator;
 import water.codegen.CodeGeneratorPipeline;
 import water.exceptions.H2OIllegalArgumentException;
 import water.exceptions.JCodeSB;
-import water.util.ArrayUtils;
-import water.util.JCodeGen;
-import water.util.PojoUtils;
-import water.util.RandomUtils;
-import water.util.SB;
-import water.util.SBPrintStream;
-import water.util.TwoDimTable;
+import water.fvec.Chunk;
+import water.fvec.Frame;
+import water.fvec.NewChunk;
+import water.fvec.Vec;
+import water.util.*;
 
-public abstract class SharedTreeModel<M extends SharedTreeModel<M,P,O>, P extends SharedTreeModel.SharedTreeParameters, O extends SharedTreeModel.SharedTreeOutput> extends Model<M,P,O> {
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.Arrays;
+
+public abstract class SharedTreeModel<M extends SharedTreeModel<M,P,O>, P extends SharedTreeModel.SharedTreeParameters, O extends SharedTreeModel.SharedTreeOutput> extends Model<M,P,O> implements Model.LeafNodeAssignment {
 
   public abstract static class SharedTreeParameters extends Model.Parameters {
 
@@ -45,17 +32,27 @@ public abstract class SharedTreeModel<M extends SharedTreeModel<M,P,O>, P extend
 
     public double _r2_stopping = 0.999999; // Stop when the r^2 metric equals or exceeds this value
 
-    public long _seed = RandomUtils.getRNG(System.nanoTime()).nextLong();
+    public long _seed = -1;
 
     public int _nbins_top_level = 1<<10; //hardcoded maximum top-level number of bins for real-valued columns
 
     public boolean _build_tree_one_node = false;
+
+    public int _score_tree_interval = 0; // score every so many trees (no matter what)
 
     public int _initial_score_interval = 4000; //Adding this parameter to take away the hard coded value of 4000 for scoring the first  4 secs
 
     public int _score_interval = 4000; //Adding this parameter to take away the hard coded value of 4000 for scoring each iteration every 4 secs
 
     public float _sample_rate = 0.632f; //fraction of rows to sample for each tree
+
+    @Override public long progressUnits() { return _ntrees; }
+
+    @Override protected long nFoldSeed() {
+      return _seed == -1 ? (_seed = RandomUtils.getRNG(System.nanoTime()).nextLong()) : _seed;
+    }
+
+    public float _col_sample_rate_per_tree = 1.0f; //fraction of columns to sample for each tree
 
     /** Fields which can NOT be modified if checkpoint is specified.
      * FIXME: should be defined in Schema API annotation
@@ -93,10 +90,8 @@ public abstract class SharedTreeModel<M extends SharedTreeModel<M,P,O>, P extend
 
   @Override
   public double deviance(double w, double y, double f) {
-    return new Distribution(_parms._distribution, _parms._tweedie_power).deviance(w, y, f);
+    return new Distribution(_parms).deviance(w, y, f);
   }
-
-  final public VarImp varImp() { return _output._varimp; }
 
   @Override public ModelMetrics.MetricBuilder makeMetricBuilder(String[] domain) {
     switch(_output.getModelCategory()) {
@@ -131,7 +126,14 @@ public abstract class SharedTreeModel<M extends SharedTreeModel<M,P,O>, P extend
 
     public ScoreKeeper _scored_train[/*ntrees+1*/];
     public ScoreKeeper _scored_valid[/*ntrees+1*/];
-
+    public ScoreKeeper[] scoreKeepers() {
+      ArrayList<ScoreKeeper> skl = new ArrayList<>();
+      ScoreKeeper[] ska = _validation_metrics != null ? _scored_valid : _scored_train;
+      for( ScoreKeeper sk : ska )
+        if (!sk.isEmpty())
+          skl.add(sk);
+      return skl.toArray(new ScoreKeeper[skl.size()]);
+    }
     /** Training time */
     public long _training_time_ms[/*ntrees+1*/] = new long[]{System.currentTimeMillis()};
 
@@ -179,6 +181,67 @@ public abstract class SharedTreeModel<M extends SharedTreeModel<M,P,O>, P extend
 
   public SharedTreeModel(Key selfKey, P parms, O output) { super(selfKey,parms,output); }
 
+  public Frame scoreLeafNodeAssignment(Frame frame, Key destination_key) {
+    Frame adaptFrm = new Frame(frame);
+    adaptTestForTrain(adaptFrm, true, false);
+    int classTrees = 0;
+    for (int i=0;i<_output._treeKeys[0].length;++i) {
+      if (_output._treeKeys[0][i] != null) classTrees++;
+    }
+    final int outputcols = _output._treeKeys.length * classTrees;
+    final String[] names = new String[outputcols];
+    int col=0;
+    for( int tidx=0; tidx<_output._treeKeys.length; tidx++ ) {
+      Key[] keys = _output._treeKeys[tidx];
+      for (int c = 0; c < keys.length; c++) {
+        if (keys[c] != null) {
+          names[col++] = "T" + (tidx + 1) + (keys.length == 1 ? "" : (".C" + (c + 1)));
+        }
+      }
+    }
+    Frame res = new MRTask() {
+      @Override public void map(Chunk chks[], NewChunk[] idx ) {
+        double input [] = new double[chks.length];
+        final String output[] = new String[outputcols];
+
+        for( int row=0; row<chks[0]._len; row++ ) {
+          for( int i=0; i<chks.length; i++ )
+            input[i] = chks[i].atd(row);
+
+          int col=0;
+          for( int tidx=0; tidx<_output._treeKeys.length; tidx++ ) {
+            Key[] keys = _output._treeKeys[tidx];
+            for (int c = 0; c < keys.length; c++) {
+              if (keys[c] != null) {
+                String pred = DKV.get(keys[c]).<CompressedTree>get().getDecisionPath(input);
+                output[col++] = pred;
+              }
+            }
+          }
+          assert(col==outputcols);
+          for (int i=0; i<outputcols; ++i)
+            idx[i].addStr(output[i]);
+        }
+      }
+    }.doAll(outputcols, Vec.T_STR, adaptFrm).outputFrame(destination_key, names, null);
+
+    Vec vv;
+    Vec[] nvecs = new Vec[res.vecs().length];
+    for(int c=0;c<res.vecs().length;++c) {
+      vv = res.vec(c);
+      try {
+        nvecs[c] = vv.toCategoricalVec();
+      } catch (Exception e) {
+        VecUtils.deleteVecs(nvecs, c);
+        throw e;
+      }
+    }
+    res.delete();
+    res = new Frame(destination_key, names, nvecs);
+    DKV.put(res);
+    return res;
+  }
+
   @Override protected double[] score0(double data[/*ncols*/], double preds[/*nclasses+1*/]) {
     return score0(data, preds, 1.0, 0.0);
   }
@@ -203,11 +266,48 @@ public abstract class SharedTreeModel<M extends SharedTreeModel<M,P,O>, P extend
     }
   }
 
+  /** Performs deep clone of given model.  */
+  protected M deepClone(Key<M> result) {
+    M newModel = (M)IcedUtils.deepCopy(this);
+    newModel._key = result;
+    // Do not clone model metrics
+    newModel._output.clearModelMetrics();
+    newModel._output._training_metrics = null;
+    newModel._output._validation_metrics = null;
+    // Clone trees
+    Key[][] treeKeys = newModel._output._treeKeys;
+    for (int i = 0; i < treeKeys.length; i++) {
+      for (int j = 0; j < treeKeys[i].length; j++) {
+        if (treeKeys[i][j] == null) continue;
+        CompressedTree ct = DKV.get(treeKeys[i][j]).get();
+        CompressedTree newCt = IcedUtils.deepCopy(ct);
+        newCt._key = CompressedTree.makeTreeKey(i, j);
+        DKV.put(treeKeys[i][j] = newCt._key,newCt);
+      }
+    }
+    return newModel;
+  }
+
   @Override protected Futures remove_impl( Futures fs ) {
     for( Key ks[] : _output._treeKeys)
       for( Key k : ks )
         if( k != null ) k.remove(fs);
     return super.remove_impl(fs);
+  }
+
+  /** Write out K/V pairs */
+  @Override protected AutoBuffer writeAll_impl(AutoBuffer ab) {
+    for( Key<CompressedTree> ks[] : _output._treeKeys )
+      for( Key<CompressedTree> k : ks )
+        ab.putKey(k);
+    return super.writeAll_impl(ab);
+  }
+
+  @Override protected Keyed readAll_impl(AutoBuffer ab, Futures fs) { 
+    for( Key<CompressedTree> ks[] : _output._treeKeys )
+      for( Key<CompressedTree> k : ks )
+        ab.getKey(k,fs);
+    return super.readAll_impl(ab,fs);
   }
 
   // Override in subclasses to provide some top-level model-specific goodness
@@ -275,20 +375,5 @@ public abstract class SharedTreeModel<M extends SharedTreeModel<M,P,O>, P extend
   }
   protected <T extends JCodeSB> T toJavaForestName(final T sb, String mname, int t ) {
     return (T) sb.p(mname).p("_Forest_").p(t);
-  }
-
-  @Override
-  public List<Key> getPublishedKeys() {
-    assert _output._ntrees == _output._treeKeys.length :
-            "Tree model is inconsistent: number of trees do not match number of tree keys!";
-    List<Key> superP = super.getPublishedKeys();
-    List<Key> p = new ArrayList<Key>(_output._ntrees * _output.nclasses());
-    for (int i = 0; i < _output._treeKeys.length; i++) {
-      for (int j = 0; j < _output._treeKeys[i].length; j++) {
-        p.add(_output._treeKeys[i][j]);
-      }
-    }
-    p.addAll(superP);
-    return p;
   }
 }

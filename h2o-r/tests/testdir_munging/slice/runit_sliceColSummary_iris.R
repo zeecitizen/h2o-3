@@ -1,5 +1,7 @@
 setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../../h2o-runit.R')
+source("../../../scripts/h2o-r-test-setup.R")
+
+
 
 #setupRandomSeed(1193410486)
 test.slice.colSummary <- function() {
@@ -21,7 +23,7 @@ test.slice.colSummary <- function() {
   
   sepalLength <- iris.hex[,1]
   Log.info("Summary on the first column:\n")
-  expect_that(sepalLength, is_a("Frame"))
+  expect_that(sepalLength, is_a("H2OFrame"))
  
   print(summary(sepalLength))
   Log.info("try mean")

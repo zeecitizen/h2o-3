@@ -27,17 +27,39 @@ import static org.junit.Assert.assertTrue;
 @Ignore("Support for tests, but no actual tests here")
 public class TestUtil extends Iced {
   private static boolean _stall_called_before = false;
+  private static String[] ignoreTestsNames;
+  private static String[] doonlyTestsNames;
   protected static int _initial_keycnt = 0;
   protected static int MINCLOUDSIZE;
 
   public TestUtil() { this(1); }
-  public TestUtil(int minCloudSize) { MINCLOUDSIZE = Math.max(MINCLOUDSIZE,minCloudSize); }
+  public TestUtil(int minCloudSize) {
+    MINCLOUDSIZE = Math.max(MINCLOUDSIZE,minCloudSize);
+    String ignoreTests = System.getProperty("ignore.tests");
+    if (ignoreTests != null) {
+      ignoreTestsNames = ignoreTests.split(",");
+      if (ignoreTestsNames.length == 1 && ignoreTestsNames[0].equals("")) {
+        ignoreTestsNames = null;
+      }
+    }
+    String doonlyTests = System.getProperty("doonly.tests");
+    if (doonlyTests != null) {
+      doonlyTestsNames = doonlyTests.split(",");
+      if (doonlyTestsNames.length == 1 && doonlyTestsNames[0].equals("")) {
+        doonlyTestsNames = null;
+      }
+    }
+  }
 
   // ==== Test Setup & Teardown Utilities ====
   // Stall test until we see at least X members of the Cloud
   public static void stall_till_cloudsize(int x) {
+    stall_till_cloudsize(new String[] {}, x);
+  }
+  public static void stall_till_cloudsize(String[] args, int x) {
     if( !_stall_called_before ) {
-      H2O.main(new String[]{});
+      H2O.main(args);
+      H2O.registerRestApis(System.getProperty("user.dir"));
       _stall_called_before = true;
     }
     H2O.waitForCloudSize(x, 30000);
@@ -47,23 +69,29 @@ public class TestUtil extends Iced {
   @AfterClass
   public static void checkLeakedKeys() {
     int leaked_keys = H2O.store_size() - _initial_keycnt;
+    int cnt=0;
     if( leaked_keys > 0 ) {
-      int cnt=0;
       for( Key k : H2O.localKeySet() ) {
-        Value value = H2O.raw_get(k);
+        Value value = Value.STORE_get(k);
         // Ok to leak VectorGroups and the Jobs list
-        if( value.isVecGroup() || k == Job.LIST ||
+        if( value==null || value.isVecGroup() || value.isESPCGroup() || k == Job.LIST ||
             // Also leave around all attempted Jobs for the Jobs list
-            (value.isJob() && value.<Job>get().isStopped()) ) 
+            (value.isJob() && value.<Job>get().isStopped()) ) {
           leaked_keys--;
-        else {
+        } else {
+          System.out.println(k + " -> " + value.get());
           if( cnt++ < 10 )
             System.err.println("Leaked key: " + k + " = " + TypeMap.className(value.type()));
         }
       }
       if( 10 < leaked_keys ) System.err.println("... and "+(leaked_keys-10)+" more leaked keys");
     }
-    assertTrue("No keys leaked", leaked_keys <= 0);
+    System.out.println("leaked_keys = " + leaked_keys + ", cnt = " + cnt);
+    assertTrue("No keys leaked, leaked_keys = " + leaked_keys + ", cnt = " + cnt, leaked_keys <= 0 || cnt == 0);
+    // Bulk brainless key removal.  Completely wipes all Keys without regard.
+    new MRTask(){
+      @Override public void setupLocal() {  H2O.raw_clear();  water.fvec.Vec.ESPC.clear(); }
+    }.doAllNodes();
     _initial_keycnt = H2O.store_size();
   }
 
@@ -77,6 +105,22 @@ public class TestUtil extends Iced {
       Log.info("  * Test method name: " + description.getMethodName());
       Log.info("###########################################################");
       return base;
+    }
+  };
+
+  /* Ignore tests specified in the ignore.tests system property */
+  @Rule transient public TestRule runRule = new TestRule() {
+    @Override public Statement apply(Statement base, Description description) {
+      String testName = description.getClassName() + "#" + description.getMethodName();
+      if ((ignoreTestsNames != null && Arrays.asList(ignoreTestsNames).contains(testName)) ||
+              (doonlyTestsNames != null && !Arrays.asList(doonlyTestsNames).contains(testName))) {
+        // Ignored tests trump do-only tests
+        Log.info("#### TEST " + testName + " IGNORED");
+        return new Statement() {
+          @Override
+          public void evaluate() throws Throwable {}
+        };
+      } else { return base; }
     }
   };
 
@@ -177,12 +221,12 @@ public class TestUtil extends Iced {
   public static Vec vec(String[] domain, int ...rows) { 
     Key k = Vec.VectorGroup.VG_LEN1.addVec();
     Futures fs = new Futures();
-    AppendableVec avec = new AppendableVec(k);
+    AppendableVec avec = new AppendableVec(k,Vec.T_NUM);
     avec.setDomain(domain);
     NewChunk chunk = new NewChunk(avec, 0);
     for( int r : rows ) chunk.addNum(r);
     chunk.close(0, fs);
-    Vec vec = avec.close(fs);
+    Vec vec = avec.layout_and_close(fs);
     fs.blockForPending();
     return vec;
   }

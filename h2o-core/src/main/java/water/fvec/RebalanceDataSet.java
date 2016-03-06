@@ -26,7 +26,7 @@ public class RebalanceDataSet extends H2O.H2OCountedCompleter {
   Frame _out;
   final Key _jobKey;
   final transient Vec.VectorGroup _vg;
-  transient long [] _espc;
+  transient long[] _espc;
 
   /**
    * Constructor for make-compatible task.
@@ -39,7 +39,7 @@ public class RebalanceDataSet extends H2O.H2OCountedCompleter {
     _in = srcFrame;
     _jobKey = jobKey;
     _okey = dstKey;
-    _espc = modelFrame.anyVec()._espc;
+    _espc = modelFrame.anyVec().espc(); // Get prior layout
     _vg = modelFrame.anyVec().group();
     _nchunks = modelFrame.anyVec().nChunks();
   }
@@ -78,10 +78,11 @@ public class RebalanceDataSet extends H2O.H2OCountedCompleter {
       }
       assert espc[espc.length - 1] == _in.numRows() : "unexpected number of rows, expected " + _in.numRows() + ", got " + espc[espc.length - 1];
     }
+    final int rowLayout = Vec.ESPC.rowLayout(_vg._key,espc);
     final Vec[] srcVecs = _in.vecs();
-    _out = new Frame(_okey,_in.names(), new Vec(_vg.addVec(),espc).makeCons(srcVecs.length,0L,_in.domains(),_in.types()));
+    _out = new Frame(_okey,_in.names(), new Vec(_vg.addVec(),rowLayout).makeCons(srcVecs.length,0L,_in.domains(),_in.types()));
     _out.delete_and_lock(_jobKey);
-    new RebalanceTask(this,srcVecs).asyncExec(_out);
+    new RebalanceTask(this,srcVecs).dfork(_out);
   }
 
   @Override public void onCompletion(CountedCompleter caller) {
@@ -105,8 +106,6 @@ public class RebalanceDataSet extends H2O.H2OCountedCompleter {
 
     private void rebalanceChunk(Vec srcVec, Chunk chk){
       NewChunk dst = new NewChunk(chk);
-      dst.set_len(0);
-      dst.set_sparseLen(dst._len);
       int rem = chk._len;
       while(rem > 0 && dst._len < chk._len){
         Chunk srcRaw = srcVec.chunkForRow(chk._start+ dst._len);
@@ -114,11 +113,6 @@ public class RebalanceDataSet extends H2O.H2OCountedCompleter {
         src = srcRaw.inflate_impl(src);
         assert src._len == srcRaw._len;
         int srcFrom = (int)(chk._start+ dst._len - src._start);
-        // check if the result is sparse (not exact since we only take subset of training_frame in general)
-        if ((src.sparse() && dst.sparse()) || ((src.sparseLen() + dst.sparseLen()) * NewChunk.MIN_SPARSE_RATIO < (src._len + dst._len))) {
-          src.set_sparse(src.sparseLen());
-          dst.set_sparse(dst.sparseLen());
-        }
         final int srcTo = srcFrom + rem;
         int off = srcFrom-1;
         Iterator<NewChunk.Value> it = src.values(Math.max(0,srcFrom),srcTo);
@@ -128,13 +122,15 @@ public class RebalanceDataSet extends H2O.H2OCountedCompleter {
           assert  rid < srcTo;
           int add = rid - off;
           off = rid;
-          dst.addZeros(add-1);
+          if (src.isSparseZero()) dst.addZeros(add-1);
+          else dst.addNAs(add-1);
           v.add2Chunk(dst);
           rem -= add;
           assert rem >= 0;
         }
         int trailingZeros = Math.min(rem, src._len - off -1);
-        dst.addZeros(trailingZeros);
+        if (src.isSparseZero()) dst.addZeros(trailingZeros);
+        else dst.addNAs(trailingZeros);
         rem -= trailingZeros;
       }
       assert rem == 0:"rem = " + rem;

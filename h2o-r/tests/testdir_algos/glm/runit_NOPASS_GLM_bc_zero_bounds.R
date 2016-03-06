@@ -1,10 +1,12 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../../scripts/h2o-r-test-setup.R")
 ## This test is to check the beta contraint argument for GLM
 ## The test will import the prostate data set,
 ## runs glm with and without beta contraints which will be checked
 ## against glmnet's results.
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../../h2o-runit.R')
+
+
 
 test <- function() {
   Log.info("Importing prostate dataset...")

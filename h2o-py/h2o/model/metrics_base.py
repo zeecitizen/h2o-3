@@ -1,5 +1,6 @@
-
-from model_base import ModelBase
+from __future__ import print_function
+from builtins import str
+from builtins import object
 from h2o.model.confusion_matrix import ConfusionMatrix
 import imp
 
@@ -26,6 +27,10 @@ class MetricsBase(object):
     self.show()
     return ""
 
+  @staticmethod
+  def _has(dictionary, key):
+    return key in dictionary and dictionary[key] is not None
+
   def show(self):
     """
     Display a short summary of the metrics.
@@ -41,48 +46,52 @@ class MetricsBase(object):
     types_w_logloss =    types_w_bin + types_w_mult
     types_w_dim =        ["ModelMetricsGLRM"]
 
-    print
-    print metric_type + ": " + self._algo
+    print()
+    print(metric_type + ": " + self._algo)
     reported_on = "** Reported on {} data. **"
     if self._on_train:
-      print reported_on.format("train")
+      print(reported_on.format("train"))
     elif self._on_valid:
-      print reported_on.format("validation")
+      print(reported_on.format("validation"))
     elif self._on_xval:
-      print reported_on.format("cross-validation")
+      print(reported_on.format("cross-validation"))
     else:
-      print reported_on.format("test")
-    print
-    print   "MSE: "                                           + str(self.mse())
+      print(reported_on.format("test"))
+    print()
+    print("MSE: "                                           + str(self.mse()))
     if metric_type in types_w_r2:
-      print "R^2: "                                           + str(self.r2())
+      print("R^2: "                                           + str(self.r2()))
     if metric_type in types_w_mean_residual_deviance:
-      print "Mean Residual Deviance: "                        + str(self.mean_residual_deviance())
+      print("Mean Residual Deviance: "                        + str(self.mean_residual_deviance()))
     if metric_type in types_w_logloss:
-      print "LogLoss: "                                       + str(self.logloss())
+      print("LogLoss: "                                       + str(self.logloss()))
     if metric_type in types_w_glm:
-      print "Null degrees of freedom: "                       + str(self.null_degrees_of_freedom())
-      print "Residual degrees of freedom: "                   + str(self.residual_degrees_of_freedom())
-      print "Null deviance: "                                 + str(self.null_deviance())
-      print "Residual deviance: "                             + str(self.residual_deviance())
-      print "AIC: "                                           + str(self.aic())
+      print("Null degrees of freedom: "                       + str(self.null_degrees_of_freedom()))
+      print("Residual degrees of freedom: "                   + str(self.residual_degrees_of_freedom()))
+      print("Null deviance: "                                 + str(self.null_deviance()))
+      print("Residual deviance: "                             + str(self.residual_deviance()))
+      print("AIC: "                                           + str(self.aic()))
     if metric_type in types_w_bin:
-      print "AUC: "                                           + str(self.auc())
-      print "Gini: "                                          + str(self.giniCoef())
+      print("AUC: "                                           + str(self.auc()))
+      print("Gini: "                                          + str(self.giniCoef()))
       self.confusion_matrix().show()
       self._metric_json["max_criteria_and_metric_scores"].show()
+      if self.gains_lift():
+          print(self.gains_lift())
+
     if metric_type in types_w_mult:
                                                                self.confusion_matrix().show()
-                                                               self._metric_json['hit_ratio_table'].show()
+                                                               self.hit_ratio_table().show()
     if metric_type in types_w_clustering:
-      print "Total Within Cluster Sum of Square Error: "      + str(self.tot_withinss())
-      print "Total Sum of Square Error to Grand Mean: "       + str(self.totss())
-      print "Between Cluster Sum of Square Error: "           + str(self.betweenss())
+      print("Total Within Cluster Sum of Square Error: "      + str(self.tot_withinss()))
+      print("Total Sum of Square Error to Grand Mean: "       + str(self.totss()))
+      print("Between Cluster Sum of Square Error: "           + str(self.betweenss()))
       self._metric_json['centroid_stats'].show()
-    
+
     if metric_type in types_w_dim:
-        print "Sum of Squared Error (Numeric): "              + str(self.num_err())
-        print "Misclassification Error (Categorical): "       + str(self.cat_err())
+        print("Sum of Squared Error (Numeric): "              + str(self.num_err()))
+        print("Misclassification Error (Categorical): "       + str(self.cat_err()))
+
 
   def r2(self):
     """
@@ -130,7 +139,7 @@ class MetricsBase(object):
     """
     :return: the residual deviance if the model has residual deviance, or None if no residual deviance.
     """
-    if ModelBase._has(self._metric_json, "residual_deviance"):
+    if MetricsBase._has(self._metric_json, "residual_deviance"):
       return self._metric_json["residual_deviance"]
     return None
 
@@ -138,7 +147,7 @@ class MetricsBase(object):
     """
     :return: the residual dof if the model has residual deviance, or None if no residual dof.
     """
-    if ModelBase._has(self._metric_json, "residual_degrees_of_freedom"):
+    if MetricsBase._has(self._metric_json, "residual_degrees_of_freedom"):
       return self._metric_json["residual_degrees_of_freedom"]
     return None
 
@@ -146,7 +155,7 @@ class MetricsBase(object):
     """
     :return: the null deviance if the model has residual deviance, or None if no null deviance.
     """
-    if ModelBase._has(self._metric_json, "null_deviance"):
+    if MetricsBase._has(self._metric_json, "null_deviance"):
       return self._metric_json["null_deviance"]
     return None
 
@@ -154,7 +163,7 @@ class MetricsBase(object):
     """
     :return: the null dof if the model has residual deviance, or None if no null dof.
     """
-    if ModelBase._has(self._metric_json, "null_degrees_of_freedom"):
+    if MetricsBase._has(self._metric_json, "null_degrees_of_freedom"):
       return self._metric_json["null_degrees_of_freedom"]
     return None
 
@@ -176,7 +185,7 @@ class H2OClusteringModelMetrics(MetricsBase):
     """
     :return: the Total Within Cluster Sum-of-Square Error, or None if not present.
     """
-    if ModelBase._has(self._metric_json, "tot_withinss"):
+    if MetricsBase._has(self._metric_json, "tot_withinss"):
       return self._metric_json["tot_withinss"]
     return None
 
@@ -184,7 +193,7 @@ class H2OClusteringModelMetrics(MetricsBase):
     """
     :return: the Total Sum-of-Square Error to Grand Mean, or None if not present.
     """
-    if ModelBase._has(self._metric_json, "totss"):
+    if MetricsBase._has(self._metric_json, "totss"):
       return self._metric_json["totss"]
     return None
 
@@ -192,7 +201,7 @@ class H2OClusteringModelMetrics(MetricsBase):
     """
     :return: the Between Cluster Sum-of-Square Error, or None if not present.
     """
-    if ModelBase._has(self._metric_json, "betweenss"):
+    if MetricsBase._has(self._metric_json, "betweenss"):
       return self._metric_json["betweenss"]
     return None
 
@@ -381,24 +390,22 @@ class H2OBinomialModelMetrics(MetricsBase):
     try:
       imp.find_module('matplotlib')
       import matplotlib
-      if 'server' in kwargs.keys() and kwargs['server']: matplotlib.use('Agg', warn=False)
+      if 'server' in list(kwargs.keys()) and kwargs['server']: matplotlib.use('Agg', warn=False)
       import matplotlib.pyplot as plt
     except ImportError:
-      print "matplotlib is required for this function!"
+      print("matplotlib is required for this function!")
       return
 
     # TODO: add more types (i.e. cutoffs)
-    if type not in ["roc"]: raise ValueError("type {0} is not supported".format(type))
+    if type not in ["roc"]: raise ValueError("type {} is not supported".format(type))
     if type == "roc":
-      x_axis = self.fprs
-      y_axis = self.tprs
       plt.xlabel('False Positive Rate (FPR)')
       plt.ylabel('True Positive Rate (TPR)')
       plt.title('ROC Curve')
-      plt.text(0.5, 0.5, r'AUC={0}'.format(self._metric_json["AUC"]))
-      plt.plot(x_axis, y_axis, 'b--')
+      plt.text(0.5, 0.5, r'AUC={0:.4f}'.format(self._metric_json["AUC"]))
+      plt.plot(self.fprs, self.tprs, 'b--')
       plt.axis([0, 1, 0, 1])
-      if not ('server' in kwargs.keys() and kwargs['server']): plt.show()
+      if not ('server' in list(kwargs.keys()) and kwargs['server']): plt.show()
 
   @property
   def fprs(self):
@@ -444,11 +451,11 @@ class H2OBinomialModelMetrics(MetricsBase):
     else: thresholds_list = [thresholds]
 
     # error check the metrics_list and thresholds_list
-    if not all(isinstance(t, (int, float, long)) for t in thresholds_list) or \
+    if not all(isinstance(t, (int, float, int)) for t in thresholds_list) or \
             not all(t >= 0 or t <= 1 for t in thresholds_list):
       raise ValueError("All thresholds must be numbers between 0 and 1 (inclusive).")
 
-    if not all(m in ["min_per_class_accuracy", "absolute_MCC", "precision", "accuracy", "f0point5", "f2", "f1"] for m in metrics_list):
+    if not all(m in ["min_per_class_accuracy", "absolute_MCC", "precision", "recall", "specificity", "accuracy", "f0point5", "f2", "f1"] for m in metrics_list):
       raise ValueError("The only allowable metrics are min_per_class_accuracy, absolute_MCC, precision, accuracy, f0point5, f2, f1")
 
     # make one big list that combines the thresholds and metric-thresholds
@@ -462,10 +469,10 @@ class H2OBinomialModelMetrics(MetricsBase):
     for t in thresholds_list:
       idx = self.find_idx_by_threshold(t)
       row = thresh2d.cell_values[idx]
-      tns = row[8]
-      fns = row[9]
-      fps = row[10]
-      tps = row[11]
+      tns = row[10]
+      fns = row[11]
+      fps = row[12]
+      tps = row[13]
       p = tps + fns
       n = tns + fps
       c0  = n - fps
@@ -482,7 +489,7 @@ class H2OBinomialModelMetrics(MetricsBase):
 
   def find_threshold_by_max_metric(self,metric):
     """
-    :param metric: A string in {"min_per_class_accuracy", "absolute_MCC", "precision", "accuracy", "f0point5", "f2", "f1"}
+    :param metric: A string in {"min_per_class_accuracy", "absolute_MCC", "precision", "recall", "specificity", "accuracy", "f0point5", "f2", "f1"}
     :return: the threshold at which the given metric is maximum.
     """
     crit2d = self._metric_json['max_criteria_and_metric_scores']
@@ -511,31 +518,40 @@ class H2OBinomialModelMetrics(MetricsBase):
       threshold_diffs = [abs(t - threshold) for t in thresholds]
       closest_idx = threshold_diffs.index(min(threshold_diffs))
       closest_threshold = thresholds[closest_idx]
-      print "Could not find exact threshold {0}; using closest threshold found {1}." \
-      .format(threshold, closest_threshold)
+      print("Could not find exact threshold {0}; using closest threshold found {1}." \
+      .format(threshold, closest_threshold))
       return closest_idx
     raise ValueError("Threshold must be between 0 and 1, but got {0} ".format(threshold))
+
+  def gains_lift(self):
+    """
+    Retrieve the Gains/Lift table
+    """
+    if 'gains_lift_table' in self._metric_json:
+      return self._metric_json['gains_lift_table']
+    return None
 
 class H2OAutoEncoderModelMetrics(MetricsBase):
   def __init__(self, metric_json, on=None, algo=""):
     super(H2OAutoEncoderModelMetrics, self).__init__(metric_json, on, algo)
 
+
 class H2ODimReductionModelMetrics(MetricsBase):
   def __init__(self, metric_json, on=None, algo=""):
     super(H2ODimReductionModelMetrics, self).__init__(metric_json, on, algo)
-    
+
   def num_err(self):
     """
     :return: the Sum of Squared Error over non-missing numeric entries, or None if not present.
     """
-    if ModelBase._has(self._metric_json, "numerr"):
+    if MetricsBase._has(self._metric_json, "numerr"):
       return self._metric_json["numerr"]
     return None
-  
+
   def cat_err(self):
     """
     :return: the Number of Misclassified categories over non-missing categorical entries, or None if not present.
     """
-    if ModelBase._has(self._metric_json, "caterr"):
+    if MetricsBase._has(self._metric_json, "caterr"):
       return self._metric_json["caterr"]
     return None

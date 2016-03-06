@@ -1,3 +1,5 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../scripts/h2o-r-test-setup.R")
 #----------------------------------------------------------------------
 # Purpose:  This test exercises the GBM model downloaded as java code
 #           for the iris data set.
@@ -6,8 +8,8 @@
 #           curl, javac, java must be installed.
 #           java must be at least 1.6.
 #----------------------------------------------------------------------
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source("../h2o-runit.R")
+
+
 
 test.gbm.javapredict.iris.pub <-
 function() {
@@ -31,7 +33,7 @@ function() {
     #----------------------------------------------------------------------
     # Run the test
     #----------------------------------------------------------------------
-    doJavapredictTest("gbm",normalizePath(paste0(getwd(),"/..")),test_file,test_frame,params)
+    doJavapredictTest("gbm",test_file,test_frame,params)
 }
 
 doTest("GBM test", test.gbm.javapredict.iris.pub)

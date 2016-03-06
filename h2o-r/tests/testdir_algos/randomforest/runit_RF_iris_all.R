@@ -1,5 +1,7 @@
 setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../../h2o-runit.R')
+source("../../../scripts/h2o-r-test-setup.R")
+
+
 
 test.RF.iris_class <- function() {
   iris.hex <- h2o.uploadFile(locate("smalldata/iris/iris22.csv"), "iris.hex")

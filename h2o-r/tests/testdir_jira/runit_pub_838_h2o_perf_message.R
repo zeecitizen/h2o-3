@@ -1,11 +1,13 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../scripts/h2o-r-test-setup.R")
 ##
 # The following bug is associated with JIRA PUB-838
 # 'Inaccurate error message: h2o.performance()'
 # Testing h2o.performance with rogue label vector and original dataframe
 ##
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../h2o-runit.R')
+
+
 
 
 test <- function() {

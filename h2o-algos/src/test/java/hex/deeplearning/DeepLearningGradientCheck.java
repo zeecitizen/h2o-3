@@ -1,6 +1,7 @@
 package hex.deeplearning;
 
 
+import hex.deeplearning.DeepLearningModel.DeepLearningParameters;
 import hex.DataInfo;
 import hex.Distribution;
 import hex.FrameTask;
@@ -23,7 +24,7 @@ public class DeepLearningGradientCheck extends TestUtil {
   static final float SAMPLE_RATE = 0.1f;
 
   @Test
-  public void cancar() {
+  public void gradientCheck() {
     Frame tfr = null;
     DeepLearningModel dl = null;
 
@@ -32,7 +33,7 @@ public class DeepLearningGradientCheck extends TestUtil {
       for (String s : new String[]{
               "Merit", "Class"
       }) {
-        Vec f = tfr.vec(s).toCategorical();
+        Vec f = tfr.vec(s).toCategoricalVec();
         tfr.remove(s).remove();
         tfr.add(s, f);
       }
@@ -46,6 +47,7 @@ public class DeepLearningGradientCheck extends TestUtil {
       for (Distribution.Family dist : new Distribution.Family[]{
               Distribution.Family.gaussian,
               Distribution.Family.laplace,
+              Distribution.Family.quantile,
               Distribution.Family.huber,
               Distribution.Family.gamma,
               Distribution.Family.poisson,
@@ -53,6 +55,7 @@ public class DeepLearningGradientCheck extends TestUtil {
               Distribution.Family.multinomial,
       }) {
         for (DeepLearningParameters.Activation act : new DeepLearningParameters.Activation[]{
+//            DeepLearningParameters.Activation.ExpRectifier,
                 DeepLearningParameters.Activation.Tanh,
                 DeepLearningParameters.Activation.Rectifier,
 //                DeepLearningParameters.Activation.Maxout,
@@ -66,7 +69,7 @@ public class DeepLearningGradientCheck extends TestUtil {
                     false
             }) {
               for (int miniBatchSize : new int[]{
-                      1,
+                      1
               }) {
                 boolean classification = response.equals("Class");
                 if (classification && dist != Distribution.Family.multinomial) continue;
@@ -77,7 +80,8 @@ public class DeepLearningGradientCheck extends TestUtil {
                 parms._epochs = 100; //converge to a reasonable model to avoid too large gradients
 //            parms._l1 = 1e-3; //FIXME
 //            parms._l2 = 1e-3; //FIXME
-                parms._reproducible = true;
+//            parms._reproducible = true;
+                parms._force_load_balance = false;
                 parms._hidden = new int[]{10, 10, 10};
                 parms._fast_mode = false; //otherwise we introduce small bprop errors
                 parms._response_column = response;
@@ -87,9 +91,10 @@ public class DeepLearningGradientCheck extends TestUtil {
                 parms._activation = act;
                 parms._adaptive_rate = adaptive;
                 parms._rate = 1e-4;
+                parms._quantile_alpha = 0.2;
                 parms._momentum_start = 0.9;
                 parms._momentum_stable = 0.99;
-                parms._model_id = Key.make();
+                parms._mini_batch_size = miniBatchSize;
                 DeepLearningModelInfo.gradientCheck = null;
 
                 // Build a first model; all remaining models should be equal
@@ -119,16 +124,16 @@ public class DeepLearningGradientCheck extends TestUtil {
                     final DataInfo di = dl.model_info().data_info();
 
                     // populate miniBatch (consecutive rows)
-                    final DataInfo.Row[] miniBatch = new DataInfo.Row[miniBatchSize];
-                    for (int i=0; i<miniBatch.length; ++i) {
+                    final DataInfo.Row[] rowsMiniBatch = new DataInfo.Row[miniBatchSize];
+                    for (int i=0; i<rowsMiniBatch.length; ++i) {
                       if (0 <= rId+i && rId+i < tfr.numRows()) {
-                        miniBatch[i] = new FrameTask.ExtractDenseRow(di, rId+i).doAll(di._adaptedFrame)._row;
+                        rowsMiniBatch[i] = new FrameTask.ExtractDenseRow(di, rId+i).doAll(di._adaptedFrame)._row;
                       }
                     }
 
                     // loss at weight
                     long cs = dl.model_info().checksum_impl();
-                    double loss = dl.loss(miniBatch);
+                    double loss = dl.meanLoss(rowsMiniBatch);
                     assert(cs == before);
                     assert(before == dl.model_info().checksum_impl());
                     meanLoss += loss;
@@ -145,11 +150,17 @@ public class DeepLearningGradientCheck extends TestUtil {
 
                           // do one forward propagation pass (and fill the mini-batch gradients -> set training=true)
                           Neurons[] neurons = DeepLearningTask.makeNeuronsForTraining(dl.model_info());
-                          for (DataInfo.Row myRow : miniBatch) {
+                          double [] responses = new double[miniBatchSize];
+                          double [] offsets = new double[miniBatchSize];
+                          int n=0;
+                          for (DataInfo.Row myRow : rowsMiniBatch) {
                             if (myRow == null) continue;
-                            ((Neurons.Input) neurons[0]).setInput(-1, myRow.numVals, myRow.nBins, myRow.binIds);
-                            DeepLearningTask.step(-1 /*seed doesn't matter*/, neurons, dl.model_info(), null, true /*training*/, new double[]{myRow.response[0]}, myRow.offset);
+                            ((Neurons.Input) neurons[0]).setInput(-1, myRow.numIds, myRow.numVals, myRow.nBins, myRow.binIds, n);
+                            responses[n] = myRow.response(0);
+                            offsets[n] = myRow.offset;
+                            n++;
                           }
+                          DeepLearningTask.fpropMiniBatch(-1 /*seed doesn't matter*/, neurons, dl.model_info(), null, true /*training*/, responses, offsets, n);
 
                           // check that we didn't change the model's weights/biases
                           long after = dl.model_info().checksum_impl();
@@ -157,7 +168,7 @@ public class DeepLearningGradientCheck extends TestUtil {
 
                           // record the gradient since gradientChecking is enabled
                           DeepLearningModelInfo.gradientCheck = new DeepLearningModelInfo.GradientCheck(layer, row, col); //tell it what gradient to collect
-                          DeepLearningTask.applyModelUpdates(neurons); //update the weights
+                          DeepLearningTask.bpropMiniBatch(neurons, n); //update the weights
                           assert (before != dl.model_info().checksum_impl());
 
                           // reset the model back to the trained model
@@ -185,11 +196,11 @@ public class DeepLearningGradientCheck extends TestUtil {
 
                           // loss at weight + eps
                           dl.model_info().get_weights(layer).set(row, col, (float)(weight + eps));
-                          double up = dl.loss(miniBatch);
+                          double up = dl.meanLoss(rowsMiniBatch);
 
                           // loss at weight - eps
                           dl.model_info().get_weights(layer).set(row, col, (float)(weight - eps));
-                          double down = dl.loss(miniBatch);
+                          double down = dl.meanLoss(rowsMiniBatch);
 
                           if (Math.abs(up-down)/Math.abs(up+down) < 1e-8) {
                             continue; //relative change in loss function is too small -> skip
@@ -235,13 +246,12 @@ public class DeepLearningGradientCheck extends TestUtil {
 //                    assert(Math.abs(meanLoss-resdev)/Math.abs(resdev) < 1e-5);
 //                  }
                 } catch(RuntimeException ex) {
-                  dl = DKV.getGet(parms._model_id);
+                  dl = DKV.getGet(job.dest());
                   if (dl != null)
                     Assert.assertTrue(dl.model_info().isUnstable());
                   else
-                    Assert.assertTrue(job.isCancelledOrCrashed());
+                    Assert.assertTrue(job.isStopped());
                 } finally {
-                  job.remove();
                   if (dl != null) dl.delete();
                 }
               }

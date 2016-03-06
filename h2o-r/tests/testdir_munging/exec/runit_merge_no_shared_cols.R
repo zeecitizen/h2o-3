@@ -1,5 +1,6 @@
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues= TRUE)$"f")))
-source("../../h2o-runit.R")
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../../scripts/h2o-r-test-setup.R")
+
 
 check.merge_no_shared_cols <- function() {
 

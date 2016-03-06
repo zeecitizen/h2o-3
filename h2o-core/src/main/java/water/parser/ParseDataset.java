@@ -1,12 +1,13 @@
 package water.parser;
 
+import com.google.common.base.Charsets;
 import jsr166y.CountedCompleter;
 import jsr166y.ForkJoinTask;
 import jsr166y.RecursiveAction;
 import water.*;
 import water.H2O.H2OCountedCompleter;
 import water.exceptions.H2OIllegalArgumentException;
-import water.exceptions.H2OParseException;
+import water.exceptions.H2OIllegalValueException;
 import water.fvec.*;
 import water.fvec.Vec.VectorGroup;
 import water.nbhm.NonBlockingHashMap;
@@ -20,15 +21,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-import com.google.common.base.Charsets;
-
-public final class ParseDataset extends Job<Frame> {
+public final class ParseDataset {
+  public Job<Frame> _job;
   private MultiFileParseTask _mfpt; // Access to partially built vectors for cleanup after parser crash
 
   // Keys are limited to ByteVec Keys and Frames-of-1-ByteVec Keys
@@ -41,13 +39,13 @@ public final class ParseDataset extends Job<Frame> {
     return parse(okey,keys,deleteOnDone,ParseSetup.guessSetup(keys, singleQuote, checkHeader));
   }
   public static Frame parse(Key okey, Key[] keys, boolean deleteOnDone, ParseSetup globalSetup) {
-    return parse(okey,keys,deleteOnDone,globalSetup,true).get();
+    return parse(okey,keys,deleteOnDone,globalSetup,true)._job.get();
   }
   public static ParseDataset parse(Key okey, Key[] keys, boolean deleteOnDone, ParseSetup globalSetup, boolean blocking) {
-    ParseDataset job = forkParseDataset(okey, keys, globalSetup, deleteOnDone);
+    ParseDataset pds = forkParseDataset(okey, keys, globalSetup, deleteOnDone);
     if( blocking )
-      job.get();
-    return job;
+      pds._job.get();
+    return pds;
   }
 
   // Allow both ByteVec keys and Frame-of-1-ByteVec
@@ -61,13 +59,13 @@ public final class ParseDataset extends Job<Frame> {
     if(colNames == null) { // no names, generate
       colNames = new String[ncols];
       for(int i=0; i < ncols; i++ )
-        colNames[i] = "C" + String.valueOf(i+1);
+        colNames[i] = "C" + Integer.toString(i+1);
     } else { // some or all names exist, fill in blanks
       HashSet<String> nameSet = new HashSet<>(Arrays.asList(colNames));
       colNames = Arrays.copyOf(colNames, ncols);
       for(int i=0; i < ncols; i++ ) {
         if (colNames[i] == null || colNames[i].equals("")) {
-          String tmp = "C" + String.valueOf(i + 1);
+          String tmp = "C" + Integer.toString(i+1);
           while (nameSet.contains(tmp)) // keep building name until unique
             tmp = tmp + tmp;
           colNames[i] = tmp;
@@ -78,10 +76,10 @@ public final class ParseDataset extends Job<Frame> {
   }
 
   // Same parse, as a backgroundable Job
-  public static ParseDataset forkParseDataset(final Key dest, final Key[] keys, final ParseSetup setup, boolean deleteOnDone) {
+  public static ParseDataset forkParseDataset(final Key<Frame> dest, final Key[] keys, final ParseSetup setup, boolean deleteOnDone) {
     HashSet<String> conflictingNames = setup.checkDupColumnNames();
     for( String x : conflictingNames )
-    if ( !x.equals(""))
+    if ( x != null && !x.equals(""))
       throw new IllegalArgumentException("Found duplicate column name "+x);
     // Some quick sanity checks: no overwriting your input key, and a resource check.
     long totalParseSize=0;
@@ -111,7 +109,7 @@ public final class ParseDataset extends Job<Frame> {
       }
     }
 
-    long memsz = H2O.CLOUD.memsz();
+    long memsz = H2O.CLOUD.free_mem();
     if( totalParseSize > memsz*4 )
       throw new IllegalArgumentException("Total input file size of "+PrettyPrint.bytes(totalParseSize)+" is much larger than total cluster memory of "+PrettyPrint.bytes(memsz)+", please use either a larger cluster or smaller data.");
 
@@ -119,71 +117,63 @@ public final class ParseDataset extends Job<Frame> {
       GAUtils.logParse(totalParseSize, keys.length, setup._number_columns);
 
     // Fire off the parse
-    ParseDataset job = new ParseDataset(dest);
-    new Frame(job.dest(),new String[0],new Vec[0]).delete_and_lock(job._key); // Write-Lock BEFORE returning
-    for( Key k : keys ) Lockable.read_lock(k,job._key); // Read-Lock BEFORE returning
-    ParserFJTask fjt = new ParserFJTask(job, keys, setup, deleteOnDone); // Fire off background parse
-    job.start(fjt, totalParseSize, true);
-    return job;
+    ParseDataset pds = new ParseDataset(dest);
+    new Frame(pds._job._result,new String[0],new Vec[0]).delete_and_lock(pds._job); // Write-Lock BEFORE returning
+    for( Key k : keys ) Lockable.read_lock(k,pds._job); // Read-Lock BEFORE returning
+    ParserFJTask fjt = new ParserFJTask(pds, keys, setup, deleteOnDone); // Fire off background parse
+    pds._job.start(fjt, totalParseSize);
+    return pds;
   }
 
   // Setup a private background parse job
-  private ParseDataset(Key dest) {
-    super(dest,"Parse");
+  private ParseDataset(Key<Frame> dest) {
+    _job = new Job(dest,Frame.class.getName(), "Parse");
   }
 
   // -------------------------------
   // Simple internal class doing background parsing, with trackable Job status
   public static class ParserFJTask extends water.H2O.H2OCountedCompleter {
-    final ParseDataset _job;
+    final ParseDataset _pds;
     final Key[] _keys;
     final ParseSetup _setup;
     final boolean _deleteOnDone;
 
-    public ParserFJTask( ParseDataset job, Key[] keys, ParseSetup setup, boolean deleteOnDone) {
-      _job = job;
+    public ParserFJTask( ParseDataset pds, Key[] keys, ParseSetup setup, boolean deleteOnDone) {
+      _pds = pds;
       _keys = keys;
       _setup = setup;
       _deleteOnDone = deleteOnDone;
     }
     @Override public void compute2() {
-      parseAllKeys(_job, _keys, _setup, _deleteOnDone);
+      parseAllKeys(_pds, _keys, _setup, _deleteOnDone);
       tryComplete();
     }
 
     // Took a crash/NPE somewhere in the parser.  Attempt cleanup.
     @Override public boolean onExceptionalCompletion(Throwable ex, CountedCompleter caller){
-      if( _job != null ) {
-        _job.failed(ex);
-        parseCleanup();
-        _job._mfpt = null;
-      }
+      parseCleanup();           // Can get called many tims
       return true;
     }
 
     @Override public void onCompletion(CountedCompleter caller) {
-      if (_job.isCancelledOrCrashed()) {
+      if( _pds._job.stop_requested() )
         parseCleanup();
-        _job._mfpt = null;
-      } else {
-        _job._mfpt = null;
-        _job.done();
-      }
+      _pds._mfpt = null;
     }
 
     private void parseCleanup() {
-      if( _job != null ) {
-        Futures fs = new Futures();
-        assert DKV.<Job>getGet(_job._key).isStopped();
-        // Find & remove all partially-built output vecs & chunks
-        if (_job._mfpt != null) _job._mfpt.onExceptionCleanup(fs);
-        // Assume the input is corrupt - or already partially deleted after
-        // parsing.  Nuke it all - no partial Vecs lying around.
-        for (Key k : _keys) Keyed.remove(k, fs);
-        Keyed.remove(_job._dest,fs);
-        fs.blockForPending();
-        DKV.put(_job._key, _job);
-      }
+      assert !_pds._job.isStopped(); // Job still running till job.onExCompletion returns
+      Futures fs = new Futures();
+      // Find & remove all partially-built output vecs & chunks.
+      // Since this is racily called, perhaps multiple times, read _mfpt only exactly once.
+      MultiFileParseTask mfpt = _pds._mfpt;
+      _pds._mfpt = null;        // Read once, test for null once.
+      if (mfpt != null) mfpt.onExceptionCleanup(fs);
+      // Assume the input is corrupt - or already partially deleted after
+      // parsing.  Nuke it all - no partial Vecs lying around.
+      for (Key k : _keys) Keyed.remove(k, fs);
+      Keyed.remove(_pds._job._result,fs);
+      fs.blockForPending();
     }
   }
 
@@ -193,21 +183,22 @@ public final class ParseDataset extends Job<Frame> {
   }
   // --------------------------------------------------------------------------
   // Top-level parser driver
-  private static void parseAllKeys(ParseDataset job, Key[] fkeys, ParseSetup setup, boolean deleteOnDone) {
+  private static void parseAllKeys(ParseDataset pds, Key[] fkeys, ParseSetup setup, boolean deleteOnDone) {
+    final Job<Frame> job = pds._job;
     assert setup._number_columns > 0;
     if( setup._column_names != null &&
         ( (setup._column_names.length == 0) ||
           (setup._column_names.length == 1 && setup._column_names[0].isEmpty())) )
       setup._column_names = null; // // FIXME: annoyingly front end sends column names as String[] {""} even if setup returned null
     if(setup._na_strings != null && setup._na_strings.length != setup._number_columns) setup._na_strings = null;
-    if( fkeys.length == 0) { job.cancel();  return;  }
+    if( fkeys.length == 0) { job.stop();  return;  }
 
     job.update(0, "Ingesting files.");
     VectorGroup vg = getByteVec(fkeys[0]).group();
-    MultiFileParseTask mfpt = job._mfpt = new MultiFileParseTask(vg,setup,job._key,fkeys,deleteOnDone);
+    MultiFileParseTask mfpt = pds._mfpt = new MultiFileParseTask(vg,setup,job._key,fkeys,deleteOnDone);
     mfpt.doAll(fkeys);
     Log.trace("Done ingesting files.");
-    if ( job.isCancelledOrCrashed()) return;
+    if( job.stop_requested() ) return;
 
     final AppendableVec [] avs = mfpt.vecs();
     setup._column_names = getColumnNames(avs.length, setup._column_names);
@@ -217,8 +208,8 @@ public final class ParseDataset extends Job<Frame> {
     // Filter down to columns with some categoricals
     int n = 0;
     int[] ecols2 = new int[avs.length];
-    for( int i = 0; i < ecols2.length; ++i )
-      if( avs[i].shouldBeCategorical()  )
+    for( int i = 0; i < avs.length; ++i )
+      if( avs[i].get_type()==Vec.T_CAT  ) // Intended type is categorical (even though no domain has been set)?
         ecols2[n++] = i;
     final int[] ecols = Arrays.copyOf(ecols2, n);
     // If we have any, go gather unified categorical domains
@@ -229,23 +220,26 @@ public final class ParseDataset extends Job<Frame> {
         //Test domains for excessive length.
         List<String> offendingColNames = new ArrayList<>();
         for (int i = 0; i < ecols.length; i++) {
-          if (gcdt.getDomainLength(i) < Categorical.MAX_CATEGORICAL_COUNT)
-            avs[ecols[i]].setDomain(gcdt.getDomain(i));
-          else
+          if (gcdt.getDomainLength(i) < Categorical.MAX_CATEGORICAL_COUNT) {
+            if( gcdt.getDomainLength(i)==0 ) avs[ecols[i]].setBad(); // The all-NA column
+            else avs[ecols[i]].setDomain(gcdt.getDomain(i));
+          } else
             offendingColNames.add(setup._column_names[ecols[i]]);
         }
         if (offendingColNames.size() > 0)
           throw new H2OParseException("Exceeded categorical limit on columns "+ offendingColNames+".   Consider reparsing these columns as a string.");
       }
+      Log.trace("Done collecting categorical domains across nodes.");
 
       job.update(0, "Compressing data.");
-      fr = new Frame(job.dest(), setup._column_names,AppendableVec.closeAll(avs));
-      fr.update(job._key);
+      fr = new Frame(job._result, setup._column_names,AppendableVec.closeAll(avs));
+      fr.update(job);
       // Update categoricals to the globally agreed numbering
       Vec[] evecs = new Vec[ecols.length];
       for( int i = 0; i < evecs.length; ++i ) evecs[i] = fr.vecs()[ecols[i]];
+      Log.trace("Done compressing data.");
 
-      job.update(0, "Unifying categoricals across nodes.");
+      job.update(0, "Unifying categorical domains across nodes.");
       {
         // new CreateParse2GlobalCategoricalMaps(mfpt._cKey).doAll(evecs);
         // Using Dtask since it starts and returns faster than an MRTask
@@ -265,30 +259,30 @@ public final class ParseDataset extends Job<Frame> {
       Log.trace("Done unifying categoricals across nodes.");
     } else {                    // No categoricals case
       job.update(0,"Compressing data.");
-      fr = new Frame(job.dest(), setup._column_names,AppendableVec.closeAll(avs));
+      fr = new Frame(job._result, setup._column_names,AppendableVec.closeAll(avs));
       Log.trace("Done closing all Vecs.");
     }
     // Check for job cancellation
-    if ( job.isCancelledOrCrashed()) return;
+    if ( job.stop_requested() ) return;
 
     // SVMLight is sparse format, there may be missing chunks with all 0s, fill them in
     if (setup._parse_type == ParserType.SVMLight)
       new SVFTask(fr).doAllNodes();
 
     // Check for job cancellation
-    if ( job.isCancelledOrCrashed()) return;
+    if ( job.stop_requested() ) return;
 
     // Log any errors
     if( mfpt._errors != null )
       for( String err : mfpt._errors )
         Log.warn(err);
     job.update(0,"Calculating data summary.");
-    logParseResults(job, fr);
+    logParseResults(fr);
     // Release the frame for overwriting
-    fr.update(job._key);
+    fr.update(job);
     Frame fr2 = DKV.getGet(fr._key);
     assert fr2._names.length == fr2.numCols();
-    fr.unlock(job._key);
+    fr.unlock(job);
     // Remove CSV files from H2O memory
     if( deleteOnDone )
       for( Key k : fkeys )
@@ -297,17 +291,14 @@ public final class ParseDataset extends Job<Frame> {
   private static class CreateParse2GlobalCategoricalMaps extends DTask<CreateParse2GlobalCategoricalMaps> {
     private final Key _parseCatMapsKey;
     private final Key _frKey;
-    private final byte _priority;
     private final int _eColCnt;
 
     private CreateParse2GlobalCategoricalMaps(Key parseCatMapsKey, Key key, int eColCnt) {
       _parseCatMapsKey = parseCatMapsKey;
       _frKey = key;
       _eColCnt = eColCnt;
-      _priority = nextThrPriority();
     }
 
-    @Override public byte priority() {return _priority;}
     @Override public void compute2() {
       Frame _fr = DKV.getGet(_frKey);
       // get the node local category->ordinal maps for each column from initial parse pass
@@ -360,7 +351,8 @@ public final class ParseDataset extends Job<Frame> {
 
     @Override public void map(Chunk [] chks){
       CategoricalUpdateMap temp = DKV.getGet(Key.make(_parseCatMapsKey.toString() + "parseCatMapNode" + _chunk2ParseNodeMap[chks[0].cidx()]));
-      //FIXME sanity check
+      if ( temp == null || temp.map == null)
+        throw new H2OIllegalValueException("Missing categorical update map",this);
       int[][] _parse2GlobalCatMaps = temp.map;
 
       //update the chunk with the new map
@@ -371,23 +363,24 @@ public final class ParseDataset extends Job<Frame> {
           for( int j = 0; j < chk._len; ++j){
             if( chk.isNA(j) )continue;
             final int old = (int) chk.at8(j);
-            if (old < 0 || old >= _parse2GlobalCatMaps[i].length)
+            if (old < 0 || (_parse2GlobalCatMaps[i] != null && old >= _parse2GlobalCatMaps[i].length))
               chk.reportBrokenCategorical(i, j, old, _parse2GlobalCatMaps[i], _fr.vec(i).domain().length);
-            if(_parse2GlobalCatMaps[i][old] < 0)
+            if(_parse2GlobalCatMaps[i] != null && _parse2GlobalCatMaps[i][old] < 0)
               throw new H2OParseException("Error in unifying categorical values. This is typically "
                   +"caused by unrecognized characters in the data.\n The problem categorical value "
                   +"occurred in the " + PrettyPrint.withOrdinalIndicator(i+1)+ " categorical col, "
                   +PrettyPrint.withOrdinalIndicator(chk.start() + j) +" row.");
-              //throw new H2OParseException(H2O.SELF.toString() + ": missing categorical at col:" + i + ", row: " + (chk.start() + j) + ", val = " + old + ", chunk=" + chk.getClass().getSimpleName() + ".", map = " + Arrays.toString(_parse2GlobalCatMaps[i]));
-            chk.set(j, _parse2GlobalCatMaps[i][old]);
+            if (_parse2GlobalCatMaps[i] != null)
+              chk.set(j, _parse2GlobalCatMaps[i][old]);
           }
+          Log.trace("Updated domains for "+PrettyPrint.withOrdinalIndicator(i+1)+ " categorical column.");
         }
         chk.close(cidx, _fs);
       }
     }
     @Override public void postGlobal() {
       for (int i=0; i < H2O.CLOUD.size(); i++)
-      DKV.remove(Key.make(_parseCatMapsKey.toString() + "parseCatMapNode" + i));
+        DKV.remove(Key.make(_parseCatMapsKey.toString() + "parseCatMapNode" + i));
     }
   }
   private static class GatherCategoricalDomainsTask extends MRTask<GatherCategoricalDomainsTask> {
@@ -414,6 +407,7 @@ public final class ParseDataset extends Job<Frame> {
         _packedDomains[i] = packDomain(_perColDomains[i]);
         i++;
       }
+      Log.trace("Done locally collecting domains on each node.");
     }
 
     @Override
@@ -487,12 +481,15 @@ public final class ParseDataset extends Job<Frame> {
               }
               _packedDomains[fi]  = Arrays.copyOf(mergedDom, mbi);// reduce size
               UnsafeUtils.set4(_packedDomains[fi], 0, mergeLen);
+              Log.trace("Merged domain length is "+mergeLen+" for the "
+                  +PrettyPrint.withOrdinalIndicator(fi+1)+ " categorical column.");;
               tryComplete();
             }
           });
         }
         for (int i = 0; i < _catColIdxs.length; i++) if (domtasks[i] != null) domtasks[i].join();
       }
+      Log.trace("Done merging domains.");
     }
 
     private byte[] packDomain(BufferedString[] domain) {
@@ -550,7 +547,7 @@ public final class ParseDataset extends Job<Frame> {
             // locally-homed chunks only - to keep the data distribution.
             int nlines = 0;
             for( Vec vec : _f.vecs() ) {
-              Value val = H2O.get(vec.chunkKey(fi)); // Local-get only
+              Value val = Value.STORE_get(vec.chunkKey(fi)); // Local-get only
               if( val != null ) {
                 nlines = ((Chunk)val.get())._len;
                 break;
@@ -561,7 +558,7 @@ public final class ParseDataset extends Job<Frame> {
             for(int j = 0; j < _f.numCols(); ++j) {
               Vec vec = _f.vec(j);
               Key k = vec.chunkKey(fi);
-              Value val = H2O.get(k);   // Local-get only
+              Value val = Value.STORE_get(k);   // Local-get only
               if( val == null )         // Missing?  Fill in w/zero chunk
                 H2O.putIfMatch(k, new Value(k, new C0LChunk(0, fnlines)), null);
             }
@@ -592,7 +589,7 @@ public final class ParseDataset extends Job<Frame> {
     // It is either self for all the non-parallel parses, or the Chunk-home for parallel parses.
     private int[] _chunk2ParseNodeMap;
     // Job Key, to unlock & remove raw parsed data; to report progress
-    private final Key _jobKey;
+    private final Key<Job> _jobKey;
     // A mapping of Key+ByteVec to rolling total Chunk counts.
     private final int[]  _fileChunkOffsets;
 
@@ -601,7 +598,7 @@ public final class ParseDataset extends Job<Frame> {
     String[] _errors;
 
     int _reservedKeys;
-    MultiFileParseTask(VectorGroup vg,  ParseSetup setup, Key jobKey, Key[] fkeys, boolean deleteOnDone ) {
+    MultiFileParseTask(VectorGroup vg,  ParseSetup setup, Key<Job> jobKey, Key[] fkeys, boolean deleteOnDone ) {
       _vg = vg; _parseSetup = setup;
       _vecIdStart = _vg.reserveKeys(_reservedKeys = _parseSetup._parse_type == ParserType.SVMLight ? 100000000 : setup._number_columns);
       _deleteOnDone = deleteOnDone;
@@ -624,40 +621,45 @@ public final class ParseDataset extends Job<Frame> {
 
     @Override public void postGlobal(){
       Log.trace("Begin file parse cleanup.");
-      int n = _dout.length-1;
-      while(_dout[n] == null && n != 0)--n;
-      for(int i = 0; i <= n; ++i) {
-        if (_dout[i] == null) {
-          _dout[i] = _dout[n];
-          n--;
-          while (n > i && _dout[n] == null) n--;
-        }
-      }
-      if(n < _dout.length-1)
-        _dout = Arrays.copyOf(_dout,n+1);
+      // Compress nulls out of _dout array
+      int n=0;
+      for( int i=0; i<_dout.length; i++ )
+        if( _dout[i] != null ) _dout[n++] = _dout[i];
+      if( n < _dout.length )  _dout = Arrays.copyOf(_dout,n);
+      // Fast path: only one Vec result, so never needs to have his Chunks renumbered
       if(_dout.length == 1) {
         _vecs = _dout[0]._vecs;
         return;
       }
-      int nCols = 0;
-      for(FVecParseWriter dout:_dout)
+      int nchunks = 0;          // Count chunks across all Vecs
+      int nCols = 0;            // SVMLight special: find max columns
+      for( FVecParseWriter dout : _dout ) {
+        nchunks += dout._vecs[0]._tmp_espc.length;
         nCols = Math.max(dout._vecs.length,nCols);
-      AppendableVec [] res = new AppendableVec[nCols];
-      int nchunks = 0;
-      for(FVecParseWriter dout:_dout)
-        nchunks += dout.nChunks();
-      long [] espc = MemoryManager.malloc8(nchunks);
-      for(int i = 0; i < res.length; ++i) {
-        res[i] = new AppendableVec(_vg.vecKey(_vecIdStart + i), espc, 0);
-        res[i].setTypes(MemoryManager.malloc1(nchunks));
       }
-      for(int i = 0; i < _dout.length; ++i)
-        for(int j = 0; j < _dout[i]._vecs.length; ++j)
-          res[j].setSubRange(_dout[i]._vecs[j]);
-      if((res.length + _vecIdStart) < _reservedKeys) {
-        Future f = _vg.tryReturnKeys(_vecIdStart + _reservedKeys, _vecIdStart + res.length);
-        if (f != null) try { f.get(); } catch (InterruptedException e) { } catch (ExecutionException e) {}
+      // One Big Happy Shared ESPC
+      long[] espc = MemoryManager.malloc8(nchunks);
+      // AppendableVecs that are sized across the sum of all files.
+      // Preallocated a bunch of Keys, but if we didn't get enough (for very
+      // wide SVMLight) we need to get more here.
+      if( nCols > _reservedKeys ) throw H2O.unimpl();
+      AppendableVec[] res = new AppendableVec[nCols];
+      for(int i = 0; i < res.length; ++i)
+        res[i] = new AppendableVec(_vg.vecKey(_vecIdStart + i), espc, _parseSetup._column_types[i], 0);
+
+      // Load the global ESPC from the file-local ESPCs
+      for( FVecParseWriter fvpw : _dout ) {
+        AppendableVec[] avs = fvpw._vecs;
+        long[] file_local_espc = avs[0]._tmp_espc;
+        // Quick assert that all partial AVs in each DOUT are sharing a common chunkOff, and common Vec Keys
+        for( int j = 0; j < avs.length; ++j ) {
+          assert res[j]._key.equals(avs[j]._key);
+          assert avs[0]._chunkOff == avs[j]._chunkOff;
+          assert file_local_espc == avs[j]._tmp_espc || Arrays.equals(file_local_espc,avs[j]._tmp_espc);
+        }
+        System.arraycopy(file_local_espc, 0, espc, avs[0]._chunkOff, file_local_espc.length);
       }
+
       _vecs = res;
       Log.trace("Finished file parse cleanup.");
     }
@@ -694,17 +696,18 @@ public final class ParseDataset extends Job<Frame> {
 
     private FVecParseWriter makeDout(ParseSetup localSetup, int chunkOff, int nchunks) {
       AppendableVec [] avs = new AppendableVec[localSetup._number_columns];
-      long [] espc = MemoryManager.malloc8(nchunks);
+      final long [] espc = MemoryManager.malloc8(nchunks);
+      final byte[] ctypes = localSetup._column_types; // SVMLight only uses numeric types, sparsely represented as a null
       for(int i = 0; i < avs.length; ++i)
-        avs[i] = new AppendableVec(_vg.vecKey(i + _vecIdStart), espc, chunkOff);
+        avs[i] = new AppendableVec(_vg.vecKey(i + _vecIdStart), espc, ctypes==null ? /*SVMLight*/Vec.T_NUM : ctypes[i], chunkOff);
       return localSetup._parse_type == ParserType.SVMLight
-        ?new SVMLightFVecParseWriter(_vg, _vecIdStart,chunkOff, _parseSetup._chunk_size, avs)
-        :new FVecParseWriter(_vg, chunkOff, categoricals(_cKey, localSetup._number_columns), localSetup._column_types, _parseSetup._chunk_size, avs);
+        ? new SVMLightFVecParseWriter(_vg, _vecIdStart,chunkOff, _parseSetup._chunk_size, avs)
+        : new FVecParseWriter(_vg, chunkOff, categoricals(_cKey, localSetup._number_columns), localSetup._column_types, _parseSetup._chunk_size, avs);
     }
 
     // Called once per file
     @Override public void map( Key key ) {
-      if (((Job)DKV.getGet(_jobKey)).isCancelledOrCrashed()) return;
+      if( _jobKey.get().stop_requested() ) return;
       ParseSetup localSetup = new ParseSetup(_parseSetup);
       ByteVec vec = getByteVec(key);
       final int chunkStartIdx = _fileChunkOffsets[_lo];
@@ -724,7 +727,7 @@ public final class ParseDataset extends Job<Frame> {
             DistributedParse dp = new DistributedParse(_vg, localSetup, _vecIdStart, chunkStartIdx, this, key, vec.nChunks());
             addToPendingCount(1);
             dp.setCompleter(this);
-            dp.asyncExec(vec);
+            dp.dfork(vec);
             for( int i = 0; i < vec.nChunks(); ++i )
               _chunk2ParseNodeMap[chunkStartIdx + i] = vec.chunkKey(i).home_node().index();
           } else {
@@ -762,8 +765,9 @@ public final class ParseDataset extends Job<Frame> {
         Log.trace("Finished a map stage of a file parse with start index "+chunkStartIdx+".");
       } catch( IOException ioe ) {
         throw new RuntimeException(ioe);
-      } catch (H2OParseException pe) {
-        throw new H2OParseException(key,pe);
+      } catch (H2OParseException pe0) {
+        // Rebuild identical exception and stack trace, but add key to msg
+        throw pe0.resetMsg(pe0.getMessage()+" for "+key);
       }
     }
 
@@ -811,7 +815,7 @@ public final class ParseDataset extends Job<Frame> {
       private final VectorGroup _vg;
       private FVecParseWriter _dout;
       private final Key _cKey;  // Parse-local-categoricals key
-      private final Key _jobKey;
+      private final Key<Job> _jobKey;
       private transient final MultiFileParseTask _outerMFPT;
       private transient final Key _srckey; // Source/text file to delete on done
       private transient NonBlockingSetInt _visited;
@@ -836,20 +840,23 @@ public final class ParseDataset extends Job<Frame> {
         _espc = MemoryManager.malloc8(_nchunks);
       }
       @Override public void map( Chunk in ) {
-        if (((Job)DKV.getGet(_jobKey)).isCancelledOrCrashed()) return;
+        if( _jobKey.get().stop_requested() ) return;
         AppendableVec [] avs = new AppendableVec[_setup._number_columns];
         for(int i = 0; i < avs.length; ++i)
-          avs[i] = new AppendableVec(_vg.vecKey(_vecIdStart + i), _espc, _startChunkIdx);
+          if (_setup._column_types == null) // SVMLight
+            avs[i] = new AppendableVec(_vg.vecKey(_vecIdStart + i), _espc, Vec.T_NUM, _startChunkIdx);
+          else
+           avs[i] = new AppendableVec(_vg.vecKey(_vecIdStart + i), _espc, _setup._column_types[i], _startChunkIdx);
         // Break out the input & output vectors before the parse loop
         FVecParseReader din = new FVecParseReader(in);
         FVecParseWriter dout;
         Parser p;
         switch(_setup._parse_type) {
-          case ARFF:
-          case CSV:
-            Categorical [] categoricals = categoricals(_cKey, _setup._number_columns);
-            p = new CsvParser(_setup, _jobKey);
-            dout = new FVecParseWriter(_vg,_startChunkIdx + in.cidx(), categoricals, _setup._column_types, _setup._chunk_size, avs); //TODO: use _setup._domains instead of categoricals
+        case ARFF:
+        case CSV:
+          Categorical [] categoricals = categoricals(_cKey, _setup._number_columns);
+          p = new CsvParser(_setup, _jobKey);
+          dout = new FVecParseWriter(_vg,_startChunkIdx + in.cidx(), categoricals, _setup._column_types, _setup._chunk_size, avs); //TODO: use _setup._domains instead of categoricals
           break;
         case SVMLight:
           p = new SVMLightParser(_setup, _jobKey);
@@ -879,7 +886,7 @@ public final class ParseDataset extends Job<Frame> {
         for(int i=0; i < 2; i++) {  // iterate over this chunk and the next one
           cidx += i;
           if (!_visited.add(cidx)) { // Second visit
-            Value v = H2O.get(in.vec().chunkKey(cidx));
+            Value v = Value.STORE_get(in.vec().chunkKey(cidx));
             if (v == null || !v.isPersisted()) return; // Not found, or not on disk somewhere
             v.freePOJO();           // Eagerly toss from memory
             v.freeMem();
@@ -923,9 +930,9 @@ public final class ParseDataset extends Job<Frame> {
 
   // ------------------------------------------------------------------------
   // Log information about the dataset we just parsed.
-  private static void logParseResults(ParseDataset job, Frame fr) {
+  private static void logParseResults(Frame fr) {
     long numRows = fr.anyVec().length();
-    Log.info("Parse result for " + job.dest() + " (" + Long.toString(numRows) + " rows):");
+    Log.info("Parse result for " + fr._key + " (" + Long.toString(numRows) + " rows):");
     // get all rollups started in parallell, otherwise this takes ages!
     Futures fs = new Futures();
     Vec[] vecArr = fr.vecs();
@@ -934,8 +941,8 @@ public final class ParseDataset extends Job<Frame> {
 
     int namelen = 0;
     for (String s : fr.names()) namelen = Math.max(namelen, s.length());
-    String format = " %"+namelen+"s %7s %12.12s %12.12s %11s %8s %6s";
-    Log.info(String.format(format, "ColV2", "type", "min", "max", "NAs", "constant", "cardinality"));
+    String format = " %"+namelen+"s %7s %12.12s %12.12s %12.12s %12.12s %11s %8s %6s";
+    Log.info(String.format(format, "ColV2", "type", "min", "max", "mean", "sigma", "NAs", "constant", "cardinality"));
     SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     for( int i = 0; i < vecArr.length; i++ ) {
@@ -946,12 +953,19 @@ public final class ParseDataset extends Job<Frame> {
       String typeStr;
       String minStr;
       String maxStr;
+      String meanStr="";
+      String sigmaStr="";
 
       switch( v.get_type() ) {
         case Vec.T_BAD :   typeStr = "all_NA" ;  minStr = "";  maxStr = "";  break;
         case Vec.T_UUID:  typeStr = "UUID"   ;  minStr = "";  maxStr = "";  break;
         case Vec.T_STR :  typeStr = "string" ;  minStr = "";  maxStr = "";  break;
-        case Vec.T_NUM :  typeStr = "numeric";  minStr = String.format("%g", v.min());  maxStr = String.format("%g", v.max());  break;
+        case Vec.T_NUM :  typeStr = "numeric";
+          minStr = String.format("%g", v.min());
+          maxStr = String.format("%g", v.max());
+          meanStr = String.format("%g", v.mean());
+          sigmaStr = String.format("%g", v.sigma());
+          break;
         case Vec.T_CAT :  typeStr = "factor" ;  minStr = v.factor(0);  maxStr = v.factor(v.cardinality()-1); break;
         case Vec.T_TIME:  typeStr = "time"   ;  minStr = sdf.format(v.min());  maxStr = sdf.format(v.max());  break;
         default: throw H2O.unimpl();
@@ -962,6 +976,7 @@ public final class ParseDataset extends Job<Frame> {
       String isConstantStr = isConstant ? "constant" : "";
       String numLevelsStr = isCategorical ? String.format("%d", v.domain().length) : "";
 
+      boolean launchedWithHadoopJar = H2O.ARGS.launchedWithHadoopJar();
       boolean printLogSeparatorToStdout = false;
       boolean printColumnToStdout;
       {
@@ -971,7 +986,9 @@ public final class ParseDataset extends Job<Frame> {
         // Print information to stdout for this many trailing columns.
         final int MAX_TAIL_TO_PRINT_ON_STDOUT = 10;
 
-        if (vecArr.length <= (MAX_HEAD_TO_PRINT_ON_STDOUT + MAX_TAIL_TO_PRINT_ON_STDOUT)) {
+        if (launchedWithHadoopJar) {
+          printColumnToStdout = true;
+        } else if (vecArr.length <= (MAX_HEAD_TO_PRINT_ON_STDOUT + MAX_TAIL_TO_PRINT_ON_STDOUT)) {
           // For small numbers of columns, print them all.
           printColumnToStdout = true;
         } else if (i < MAX_HEAD_TO_PRINT_ON_STDOUT) {
@@ -989,9 +1006,21 @@ public final class ParseDataset extends Job<Frame> {
       if (printLogSeparatorToStdout)
         Log.info("Additional column information only sent to log file...");
 
-      String s = String.format(format, CStr, typeStr, minStr, maxStr, naStr, isConstantStr, numLevelsStr);
+      String s = String.format(format, CStr, typeStr, minStr, maxStr, meanStr, sigmaStr, naStr, isConstantStr, numLevelsStr);
       Log.info(s,printColumnToStdout);
     }
     Log.info(FrameUtils.chunkSummary(fr).toString());
+  }
+}
+
+class H2OParseException extends RuntimeException {
+  H2OParseException( String msg ) { super(msg); }
+  H2OParseException( String msg, Throwable cause ) { super(msg,cause); }
+
+  // Same identical exception, same stack trace, just a new 'msg'
+  H2OParseException resetMsg(String msg) {
+    H2OParseException pe1 = new H2OParseException(msg,getCause());
+    pe1.setStackTrace(getStackTrace());
+    return pe1;
   }
 }

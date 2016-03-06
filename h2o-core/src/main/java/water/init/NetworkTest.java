@@ -61,6 +61,7 @@ public class NetworkTest extends Iced {
     boolean collective;
 
     public NetworkTester(int[] msg, double[][] res, double[] res_collective, int rep, boolean serial, boolean collective) {
+      super((byte)(H2O.MIN_HI_PRIORITY-1));
       microseconds = res;
       microseconds_collective = res_collective;
       msg_sizes = msg;
@@ -69,8 +70,7 @@ public class NetworkTest extends Iced {
       this.collective = collective;
     }
 
-    @Override
-    public void compute2() {
+    @Override public void compute2() {
       // serial comm
       if (serial) {
         for (int i = 0; i < microseconds.length; ++i) {
@@ -95,20 +95,8 @@ public class NetworkTest extends Iced {
    */
   private static class PingPongTask extends DTask<PingPongTask> {
     private final byte[] _payload;
-
-    public PingPongTask(byte[] payload) {
-      _payload = payload;
-    }
-
-    @Override
-    public void compute2() {
-      tryComplete();
-    }
-
-    @Override
-    public byte priority() {
-      return H2O.MIN_HI_PRIORITY;
-    }
+    public PingPongTask(byte[] payload) { _payload = payload; }
+    @Override public void compute2() { tryComplete(); }
   }
 
   /**

@@ -2,16 +2,15 @@ package hex.tree.gbm;
 
 import hex.Distribution;
 import hex.ModelCategory;
-import hex.schemas.GBMV3;
+import hex.quantile.Quantile;
+import hex.quantile.QuantileModel;
 import hex.tree.*;
 import hex.tree.DTree.DecidedNode;
 import hex.tree.DTree.LeafNode;
 import hex.tree.DTree.UndecidedNode;
 import water.*;
 import water.exceptions.H2OModelBuilderIllegalArgumentException;
-import water.fvec.C0DChunk;
-import water.fvec.Chunk;
-import water.fvec.Frame;
+import water.fvec.*;
 import water.util.*;
 
 import java.util.Arrays;
@@ -30,18 +29,20 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
     };
   }
 
-  @Override public BuilderVisibility builderVisibility() { return BuilderVisibility.Stable; }
-
   // Called from an http request
-  public GBM( GBMModel.GBMParameters parms) { super("GBM",parms); init(false); }
+  public GBM( GBMModel.GBMParameters parms                   ) { super(parms     ); init(false); }
+  public GBM( GBMModel.GBMParameters parms, Key<GBMModel> key) { super(parms, key); init(false); }
+  public GBM(boolean startup_once) { super(new GBMModel.GBMParameters(),startup_once); }
 
-  @Override public GBMV3 schema() { return new GBMV3(); }
+  @Override protected int nModelsInParallel() {
+    if (!_parms._parallelize_cross_validation || _parms._max_runtime_secs != 0) return 1; //user demands serial building (or we need to honor the time constraints for all CV models equally)
+    if (_train.byteSize() < 1e6) return _parms._nfolds; //for small data, parallelize over CV models
+    return 2; //GBM always has some serial work, so it's fine to build two models at once
+  }
 
-  /** Start the GBM training Job on an F/J thread.
-   * @param work
-   * @param restartTimer*/
-  @Override protected Job<GBMModel> trainModelImpl(long work, boolean restartTimer) {
-    return start(new GBMDriver(), work, restartTimer);
+  /** Start the GBM training Job on an F/J thread. */
+  @Override protected GBMDriver trainModelImpl() {
+    return new GBMDriver();
   }
 
   /** Initialize the ModelBuilder, validating all arguments and preparing the
@@ -77,12 +78,9 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
     // expected.  However, all the minority classes have large guesses in the
     // wrong direction, and it takes a long time (lotsa trees) to correct that
     // - so your CM sucks for a long time.
-    double mean = 0;
     if (expensive) {
-      if (error_count() > 0) {
-        GBM.this.updateValidationMessages();
+      if (error_count() > 0)
         throw H2OModelBuilderIllegalArgumentException.makeFromBuilder(GBM.this);
-      }
       if (_parms._distribution == Distribution.Family.AUTO) {
         if (_nclass == 1) _parms._distribution = Distribution.Family.gaussian;
         if (_nclass == 2) _parms._distribution = Distribution.Family.bernoulli;
@@ -96,8 +94,6 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
         if (_offset.max() > 1)
           error("_offset_column", "Offset cannot be larger than 1 for Bernoulli distribution.");
       }
-      // for Bernoulli, we compute the initial value with Newton-Raphson iteration, otherwise it might be NaN here
-      _initialPrediction = _nclass > 2 ? 0 : getInitialValue();
     }
 
     switch( _parms._distribution) {
@@ -120,6 +116,12 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
     case gaussian:
       if (isClassifier()) error("_distribution", H2O.technote(2, "Gaussian requires the response to be numeric."));
       break;
+    case laplace:
+      if (isClassifier()) error("_distribution", H2O.technote(2, "Laplace requires the response to be numeric."));
+      break;
+    case quantile:
+      if (isClassifier()) error("_distribution", H2O.technote(2, "Quantile requires the response to be numeric."));
+      break;
     case AUTO:
       break;
     default:
@@ -134,15 +136,21 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
 
   // ----------------------
   private class GBMDriver extends Driver {
-
-    @Override protected void buildModel() {
-      _mtry = Math.max(1, (int)(_parms._col_sample_rate * _ncols));
+    @Override protected boolean doOOBScoring() { return false; }
+    @Override protected void initializeModelSpecifics() {
+      _mtry_per_tree = Math.max(1, (int)(_parms._col_sample_rate_per_tree * _ncols)); //per-tree
+      if (!(1 <= _mtry_per_tree && _mtry_per_tree <= _ncols)) throw new IllegalArgumentException("Computed mtry_per_tree should be in interval <1,"+_ncols+"> but it is " + _mtry_per_tree);
+      _mtry = Math.max(1, (int)(_parms._col_sample_rate * _parms._col_sample_rate_per_tree * _ncols)); //per-split
       if (!(1 <= _mtry && _mtry <= _ncols)) throw new IllegalArgumentException("Computed mtry should be in interval <1,"+_ncols+"> but it is " + _mtry);
-      // Append number of trees participating in on-the-fly scoring
-      _train.add("OUT_BAG_TREES", _response.makeZero());
 
-      if (hasOffsetCol() && _parms._distribution == Distribution.Family.bernoulli) {
-        _initialPrediction = getInitialValueBernoulliOffset(_train);
+      // for Bernoulli, we compute the initial value with Newton-Raphson iteration, otherwise it might be NaN here
+      _initialPrediction = _nclass > 2 || _parms._distribution == Distribution.Family.laplace || _parms._distribution == Distribution.Family.quantile ? 0 : getInitialValue();
+      if (_parms._distribution == Distribution.Family.bernoulli) {
+        if (hasOffsetCol()) _initialPrediction = getInitialValueBernoulliOffset(_train);
+      } else if (_parms._distribution == Distribution.Family.laplace) {
+        _initialPrediction = getInitialValueQuantile(0.5);
+      } else if (_parms._distribution == Distribution.Family.quantile) {
+        _initialPrediction = getInitialValueQuantile(_parms._quantile_alpha);
       }
       _model._output._init_f = _initialPrediction; //always write the initial value here (not just for Bernoulli)
 
@@ -156,51 +164,43 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
           }
         }.doAll(vec_tree(_train, 0), _parms._build_tree_one_node); // Only setting tree-column 0
       }
+    }
 
-      // How many trees was in already in provided checkpointed model
-      int ntreesFromCheckpoint = _parms.hasCheckpoint() ?
-          ((SharedTreeModel.SharedTreeParameters) _parms._checkpoint.<SharedTreeModel>get()._parms)._ntrees : 0;
-      // Reconstruct the working tree state from the checkpoint
-      if( _parms.hasCheckpoint() ) {
-        Timer t = new Timer();
-        new ResidualsCollector(_ncols, _nclass, numSpecialCols(),                    _model._output._treeKeys).doAll(_train, _parms._build_tree_one_node);
-        new OOBScorer(         _ncols, _nclass, numSpecialCols(),_parms._sample_rate,_model._output._treeKeys).doAll(_train, _parms._build_tree_one_node);
-        Log.info("Reconstructing oob stats from checkpointed model took " + t);
-      }
-
-      Random rand = createRNG(_parms._seed);
-      // To be deterministic get random numbers for previous trees and
-      // put random generator to the same state
-      for (int i = 0; i < ntreesFromCheckpoint; i++) rand.nextLong();
-
-      final boolean oob = false; // GBM: always score on all training rows, even though they aren't necessarily all used for training
-      // Loop over the K trees
-      for( int tid=0; tid< _ntrees; tid++) {
-        // During first iteration model contains 0 trees, then 1-tree, ...
-        // No need to score a checkpoint with no extra trees added
-        if( tid!=0 || !_parms.hasCheckpoint() ) { // do not make initial scoring if model already exist
-          double training_r2 = doScoringAndSaveModel(false, oob, _parms._build_tree_one_node);
-          if( training_r2 >= _parms._r2_stopping ) {
-            doScoringAndSaveModel(true, oob, _parms._build_tree_one_node);
-            return;             // Stop when approaching round-off error
-          }
+    /**
+     * Helper to compute the initial value for Laplace (incl. optional offset and obs weights)
+     * @return weighted median of response - offset
+     */
+    private double getInitialValueQuantile(double quantile) {
+      // obtain y - o
+      Vec y = hasOffsetCol() ? new MRTask() {
+        @Override public void map(Chunk[] chks, NewChunk[] nc) {
+          final Chunk resp = chk_resp(chks);
+          final Chunk offset = chk_offset(chks);
+          for (int i=0; i<chks[0]._len; ++i)
+            nc[0].addNum(resp.atd(i) - offset.atd(i)); //y - o
         }
+      }.doAll(1, (byte)3 /*numeric*/, _train).outputFrame().anyVec() : response();
 
-        // Compute predictions and resulting residuals for trees built so far
-        // ESL2, page 387, Steps 2a, 2b
-        new ComputePredAndRes().doAll(_train, _parms._build_tree_one_node);
-
-        // Build more trees, based on residuals above
-        // ESL2, page 387, Step 2b ii, iii, iv
-        Timer kb_timer = new Timer();
-
-        buildNextKTrees(rand);
-        Log.info((tid + 1) + ". tree was built in " + kb_timer.toString());
-        GBM.this.update(1);
-        if( !isRunning() ) return; // If canceled during building, do not bulkscore
+      // Now compute (weighted) quantile of y - o
+      double res = Double.NaN;
+      QuantileModel qm = null;
+      Frame tempFrame = null;
+      try {
+        tempFrame = new Frame(Key.make(H2O.SELF), new String[]{"y"}, new Vec[]{y});
+        if (hasWeightCol()) tempFrame.add("w", _weights);
+        DKV.put(tempFrame);
+        QuantileModel.QuantileParameters parms = new QuantileModel.QuantileParameters();
+        parms._train = tempFrame._key;
+        parms._probs = new double[]{quantile};
+        parms._weights_column = hasWeightCol() ? "w" : null;
+        Job<QuantileModel> job1 = new Quantile(parms).trainModel();
+        qm = job1.get();
+        res = qm._output._quantiles[0][0];
+      } finally {
+        if (qm!=null) qm.remove();
+        if (tempFrame!=null) DKV.remove(tempFrame._key);
       }
-      // Final scoring (skip if job was cancelled)
-      doScoringAndSaveModel(true, oob, _parms._build_tree_one_node);
+      return res;
     }
 
     /**
@@ -247,7 +247,7 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
         Chunk ys = chk_resp(chks);
         Chunk offset = chk_offset(chks);
         Chunk weight = hasWeightCol() ? chk_weight(chks) : new C0DChunk(1, chks[0]._len);
-        Distribution dist = new Distribution(Distribution.Family.bernoulli);
+        Distribution dist = new Distribution(_parms);
         for( int row = 0; row < ys._len; row++) {
           double w = weight.atd(row);
           if (w == 0) continue;
@@ -269,6 +269,7 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
 
     // --------------------------------------------------------------------------
     // Compute Residuals
+    // Do this for all rows, whether OOB or not
     class ComputePredAndRes extends MRTask<ComputePredAndRes> {
       @Override public void map( Chunk chks[] ) {
         Chunk ys = chk_resp(chks);
@@ -276,7 +277,7 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
         Chunk preds = chk_tree(chks, 0); // Prior tree sums
         Chunk wk = chk_work(chks, 0); // Place to store residuals
         double fs[] = _nclass > 1 ? new double[_nclass+1] : null;
-        Distribution dist = new Distribution(_parms._distribution, _parms._tweedie_power);
+        Distribution dist = new Distribution(_parms);
         for( int row = 0; row < wk._len; row++) {
           if( ys.isNA(row) ) continue;
           double f = preds.atd(row) + offset.atd(row);
@@ -390,9 +391,8 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
 
     // --------------------------------------------------------------------------
     // Build the next k-trees, which is trying to correct the residual error from
-    // the prior trees.  From ESL2, page 387.  Step 2b ii, iii.
-//    private void buildNextKTrees() {
-    private void buildNextKTrees(Random rand) {
+    // the prior trees.
+    @Override protected void buildNextKTrees() {
       // We're going to build K (nclass) trees - each focused on correcting
       // errors for a single class.
       final DTree[] ktrees = new DTree[_nclass];
@@ -400,16 +400,27 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
       // Define a "working set" of leaf splits, from here to tree._len
       int[] leafs = new int[_nclass];
 
+      // Compute predictions and resulting residuals for trees built so far
+      // ESL2, page 387, Steps 2a, 2b
+      new ComputePredAndRes().doAll(_train, _parms._build_tree_one_node); //fills "Work" columns for all rows (incl. OOB)
+
       // ----
       // ESL2, page 387.  Step 2b ii.
       // One Big Loop till the ktrees are of proper depth.
       // Adds a layer to the trees each pass.
-      growTrees(ktrees, leafs, rand);
+      growTrees(ktrees, leafs, _rand); //assign to OOB and split using non-OOB only
 
       // ----
       // ESL2, page 387.  Step 2b iii.  Compute the gammas (leaf node predictions === fit best constant), and store them back
       // into the tree leaves.  Includes learn_rate.
-      fitBestConstants(ktrees, leafs, new GammaPass(ktrees, leafs, _parms._distribution).doAll(_train));
+      GammaPass gp = new GammaPass(ktrees, leafs, _parms._distribution).doAll(_train);
+      if (_parms._distribution == Distribution.Family.laplace) {
+        fitBestConstantsQuantile(ktrees, leafs, 0.5); //special case for Laplace: compute the median for each leaf node and store that as prediction
+      } else if (_parms._distribution == Distribution.Family.quantile) {
+        fitBestConstantsQuantile(ktrees, leafs, _parms._quantile_alpha); //compute the alpha-quantile for each leaf node and store that as prediction
+      } else {
+        fitBestConstants(ktrees, leafs, gp);
+      }
 
       // Apply a correction for strong mispredictions (otherwise deviance can explode)
       if (_parms._distribution == Distribution.Family.gamma ||
@@ -443,7 +454,7 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
         // Initially setup as-if an empty-split had just happened
         if (_model._output._distribution[k] != 0) {
           if (k == 1 && _nclass == 2) continue; // Boolean Optimization (only one tree needed for 2-class problems)
-          ktrees[k] = new DTree(_train, _ncols, (char)_parms._nbins, (char)_parms._nbins_cats, (char)_nclass, _parms._min_rows, _mtry, rseed);
+          ktrees[k] = new DTree(_train, _ncols, (char)_parms._nbins, (char)_parms._nbins_cats, (char)_nclass, _parms._min_rows, _mtry, _mtry_per_tree, rseed);
           new UndecidedNode(ktrees[k], -1, DHistogram.initialHist(_train, _ncols, adj_nbins, _parms._nbins_cats, hcs[k][0])); // The "root" node
         }
       }
@@ -453,7 +464,7 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
         Sample ss[] = new Sample[_nclass];
         for (int k = 0; k < _nclass; k++)
           if (ktrees[k] != null)
-            ss[k] = new Sample(ktrees[k], _parms._sample_rate).dfork(0, new Frame(vec_nids(_train, k), vec_resp(_train)), _parms._build_tree_one_node);
+            ss[k] = new Sample(ktrees[k], _parms._sample_rate).dfork(null, new Frame(vec_nids(_train, k), vec_resp(_train)), _parms._build_tree_one_node);
         for (int k = 0; k < _nclass; k++)
           if (ss[k] != null) ss[k].getResult();
       }
@@ -464,7 +475,6 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
       // Adds a layer to the trees each pass.
       int depth = 0;
       for (; depth < _parms._max_depth; depth++) {
-        if (!isRunning()) return;
         hcs = buildLayer(_train, _parms._nbins, _parms._nbins_cats, ktrees, leafs, hcs, _mtry < _model._output.nfeatures(), _parms._build_tree_one_node);
         // If we did not make any new splits, then the tree is split-to-death
         if (hcs == null) break;
@@ -495,6 +505,34 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
           }
         }
       } // -- k-trees are done
+    }
+
+    private void fitBestConstantsQuantile(DTree[] ktrees, int[] leafs, double quantile) {
+      assert(_nclass==1);
+      Vec response = new MRTask() {
+        @Override
+        public void map(Chunk[] chks, NewChunk[] nc) {
+          final Chunk resp = chk_resp(chks);
+          final Chunk offset = hasOffsetCol() ? chk_offset(chks) : new C0DChunk(0, chks[0]._len); // Residuals for this tree/class
+          final Chunk preds = chk_tree(chks,0);
+          for (int i=0; i<chks[0].len(); ++i)
+            nc[0].addNum(resp.atd(i) - preds.atd(i) - offset.atd(i)); //y - (f+o)
+        }
+      }.doAll(1, (byte)3 /*numeric*/, _train).outputFrame().anyVec();
+      Vec weights = hasWeightCol() ? _train.vecs()[idx_weight()] : null;
+      Vec strata = _train.vecs()[idx_nids(0)];
+
+      // compute quantile for all leaf nodes
+      Quantile.StratifiedQuantilesTask sqt = new Quantile.StratifiedQuantilesTask(null, quantile, response, weights, strata, QuantileModel.CombineMethod.INTERPOLATE);
+      H2O.submitTask(sqt);
+      sqt.join();
+
+      for (int i = 0; i < sqt._quantiles.length; i++) {
+        float val = (float) (_parms._learn_rate * sqt._quantiles[i]);
+        assert !Float.isNaN(val) && !Float.isInfinite(val);
+        ((LeafNode) ktrees[0].node((int)strata.min() + i))._pred = val;
+//        Log.info("Leaf " + ((int)strata.min()+i) + " has quantile: " + sqt._quantiles[i]);
+      }
     }
 
     private void fitBestConstants(DTree[] ktrees, int[] leafs, GammaPass gp) {
@@ -542,7 +580,7 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
                 || _dist == Distribution.Family.gamma
                 || _dist == Distribution.Family.tweedie)
         {
-          return new Distribution(_dist, _parms._tweedie_power).link(g);
+          return new Distribution(_parms).link(g);
         } else {
           return g;
         }
@@ -578,15 +616,19 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
           // If we have all constant responses, then we do not split even the
           // root and the residuals should be zero.
           if( tree.root() instanceof LeafNode ) continue;
-          Distribution dist = new Distribution(_parms._distribution, _parms._tweedie_power);
+          Distribution dist = new Distribution(_parms);
           for( int row=0; row<nids._len; row++ ) { // For all rows
             int nid = (int)nids.at8(row);          // Get Node to decide from
+
+            final boolean wasOOBRow = ScoreBuildHistogram.isOOBRow((int)chk_nids(chks,k).at8(row)); //same for all k
+            if (wasOOBRow) nid = ScoreBuildHistogram.oob2Nid(nid);
+
             if( nid < 0 ) continue;                // Missing response
             if( tree.node(nid) instanceof UndecidedNode ) // If we bottomed out the tree
-              nid = tree.node(nid)._pid;                  // Then take parent's decision
+              nid = tree.node(nid).pid();                  // Then take parent's decision
             DecidedNode dn = tree.decided(nid);           // Must have a decision point
             if( dn._split._col == -1 )                    // Unable to decide?
-              dn = tree.decided(dn._pid);  // Then take parent's decision
+              dn = tree.decided(dn.pid());  // Then take parent's decision
             int leafnid = dn.ns(chks,row); // Decide down to a leafnode
             assert leaf <= leafnid && leafnid < tree._len :
                     "leaf: " + leaf + " leafnid: " + leafnid + " tree._len: " + tree._len + "\ndn: " + dn;
@@ -597,6 +639,10 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
             // leaf, and get our prediction from that.
             nids.set(row, leafnid);
             assert !ress.isNA(row);
+
+            // OOB rows get placed properly (above), but they don't affect the computed Gamma (below)
+            // For Laplace/Quantile distribution, we need to compute the median of (y-offset-preds == y-f), will be done outside of here
+            if (wasOOBRow || _parms._distribution == Distribution.Family.laplace || _parms._distribution == Distribution.Family.quantile) continue;
 
             // Compute numerator and denominator of terminal node estimate (gamma)
             double w = hasWeightCol() ? chk_weight(chks).atd(row) : 1; //weight
@@ -648,7 +694,7 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
   // turns the results into a probability distribution.
   @Override protected double score1( Chunk chks[], double weight, double offset, double fs[/*nclass*/], int row ) {
     double f = chk_tree(chks,0).atd(row) + offset;
-    double p = new Distribution(_parms._distribution, _parms._tweedie_power).linkInv(f);
+    double p = new Distribution(_parms).linkInv(f);
     if( _parms._distribution == Distribution.Family.bernoulli ) {
       fs[2] = p;
       fs[1] = 1.0-p;

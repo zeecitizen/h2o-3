@@ -8,8 +8,8 @@ import water.*;
 public class SubsetVec extends WrappedVec {
   final Key _subsetRowsKey;
   transient Vec _rows;          // Cached copy of the rows-Vec
-  public SubsetVec(Key key, long[] espc, Key masterVecKey, Key subsetRowsKey) {
-    super(key, espc, masterVecKey);
+  public SubsetVec(Key key, int rowLayout, Key masterVecKey, Key subsetRowsKey) {
+    super(key, rowLayout, masterVecKey);
     _subsetRowsKey = subsetRowsKey;
   }
   public Vec rows() {
@@ -26,6 +26,16 @@ public class SubsetVec extends WrappedVec {
   @Override public Futures remove_impl(Futures fs) {
     Keyed.remove(_subsetRowsKey,fs);
     return fs;
+  }
+
+  /** Write out K/V pairs */
+  @Override protected AutoBuffer writeAll_impl(AutoBuffer ab) { 
+    ab.putKey(_subsetRowsKey);
+    return super.writeAll_impl(ab);
+  }
+  @Override protected Keyed readAll_impl(AutoBuffer ab, Futures fs) { 
+    ab.getKey(_subsetRowsKey,fs);
+    return super.readAll_impl(ab,fs);
   }
 
   // 

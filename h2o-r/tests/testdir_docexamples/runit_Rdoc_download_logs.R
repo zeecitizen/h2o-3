@@ -1,13 +1,11 @@
 setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
-source('../h2o-runit.R')
+source("../../scripts/h2o-r-test-setup.R")
+
+
 
 test.rdoc_download_all_logs.golden <- function() {
-	
 
-h2o.downloadAllLogs(dirname = getwd(), filename = "h2o_logs.log")
-file.info(paste(getwd(), "h2o_logs.log", sep = .Platform$file.sep))
-file.remove(paste(getwd(), "h2o_logs.log", sep = .Platform$file.sep))
-
+h2o.downloadAllLogs(dirname = sandbox(), filename = "h2o_logs.log")
 
 }
 

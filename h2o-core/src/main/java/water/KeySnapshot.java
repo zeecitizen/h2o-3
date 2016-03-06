@@ -141,7 +141,7 @@ public class KeySnapshot {
     Object [] kvs = H2O.STORE.raw_array();
     ArrayList<KeyInfo> res = new ArrayList<>();
     for(int i = 2; i < kvs.length; i+= 2){
-      Object ok = kvs[i], ov = kvs[i+1];
+      Object ok = kvs[i];
       if( !(ok instanceof Key  ) ) continue; // Ignore tombstones and Primes and null's
       Key key = (Key )ok;
       if(!key.user_allowed())continue;
@@ -151,7 +151,7 @@ public class KeySnapshot {
       //  - if we do not see Value object directly (it can be wrapped in Prime marker class),
       //    try to unwrap it via calling STORE.get (~H2O.get) and then
       //    look at wrapped value again.
-      Value val = ov instanceof Value ? (Value)ov : H2O.get(key);
+      Value val = Value.STORE_get(key);
       if( val == null ) continue;
       res.add(new KeyInfo(key,val));
     }
@@ -189,7 +189,7 @@ public class KeySnapshot {
   // updates the cache when done
   private static class GlobalUKeySetTask extends MRTask<GlobalUKeySetTask> {
     KeyInfo [] _res;
-    @Override public byte priority(){return H2O.GET_KEY_PRIORITY;}
+    GlobalUKeySetTask() { super(H2O.MIN_HI_PRIORITY); }
     @Override public void setupLocal(){ _res = localSnapshot(true)._keyInfos;}
     @Override public void reduce(GlobalUKeySetTask gbt){
       if(_res == null)_res = gbt._res;

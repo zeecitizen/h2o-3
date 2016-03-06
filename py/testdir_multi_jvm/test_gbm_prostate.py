@@ -20,13 +20,13 @@ port = int(ip_port[1])
 # Sample Running GBM on prostate.csv
 
 # Connect to a pre-existing cluster
-h2o.init(ip=ip, port=port)
+h2o.init(ip=ip, port=port, strict_version_check=False)
 
 df = h2o.import_file(path="../../../smalldata/logreg/prostate.csv")
 df.describe()
 
 # Remove ID from training frame
-df = df[:,-1]  # WARNING: this is NOT python negative indexing!!!
+df.pop('ID')  # WARNING: this is NOT python negative indexing!!!
 
 # For VOL & GLEASON, a zero really means "missing"
 vol = df['VOL']

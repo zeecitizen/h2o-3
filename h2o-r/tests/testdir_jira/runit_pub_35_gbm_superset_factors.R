@@ -1,3 +1,5 @@
+setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
+source("../../scripts/h2o-r-test-setup.R")
 #
 # PUB-35: prediction broken with superset factors
 # 1. NAs in their own NA bucket
@@ -11,9 +13,9 @@
 # Prediction should still go through
 
 
-setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
 
-source('../h2o-runit.R')
+
+
 
 
 pub35gbm <- function(){

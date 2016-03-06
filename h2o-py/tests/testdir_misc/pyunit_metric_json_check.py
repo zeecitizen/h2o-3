@@ -1,18 +1,22 @@
+import sys
+sys.path.insert(1,"../../")
+import h2o
+from tests import pyunit_utils
 # The purpose of this test is to detect a change in the _metric_json of MetricsBase objects. Many of the metric
 # accessors require _metric_json to have a particular form.
-import sys
-sys.path.insert(1, "../../")
-import h2o, tests
+
+
+
 
 def metric_json_check():
     
 
-    df = h2o.import_file(path=h2o.locate("smalldata/logreg/prostate.csv"))
+    df = h2o.import_file(path=pyunit_utils.locate("smalldata/logreg/prostate.csv"))
 
     # Regression metric json
     reg_mod = h2o.gbm(y=df["CAPSULE"], x=df[3:], training_frame=df, distribution="gaussian")
     reg_met = reg_mod.model_performance()
-    reg_metric_json_keys_have = reg_met._metric_json.keys()
+    reg_metric_json_keys_have = list(reg_met._metric_json.keys())
     reg_metric_json_keys_desired = [u'model_category',
                                     u'description',
                                     u'r2',
@@ -34,7 +38,7 @@ def metric_json_check():
     # Regression metric json (GLM)
     reg_mod = h2o.glm(y=df["CAPSULE"], x=df[3:], training_frame=df, family="gaussian")
     reg_met = reg_mod.model_performance()
-    reg_metric_json_keys_have = reg_met._metric_json.keys()
+    reg_metric_json_keys_have = list(reg_met._metric_json.keys())
     reg_metric_json_keys_desired = [u'model_category',
                                     u'description',
                                     u'r2',
@@ -62,7 +66,7 @@ def metric_json_check():
     # Binomial metric json
     bin_mod = h2o.gbm(y=df["CAPSULE"].asfactor(), x=df[3:], training_frame=df, distribution="bernoulli")
     bin_met = bin_mod.model_performance()
-    bin_metric_json_keys_have = bin_met._metric_json.keys()
+    bin_metric_json_keys_have = list(bin_met._metric_json.keys())
     bin_metric_json_keys_desired = [u'AUC',
                                     u'Gini',
                                     u'model_category',
@@ -72,6 +76,7 @@ def metric_json_check():
                                     u'model_checksum',
                                     u'MSE',
                                     u'__meta',
+                                    u'gains_lift_table',
                                     u'logloss',
                                     u'scoring_time',
                                     u'thresholds_and_metric_scores',
@@ -90,7 +95,7 @@ def metric_json_check():
     # Binomial metric json (GLM)
     bin_mod = h2o.glm(y=df["CAPSULE"].asfactor(), x=df[3:], training_frame=df, family="binomial")
     bin_met = bin_mod.model_performance()
-    bin_metric_json_keys_have = bin_met._metric_json.keys()
+    bin_metric_json_keys_have = list(bin_met._metric_json.keys())
     bin_metric_json_keys_desired = [u'frame',
                                     u'residual_deviance',
                                     u'max_criteria_and_metric_scores',
@@ -105,6 +110,7 @@ def metric_json_check():
                                     u'model_checksum',
                                     u'duration_in_ms',
                                     u'model_category',
+                                    u'gains_lift_table',
                                     u'r2',
                                     u'residual_degrees_of_freedom',
                                     u'__meta',
@@ -121,12 +127,12 @@ def metric_json_check():
                                                                             bin_metric_diff)
 
     # Multinomial metric json
-    df = h2o.import_file(path=h2o.locate("smalldata/airlines/AirlinesTrain.csv.zip"))
+    df = h2o.import_file(path=pyunit_utils.locate("smalldata/airlines/AirlinesTrain.csv.zip"))
     myX = ["Origin", "Dest", "IsDepDelayed", "UniqueCarrier", "Distance", "fDayofMonth", "fDayOfWeek"]
     myY = "fYear"
     mul_mod = h2o.gbm(x=df[myX], y=df[myY], training_frame=df, distribution="multinomial")
     mul_met = mul_mod.model_performance()
-    mul_metric_json_keys_have = mul_met._metric_json.keys()
+    mul_metric_json_keys_have = list(mul_met._metric_json.keys())
     mul_metric_json_keys_desired = [u'cm',
                                     u'model_category',
                                     u'description',
@@ -149,10 +155,10 @@ def metric_json_check():
                                                                             mul_metric_diff)
 
     # Clustering metric json
-    df = h2o.import_file(path=h2o.locate("smalldata/iris/iris.csv"))
+    df = h2o.import_file(path=pyunit_utils.locate("smalldata/iris/iris.csv"))
     clus_mod = h2o.kmeans(x=df[0:4], k=3, standardize=False)
     clus_met = clus_mod.model_performance()
-    clus_metric_json_keys_have = clus_met._metric_json.keys()
+    clus_metric_json_keys_have = list(clus_met._metric_json.keys())
     clus_metric_json_keys_desired = [u'tot_withinss',
                                      u'model_category',
                                      u'description',
@@ -175,4 +181,6 @@ def metric_json_check():
                                                                             clus_metric_diff)
 
 if __name__ == "__main__":
-    tests.run_test(sys.argv, metric_json_check)
+    pyunit_utils.standalone_test(metric_json_check)
+else:
+    metric_json_check()
