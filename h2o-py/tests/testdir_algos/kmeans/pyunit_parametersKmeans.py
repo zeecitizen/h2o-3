@@ -20,7 +20,8 @@ def parametersKmeans():
   parameters = iris_km._model_json['parameters']
   param_dict = {}
   for p in range(len(parameters)):
-    if (parameters[p]['label'] not in 'max_runtime_secs'):
+    if (('max_runtime_secs' not in parameters[p]['label']) and
+          ('keep_cross_validation_fold_assignment' not in parameters[p]['label'])):
       param_dict[parameters[p]['label']] = parameters[p]['actual_value']
 
   fold_column = param_dict['fold_column']
