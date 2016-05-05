@@ -497,10 +497,10 @@ public class DeepLearning extends ModelBuilder<DeepLearningModel,DeepLearningMod
         double total_gflops = 0;
         for (H2ONode h2o : H2O.CLOUD._memary) {
           HeartBeat hb = h2o._heartbeat;
-          total_gflops += hb._gflops; //can be NaN if not yet run
+          total_gflops += hb._gflops;
         }
         if (mp._single_node_mode) total_gflops /= H2O.CLOUD.size();
-        if (Double.isNaN(total_gflops)) {
+        if (0==total_gflops) {
           total_gflops = Linpack.run(H2O.SELF._heartbeat._cpus_allowed) * (mp._single_node_mode ? 1 : H2O.CLOUD.size());
         }
         assert(!Double.isNaN(total_gflops));

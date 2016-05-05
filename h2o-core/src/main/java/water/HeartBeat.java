@@ -1,7 +1,8 @@
 package water;
 
-import java.util.Arrays;
 import water.init.JarHash;
+
+import java.util.Arrays;
 
 /**
  * Struct holding H2ONode health info.
@@ -65,7 +66,7 @@ public class HeartBeat extends Iced<HeartBeat> {
   }
 
   // Internal profiling
-  public float _gflops = Float.NaN;         // Number of GFlops for this node
+  public float _gflops = 0;     //Float.NaN;         // Number of GFlops for this node
   public float _membw;          // Memory bandwidth in GB/s
 
   // Number of elements & threads in high FJ work queues

@@ -1,10 +1,14 @@
 package water;
 
-import java.lang.management.ManagementFactory;
-import javax.management.*;
+import water.init.Linpack;
+import water.init.MemoryBandwidth;
 import water.util.LinuxProcFileReader;
 import water.util.Log;
-import water.init.*;
+
+import javax.management.MBeanServer;
+import javax.management.MalformedObjectNameException;
+import javax.management.ObjectName;
+import java.lang.management.ManagementFactory;
 
 /**
  * Starts a thread publishing multicast HeartBeats to the local subnet: the
@@ -67,7 +71,7 @@ public class HeartBeatThread extends Thread {
       // with each other.  Stagger them using the hashcode.
       // Run this benchmark *before* testing the heap or GC, so the GC numbers
       // are current as of the send time.
-      if( (counter+Math.abs(H2O.SELF.hashCode()*0xDECAF /*spread wider than 1 apart*/)) % (300/(Float.isNaN(hb._gflops)?10:1)) == 0) {
+      if( (counter+Math.abs(H2O.SELF.hashCode()*0xDECAF /*spread wider than 1 apart*/)) % (300/(hb._gflops==0?10:1)) == 0) {
         hb._gflops   = (float)Linpack.run(hb._cpus_allowed);
         hb._membw    = (float)MemoryBandwidth.run(hb._cpus_allowed);
       }
