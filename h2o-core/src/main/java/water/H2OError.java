@@ -2,6 +2,7 @@ package water;
 
 import water.util.HttpResponseStatus;
 import water.util.IcedHashMap;
+import water.util.Log;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -45,7 +46,8 @@ public class H2OError extends Iced {
     this(System.currentTimeMillis(), error_url, msg, dev_msg, http_status, values, e);
   }
 
-  public H2OError(long timestamp, String error_url, String msg, String dev_msg, int http_status, IcedHashMap.IcedHashMapStringObject values, Exception e) {
+  public H2OError(long timestamp, String error_url, String msg, String dev_msg, int http_status, IcedHashMap.IcedHashMapStringObject values, Throwable e) {
+    Log.err(e);
     this._timestamp = timestamp;
     this._error_url = error_url;
     this._msg = msg;
@@ -68,13 +70,27 @@ public class H2OError extends Iced {
       this._exception_type = e.getClass().getCanonicalName();
       this._exception_msg = e.getMessage();
       ArrayList<String> arr = new ArrayList<>();
+      arr.add(e.toString());
       StackTraceElement[] trace = e.getStackTrace();
       for (StackTraceElement ste : trace) {
-        String s = ste.toString();
+        String s = "    " + ste.toString();
         arr.add(s);
         if (s.startsWith("org.eclipse.jetty")) {
           // Don't need humongous jetty stack traces.
           break;
+        }
+      }
+      // All distributed exceptions have the real cause
+      while((e = e.getCause()) != null) {
+        arr.add("Caused by:" + e.toString());
+        trace = e.getStackTrace();
+        for (StackTraceElement ste : trace) {
+          String s = "    " + ste.toString();
+          arr.add(s);
+          if (s.startsWith("org.eclipse.jetty")) {
+            // Don't need humongous jetty stack traces.
+            break;
+          }
         }
       }
       this._stacktrace = arr.toArray(new String[0]);

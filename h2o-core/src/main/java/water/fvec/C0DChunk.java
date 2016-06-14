@@ -54,12 +54,10 @@ public class C0DChunk extends Chunk {
   // Custom serializers: the _mem field contains ALL the fields already.
   // Init _start to -1, so we know we have not filled in other fields.
   // Leave _vec & _chk2 null, leave _len unknown.
-  @Override final public C0DChunk read_impl(AutoBuffer ab) {
-    _mem = ab.bufClose();
+  @Override final public void initFromBytes() {
     _start = -1;  _cidx = -1;
     _con = UnsafeUtils.get8d(_mem,0);
     set_len(UnsafeUtils.get4(_mem,8));
-    return this;
   }
 
   @Override public boolean isSparseZero(){return _con == 0;}
@@ -79,4 +77,40 @@ public class C0DChunk extends Chunk {
     for (int i = 0; i < _len; ++i) arr[i] = i;
     return _len;
   }
+  @Override public int asSparseDoubles(double [] vals, int [] ids, double NA){
+    if(_con == 0) return 0;
+    double con = Double.isNaN(_con)?NA:_con;
+    for(int i = 0; i < _len; ++i) {
+      vals[i] = con;
+      ids[i] = i;
+    }
+    return _len;
+  }
+
+
+  /**
+   * Dense bulk interface, fetch values from the given range
+   * @param vals
+   * @param from
+   * @param to
+   */
+  @Override
+  public double [] getDoubles(double [] vals, int from, int to, double NA){
+    double con = Double.isNaN(_con)?NA:_con;
+    for(int i = from; i < to; ++i)
+      vals[i-from] = con;
+    return vals;
+  }
+  /**
+   * Dense bulk interface, fetch values from the given ids
+   * @param vals
+   * @param ids
+   */
+  @Override
+  public double [] getDoubles(double [] vals, int [] ids){
+    int j = 0;
+    for(int i:ids) vals[j++] = _con;
+    return vals;
+  }
+
 }

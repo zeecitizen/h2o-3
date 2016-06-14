@@ -8,7 +8,7 @@ import water.fvec.Frame;
 public class DataSet {
 
 	private int id;
-	private String uri;
+	public String uri;
 	private int responseColumn;
 
 	private Frame frame;
@@ -46,7 +46,8 @@ public class DataSet {
 	public Frame getFrame() { return frame; }
 	public void removeFrame() {
 		if (frame != null) {
-			AccuracyTestingSuite.summaryLog.println("Removing frame: " + frame._key.toString() + " for data set id: " + id);
+			AccuracyTestingSuite.summaryLog.println("Removing frame: " + frame._key.toString() + " for data set id: " +
+					id);
 			frame.remove();
 			frame.delete();
 		}
@@ -55,7 +56,9 @@ public class DataSet {
 	private File makeDataSetFile(String uri) {
 		String filePath;
 		if (uri.contains("bigdata")) { filePath = "bigdata/laptop/testng/"; }
-		else {                         filePath = "smalldata/testng/"; }
+		else if (uri.contains("smalldata")) { filePath = "smalldata/testng/"; }
+		else if (uri.contains("tmp")) { filePath = "/tmp/"; }
+		else { filePath = ""; }
 
 		String[] uriTokens = uri.trim().split("/", -1);
 		String fileName = uriTokens[uriTokens.length - 1];

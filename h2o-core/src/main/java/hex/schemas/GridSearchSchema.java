@@ -61,6 +61,7 @@ public class GridSearchSchema<G extends Grid<MP>,
       for (Map.Entry<String, Object> e : m.entrySet()) {
         Object o = e.getValue();
         Object[] o2 = o instanceof List ? ((List) o).toArray() : new Object[]{o};
+
         hyper_parameters.put(e.getKey(),o2);
       }
       parms.remove("hyper_parameters");
@@ -79,6 +80,12 @@ public class GridSearchSchema<G extends Grid<MP>,
         search_criteria = new HyperSpaceSearchCriteriaV99.CartesianSearchCriteriaV99();
       } else if ("RandomDiscrete".equals(strategy)) {
         search_criteria = new HyperSpaceSearchCriteriaV99.RandomDiscreteValueSearchCriteriaV99();
+        if (p.containsKey("max_runtime_secs") && Double.parseDouble((String) p.get("max_runtime_secs"))<0) {
+          throw new H2OIllegalArgumentException("max_runtime_secs must be >= 0 (0 for unlimited time)", strategy);
+        }
+        if (p.containsKey("max_models") && Integer.parseInt((String) p.get("max_models"))<0) {
+          throw new H2OIllegalArgumentException("max_models must be >= 0 (0 for all models)", strategy);
+        }
       } else {
         throw new H2OIllegalArgumentException("search_criteria.strategy", strategy);
       }

@@ -30,6 +30,11 @@ public abstract class SharedTreeModel<M extends SharedTreeModel<M,P,O>, P extend
 
     public int _nbins_cats = 1024; // Categorical (factor) cols: Build a histogram of this many bins, then split at the best point
 
+    public double _min_split_improvement = 1e-5; // Minimum relative improvement in squared error reduction for a split to happen
+
+    public enum HistogramType { AUTO, UniformAdaptive, Random, QuantilesGlobal, RoundRobin }
+    public HistogramType _histogram_type = HistogramType.AUTO; // What type of histogram to use for finding optimal split points
+
     public double _r2_stopping = 0.999999; // Stop when the r^2 metric equals or exceeds this value
 
     public long _seed = -1;
@@ -44,15 +49,18 @@ public abstract class SharedTreeModel<M extends SharedTreeModel<M,P,O>, P extend
 
     public int _score_interval = 4000; //Adding this parameter to take away the hard coded value of 4000 for scoring each iteration every 4 secs
 
-    public float _sample_rate = 0.632f; //fraction of rows to sample for each tree
+    public double _sample_rate = 0.632; //fraction of rows to sample for each tree
 
-    @Override public long progressUnits() { return _ntrees; }
+    public double[] _sample_rate_per_class; //fraction of rows to sample for each tree, per class
+
+    @Override public long progressUnits() { return _ntrees + (_histogram_type==HistogramType.QuantilesGlobal || _histogram_type==HistogramType.RoundRobin ? 1 : 0); }
 
     @Override protected long nFoldSeed() {
       return _seed == -1 ? (_seed = RandomUtils.getRNG(System.nanoTime()).nextLong()) : _seed;
     }
 
-    public float _col_sample_rate_per_tree = 1.0f; //fraction of columns to sample for each tree
+    public double _col_sample_rate_change_per_level = 1.0f; //relative change of the column sampling rate for every level
+    public double _col_sample_rate_per_tree = 1.0f; //fraction of columns to sample for each tree
 
     /** Fields which can NOT be modified if checkpoint is specified.
      * FIXME: should be defined in Schema API annotation
@@ -143,13 +151,13 @@ public abstract class SharedTreeModel<M extends SharedTreeModel<M,P,O>, P extend
     public TwoDimTable _variable_importances;
     public VarImp _varimp;
 
-    public SharedTreeOutput( SharedTree b, double mse_train, double mse_valid ) {
+    public SharedTreeOutput( SharedTree b) {
       super(b);
       _ntrees = 0;              // No trees yet
       _treeKeys = new Key[_ntrees][]; // No tree keys yet
       _treeStats = new TreeStats();
-      _scored_train = new ScoreKeeper[]{new ScoreKeeper(mse_train)};
-      _scored_valid = new ScoreKeeper[]{new ScoreKeeper(mse_valid)};
+      _scored_train = new ScoreKeeper[]{new ScoreKeeper(Double.NaN)};
+      _scored_valid = new ScoreKeeper[]{new ScoreKeeper(Double.NaN)};
       _modelClassDist = _priorClassDist;
     }
 
@@ -242,15 +250,17 @@ public abstract class SharedTreeModel<M extends SharedTreeModel<M,P,O>, P extend
     return res;
   }
 
+  @Override protected double[] score0(double data[], double[] preds, double weight, double offset) {
+    return score0(data,preds,weight,offset,_output._treeKeys.length);
+  }
   @Override protected double[] score0(double data[/*ncols*/], double preds[/*nclasses+1*/]) {
     return score0(data, preds, 1.0, 0.0);
   }
-  @Override
-  protected double[] score0(double[] data, double[] preds, double weight, double offset) {
+  protected double[] score0(double[] data, double[] preds, double weight, double offset, int ntrees) {
     // Prefetch trees into the local cache if it is necessary
     // Invoke scoring
     Arrays.fill(preds,0);
-    for( int tidx=0; tidx<_output._treeKeys.length; tidx++ )
+    for( int tidx=0; tidx<ntrees; tidx++ )
       score0(data, preds, tidx);
     return preds;
   }
@@ -329,13 +339,12 @@ public abstract class SharedTreeModel<M extends SharedTreeModel<M,P,O>, P extend
                                              final boolean verboseCode) {
     final int nclass = _output.nclasses();
     body.ip("java.util.Arrays.fill(preds,0);").nl();
-    body.ip("double[] fdata = hex.genmodel.GenModel.SharedTree_clean(data);").nl();
     final String mname = JCodeGen.toJavaId(_key.toString());
 
     // One forest-per-GBM-tree, with a real-tree-per-class
     for (int t=0; t < _output._treeKeys.length; t++) {
       // Generate score method for given tree
-      toJavaForestName(body.i(),mname,t).p(".score0(fdata,preds);").nl();
+      toJavaForestName(body.i(),mname,t).p(".score0(data,preds);").nl();
 
       final int treeIdx = t;
 

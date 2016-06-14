@@ -8,6 +8,7 @@ from __future__ import absolute_import
 from .connection import H2OConnection
 import time
 import sys, signal
+import warnings
 
 
 class H2OJob:
@@ -46,12 +47,19 @@ class H2OJob:
     POLLING=False
     self._update_progress()
     if H2OJob.__PROGRESS_BAR__: print()
-
+    if self.warnings:
+      for w in self.warnings:
+        warnings.warn(w)
     # check if failed... and politely print relevant message
     if self.status == "CANCELLED":
       raise EnvironmentError("Job with key {} was cancelled by the user.".format(self.job_key))
     if self.status == "FAILED":
-      raise EnvironmentError("Job with key {} failed with an exception: {}".format(self.job_key, self.exception))
+      if (isinstance(self.job, dict)) and ("stacktrace" in list(self.job)):
+        raise EnvironmentError("Job with key {} failed with an exception: {}\nstacktrace: "
+                               "\n{}".format(self.job_key, self.exception, self.job["stacktrace"]))
+      else:
+        raise EnvironmentError("Job with key {} failed with an exception: {}".format(self.job_key, self.exception))
+
     return self
 
   def poll_once(self):
@@ -71,6 +79,7 @@ class H2OJob:
       self.status = self.job["status"]
       self.progress = self.job["progress"]
       self.exception = self.job["exception"]
+      self.warnings = self.job["warnings"]
 
   def _is_running(self):
       return self.status == "RUNNING" or self.status == "CREATED"

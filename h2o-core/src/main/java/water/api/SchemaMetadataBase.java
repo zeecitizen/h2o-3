@@ -67,6 +67,12 @@ public class SchemaMetadataBase<I extends SchemaMetadata, S extends SchemaMetada
     @API(help="Is this field an input, output or inout?", values={"INPUT", "OUTPUT", "INOUT"}, direction=API.Direction.OUTPUT)
     public API.Direction direction;
 
+    @API(help="Is the field inherited from the parent schema?", direction = API.Direction.OUTPUT)
+    public boolean is_inherited;
+
+    @API(help="If this field is inherited from a class higher in the hierarchy which one?", direction = API.Direction.OUTPUT)
+    public String inherited_from;
+
     @API(help="Is the field gridable (i.e., it can be used in grid call)", direction = API.Direction.OUTPUT)
     public boolean is_gridable;
 
@@ -93,10 +99,8 @@ public class SchemaMetadataBase<I extends SchemaMetadata, S extends SchemaMetada
    * @param ab
    * @return
    */
-  @Override
-  public AutoBuffer writeJSON_impl(AutoBuffer ab) {
-    ab.put1(','); // the schema and version fields get written before we get called
-
+  public final AutoBuffer writeJSON_impl(AutoBuffer ab) {
+    boolean isOut = direction == API.Direction.OUTPUT;
     ab.putJSONStr("name", name);                                      ab.put1(',');
     ab.putJSONStr("type", type);                                      ab.put1(',');
     ab.putJSONStrUnquoted("is_schema", is_schema ? "true" : "false"); ab.put1(',');
@@ -111,10 +115,12 @@ public class SchemaMetadataBase<I extends SchemaMetadata, S extends SchemaMetada
 
     ab.putJSONStr("help", help);                                      ab.put1(',');
     ab.putJSONStr("label", label);                                    ab.put1(',');
-    ab.putJSONStrUnquoted("required", required ? "true" : "false");   ab.put1(',');
+    ab.putJSONStrUnquoted("required", isOut? "null" : required ? "true" : "false");   ab.put1(',');
     ab.putJSONStr("level", level.toString());                         ab.put1(',');
     ab.putJSONStr("direction", direction.toString());                 ab.put1(',');
-    ab.putJSONStrUnquoted("is_gridable", is_gridable ? "true" : "false"); ab.put1(',');
+    ab.putJSONStrUnquoted("is_inherited", is_inherited ? "true" : "false"); ab.put1(',');
+    ab.putJSONStr("inherited_from", inherited_from); ab.put1(',');
+    ab.putJSONStrUnquoted("is_gridable", isOut? "null" : is_gridable ? "true" : "false"); ab.put1(',');
     ab.putJSONAStr("values", values);                                 ab.put1(',');
     ab.putJSONStrUnquoted("json", json ? "true" : "false");           ab.put1(',');
     ab.putJSONAStr("is_member_of_frames", is_member_of_frames);       ab.put1(',');

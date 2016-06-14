@@ -9,6 +9,7 @@ import water.util.MathUtils;
 public class ModelMetricsBinomial extends ModelMetricsSupervised {
   public final AUC2 _auc;
   public final double _logloss;
+  public final double _mean_per_class_error;
   public final GainsLift _gainsLift;
 
   public ModelMetricsBinomial(Model model, Frame frame, double mse, String[] domain, double sigma, AUC2 auc, double logloss, GainsLift gainsLift) {
@@ -16,6 +17,7 @@ public class ModelMetricsBinomial extends ModelMetricsSupervised {
     _auc = auc;
     _logloss = logloss;
     _gainsLift = gainsLift;
+    _mean_per_class_error = cm() == null ? Double.NaN : cm().mean_per_class_error();
   }
 
   public static ModelMetricsBinomial getFromDKV(Model model, Frame frame) {
@@ -32,12 +34,14 @@ public class ModelMetricsBinomial extends ModelMetricsSupervised {
     sb.append(super.toString());
     if (_auc != null) sb.append(" AUC: " + (float)_auc._auc + "\n");
     sb.append(" logloss: " + (float)_logloss + "\n");
+    sb.append(" mean_per_class_error: " + (float)_mean_per_class_error + "\n");
     if (cm() != null) sb.append(" CM: " + cm().toASCII());
     if (_gainsLift != null) sb.append(_gainsLift);
     return sb.toString();
   }
 
   public double logloss() { return _logloss; }
+  public double mean_per_class_error() { return _mean_per_class_error; }
   @Override public AUC2 auc_obj() { return _auc; }
   @Override public ConfusionMatrix cm() {
     if( _auc == null ) return null;
@@ -48,17 +52,6 @@ public class ModelMetricsBinomial extends ModelMetricsSupervised {
 
   // expose simple metrics criteria for sorting
   public double auc() { return auc_obj()._auc; }
-  public double err() { return cm().err(); }
-  public double err_count() { return cm().err_count(); }
-  public double accuracy() {  return cm().accuracy(); }
-  public double specificity() { return cm().specificity(); }
-  public double recall() { return cm().recall(); }
-  public double precision() { return cm().precision(); }
-  public double mcc() { return cm().mcc(); }
-  public double max_per_class_error() { return cm().max_per_class_error(); }
-  public double F1() { return cm().F1(); }
-  public double F2() { return cm().F2(); }
-  public double F0point5() { return cm().F0point5(); }
   public double lift_top_group() { return gainsLift().response_rates[0] / gainsLift().avg_response_rate; }
 
 

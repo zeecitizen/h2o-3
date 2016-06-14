@@ -82,9 +82,15 @@ public class ASTKFold extends ASTPrim {
         for(int testFold=0; testFold < nfolds; ++testFold) {
           for(int classLabel = 0; classLabel < nClass; ++classLabel) {
             for(int row=0;row<y[0]._len;++row ) {
-              if( y[0].at8(row) == (classes==null?classLabel:classes[classLabel]) ) {
-                if( testFold == getFoldId(start+row,seeds[classLabel]) )
+              // missing response gets spread around
+              if (y[0].isNA(row)) {
+                if ((start+row)%nfolds == testFold)
                   y[1].set(row,testFold);
+              } else {
+                if( y[0].at8(row) == (classes==null?classLabel:classes[classLabel]) ) {
+                  if( testFold == getFoldId(start+row,seeds[classLabel]) )
+                    y[1].set(row,testFold);
+                }
               }
             }
           }
@@ -93,7 +99,8 @@ public class ASTKFold extends ASTPrim {
     }.doAll(new Frame(y,y.makeZero()))._fr.vec(1);
   }
 
-  @Override ValFrame apply( Env env, Env.StackHelp stk, AST asts[] ) {
+  @Override
+  public ValFrame apply(Env env, Env.StackHelp stk, AST asts[]) {
     Vec foldVec = stk.track(asts[1].exec(env)).getFrame().anyVec().makeZero();
     int nfolds = (int)asts[2].exec(env).getNum();
     long seed  = (long)asts[3].exec(env).getNum();
@@ -107,7 +114,8 @@ class ASTModuloKFold extends ASTPrim {
   @Override public int nargs() { return 1+2; } // (modulo_kfold_column x nfolds)
   @Override
   public String str() { return "modulo_kfold_column"; }
-  @Override ValFrame apply( Env env, Env.StackHelp stk, AST asts[] ) {
+  @Override
+  public ValFrame apply(Env env, Env.StackHelp stk, AST asts[]) {
     Vec foldVec = stk.track(asts[1].exec(env)).getFrame().anyVec().makeZero();
     int nfolds = (int)asts[2].exec(env).getNum();
     return new ValFrame(new Frame(ASTKFold.moduloKfoldColumn(foldVec,nfolds)));
@@ -120,7 +128,8 @@ class ASTStratifiedKFold extends ASTPrim {
   @Override public int nargs() { return 1+3; } // (stratified_kfold_column x nfolds seed)
   @Override
   public String str() { return "stratified_kfold_column"; }
-  @Override ValFrame apply( Env env, Env.StackHelp stk, AST asts[] ) {
+  @Override
+  public ValFrame apply(Env env, Env.StackHelp stk, AST asts[]) {
     Vec foldVec = stk.track(asts[1].exec(env)).getFrame().anyVec().makeZero();
     int nfolds = (int)asts[2].exec(env).getNum();
     long seed  = (long)asts[3].exec(env).getNum();

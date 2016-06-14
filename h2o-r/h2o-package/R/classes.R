@@ -139,6 +139,8 @@ setMethod("show", "H2OModel", function(object) {
   if( !is.null(model.parts$vm) ) print(model.parts$vm)
   cat("\n")
   if( !is.null(model.parts$xm) ) print(model.parts$xm)
+  cat("\n")
+  if( !is.null(model.parts$xms) ) print(model.parts$xms)
 })
 
 #'
@@ -164,6 +166,10 @@ setMethod("summary", "H2OModel", function(object, ...) {
   if( !is.null(model.parts$tm) ) print(model.parts$tm)
   cat("\n")
   if( !is.null(model.parts$vm) ) print(model.parts$vm)
+  cat("\n")
+  if( !is.null(model.parts$xm) ) print(model.parts$xm)
+  cat("\n")
+  if( !is.null(model.parts$xms) ) print(model.parts$xms)
 
   # History
   cat("\n")
@@ -197,6 +203,7 @@ setMethod("summary", "H2OModel", function(object, ...) {
   if( !is.null(tm$MSE)                                             )  cat("\nMSE: (Extract with `h2o.mse`)", tm$MSE)
   if( !is.null(tm$r2)                                              )  cat("\nR^2: (Extract with `h2o.r2`)", tm$r2)
   if( !is.null(tm$logloss)                                         )  cat("\nLogloss: (Extract with `h2o.logloss`)", tm$logloss)
+  if( !is.null(tm$mean_per_class_error)                            )  cat("\nMean Per-Class Error:", tm$mean_per_class_error)
   if( !is.null(tm$AUC)                                             )  cat("\nAUC: (Extract with `h2o.auc`)", tm$AUC)
   if( !is.null(tm$Gini)                                            )  cat("\nGini: (Extract with `h2o.gini`)", tm$Gini)
   if( !is.null(tm$null_deviance)                                   )  cat("\nNull Deviance: (Extract with `h2o.nulldeviance`)", tm$null_deviance)
@@ -363,6 +370,7 @@ setMethod("show", "H2OBinomialMetrics", function(object) {
     cat("MSE:  ", object@metrics$MSE, "\n", sep="")
     cat("R^2:  ", object@metrics$r2, "\n", sep="")
     cat("LogLoss:  ", object@metrics$logloss, "\n", sep="")
+    cat("Mean Per-Class Error:  ", object@metrics$mean_per_class_error, "\n", sep="")
     cat("AUC:  ", object@metrics$AUC, "\n", sep="")
     cat("Gini:  ", object@metrics$Gini, "\n", sep="")
     if(object@algorithm == "glm") {
@@ -395,9 +403,9 @@ setMethod("show", "H2OMultinomialMetrics", function(object) {
   if( !is.null(object@metrics) ) {
     callNextMethod(object)  # call super
     if( object@on_train ) .showMultiMetrics(object, "Training")
-    if( object@on_valid ) .showMultiMetrics(object, "Validation")
-    if( object@on_xval ) .showMultiMetrics(object, "Cross-Validation")
-    if( !is.null(object@metrics$frame$name) ) .showMultiMetrics(object, "Test")
+    else if( object@on_valid ) .showMultiMetrics(object, "Validation")
+    else if( object@on_xval ) .showMultiMetrics(object, "Cross-Validation")
+    else if( !is.null(object@metrics$frame$name) ) .showMultiMetrics(object, "Test")
   } else print(NULL)
 })
 #' @rdname H2OModelMetrics-class

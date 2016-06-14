@@ -11,11 +11,12 @@ def runner = new File("$rootDir/scripts/run.py").canonicalPath
 // REST API Documentation generator
 // --------------------------------
 
-def restGenPath = new File("$rootDir/py")
+def restGenPath = new File("$rootDir/h2o-bindings/bin")
 
 task runGenerateRESTAPIDocs(type: Exec) {
     workingDir restGenPath
-    commandLine 'python', runner, '--wipeall', '--baseport', '48000', '--numclouds', '1', '--jvm.xmx', '4g', '--test', 'generate_rest_api_docs.py'
+    commandLine 'python', runner, '--wipeall', '--baseport', '48000', '--numclouds', '1', '--jvm.xmx', '4g',
+            '--test', 'gen_docs_json.py'
 }
 
 task cleanGenerateRESTAPIDocs(type: Delete) {
@@ -32,12 +33,12 @@ clean.dependsOn cleanGenerateRESTAPIDocs
 def bookletPath = file("src/booklets/v2_2015/source")
 def bookletOutputPath = file("src/booklets/v2_2015/source/build")
 def bookletList = [
-            "GLM_Vignette",
-            "GBM_Vignette",
-            "DeepLearning_Vignette",
-            "SparklingWaterVignette",
-            "R_Vignette",
-            "Python_booklet"]
+            "GLMBooklet",
+            "GBMBooklet",
+            "DeepLearningBooklet",
+            "SparklingWaterBooklet",
+            "RBooklet",
+            "PythonBooklet"]
 
 task(createBuildInfoTex) << {
     H2OBuildVersion bv = new H2OBuildVersion(rootDir, version);

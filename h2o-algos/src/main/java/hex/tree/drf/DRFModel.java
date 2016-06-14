@@ -5,8 +5,6 @@ import water.Key;
 import water.util.MathUtils;
 import water.util.SBPrintStream;
 
-import java.util.Arrays;
-
 public class DRFModel extends SharedTreeModel<DRFModel,DRFModel.DRFParameters,DRFModel.DRFOutput> {
 
   public static class DRFParameters extends SharedTreeModel.SharedTreeParameters {
@@ -27,7 +25,7 @@ public class DRFModel extends SharedTreeModel<DRFModel,DRFModel.DRFParameters,DR
   }
 
   public static class DRFOutput extends SharedTreeModel.SharedTreeOutput {
-    public DRFOutput( DRF b, double mse_train, double mse_valid ) { super(b,mse_train,mse_valid); }
+    public DRFOutput( DRF b) { super(b); }
   }
 
   public DRFModel(Key selfKey, DRFParameters parms, DRFOutput output ) { super(selfKey,parms,output); }
@@ -38,8 +36,8 @@ public class DRFModel extends SharedTreeModel<DRFModel,DRFModel.DRFParameters,DR
    *  and expect the last Chunks are for the final distribution and prediction.
    *  Default method is to just load the data into the tmp array, then call
    *  subclass scoring logic. */
-  @Override protected double[] score0(double data[], double preds[], double weight, double offset) {
-    super.score0(data, preds, weight, offset);
+  @Override protected double[] score0(double data[], double preds[], double weight, double offset, int ntrees) {
+    super.score0(data, preds, weight, offset, ntrees);
     int N = _output._ntrees;
     if (_output.nclasses() == 1) { // regression - compute avg over all trees
       if (N>=1) preds[0] /= N;

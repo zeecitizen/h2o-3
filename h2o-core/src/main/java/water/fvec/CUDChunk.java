@@ -46,6 +46,22 @@ public class CUDChunk extends Chunk {
     int whichUnique = (UnsafeUtils.get1(_mem, 8 + (numUniques << 3) + i)+128);
     return Double.longBitsToDouble(UnsafeUtils.get8(_mem, 8 + (whichUnique << 3)));
   }
+
+  @Override public double [] getDoubles(double [] vals, int from, int to) {
+    return getDoubles(vals,from,to,Double.NaN);
+  }
+  @Override public double [] getDoubles(double [] vals, int from, int to, double NA) {
+    double [] uniques = new double[numUniques];
+    for(int i = 0; i < numUniques; ++i) {
+      uniques[i] = Double.longBitsToDouble(UnsafeUtils.get8(_mem, 8 + (i << 3)));
+      if(Double.isNaN(uniques[i]))
+        uniques[i] = NA;
+    }
+    for(int i = 0; i < _len; ++i)
+      vals[i] = uniques[(UnsafeUtils.get1(_mem, 8 + (numUniques << 3) + i)+128)];
+    return vals;
+  }
+
   @Override protected final boolean isNA_impl( int i ) { return Double.isNaN(atd_impl(i)); }
   @Override boolean set_impl(int idx, long l) { return false; }
   @Override boolean set_impl(int i, double d) {
@@ -70,12 +86,10 @@ public class CUDChunk extends Chunk {
     nc.set_sparseLen(nc.set_len(_len));
     return nc;
   }
-  @Override public CUDChunk read_impl(AutoBuffer bb) {
-    _mem = bb.bufClose();
+  @Override protected final void initFromBytes () {
     _start = -1;  _cidx = -1;
     _len = UnsafeUtils.get4(_mem, 0);
     numUniques = UnsafeUtils.get4(_mem, 4);
     set_len(_len);
-    return this;
   }
 }

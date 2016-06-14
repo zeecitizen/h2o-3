@@ -1,6 +1,8 @@
 package water.parser;
 
 import static org.junit.Assert.*;
+import static water.parser.DefaultParserProviders.XLS_INFO;
+
 import org.junit.*;
 import java.io.File;
 
@@ -10,7 +12,7 @@ import water.fvec.Frame;
 import water.fvec.NFSFileVec;
 
 public class ParseCompressedAndXLSTest extends TestUtil {
-  @BeforeClass static public void setup() { stall_till_cloudsize(1); }
+  @BeforeClass static public void setup() { stall_till_cloudsize(5); }
 
   @Test public void testIris(){
     Frame k1 = null,k2 = null,k3 = null, k4 = null;
@@ -52,7 +54,7 @@ public class ParseCompressedAndXLSTest extends TestUtil {
       NFSFileVec nfs = NFSFileVec.make(f);
       byte[] ctypes = new byte[12];
       for(int i=0; i < 12; i++) ctypes[i] = Vec.T_NUM;
-      ParseSetup setup = new ParseSetup(ParserType.XLS,
+      ParseSetup setup = new ParseSetup(XLS_INFO,
                 (byte) 52, // sep; ascii '4'
                 true,     // singleQuotes
                 ParseSetup.NO_HEADER, // check header
@@ -65,7 +67,7 @@ public class ParseCompressedAndXLSTest extends TestUtil {
         assertTrue("Should have thrown ParseException since file isn't XLS file",false); // fail - should've thrown
         k1.delete();
       } catch (Throwable t) {
-        assertTrue(t.getMessage().contains("H2OParseException"));
+        assertTrue(t instanceof ParseDataset.H2OParseException || t.getCause() instanceof ParseDataset.H2OParseException);
       }
     } finally {
       if( k1 != null ) k1.delete();

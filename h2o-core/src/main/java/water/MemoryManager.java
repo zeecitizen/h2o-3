@@ -189,7 +189,7 @@ abstract public class MemoryManager {
       Cleaner.TIME_AT_LAST_GC = System.currentTimeMillis();
       Cleaner.HEAP_USED_AT_LAST_GC = _allMemBean.getHeapMemoryUsage().getUsed();
       Cleaner.KV_USED_AT_LAST_GC = Cleaner.Histo.cached();
-      MEM_LOW_CRITICAL = Cleaner.HEAP_USED_AT_LAST_GC > (MEM_MAX - (MEM_MAX >> 2));
+      MEM_LOW_CRITICAL = Cleaner.HEAP_USED_AT_LAST_GC > 0.75*MEM_MAX;
       Log.debug("GC CALLBACK: "+Cleaner.TIME_AT_LAST_GC+", USED:"+PrettyPrint.bytes(Cleaner.HEAP_USED_AT_LAST_GC)+", CRIT: "+MEM_LOW_CRITICAL);
       set_goals("GC CALLBACK",MEM_LOW_CRITICAL);
       //if( MEM_LOW_CRITICAL ) { // emergency measure - really low on memory, stop allocations right now!
@@ -258,6 +258,12 @@ abstract public class MemoryManager {
   public static long   [] malloc8 (int size) { return (long   [])malloc(size,size*8L, 8,null,0); }
   public static float  [] malloc4f(int size) { return (float  [])malloc(size,size*4L, 5,null,0); }
   public static double [] malloc8d(int size) { return (double [])malloc(size,size*8L, 9,null,0); }
+  public static double [][] malloc8d(int m, int n) {
+    double [][] res = new double[m][];
+    for(int i = 0; i < m; ++i)
+      res[i] = malloc8d(n);
+    return res;
+  }
   public static boolean[] mallocZ (int size) { return (boolean[])malloc(size,size  , 0,null,0); }
   public static Object [] mallocObj(int size){ return (Object [])malloc(size,size*8L,10,null,0,false); }
   public static byte   [] arrayCopyOfRange(byte  [] orig, int from, int sz) { return (byte  []) malloc(sz,(sz-from)  ,-1,orig,from); }

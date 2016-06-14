@@ -10,7 +10,7 @@ from builtins import object
 import h2o
 import imp, traceback, warnings
 from ..utils.shared_utils import can_use_pandas
-from ..h2o import H2OJob
+from h2o.job import H2OJob
 
 
 class ModelBase(object):
@@ -209,27 +209,30 @@ class ModelBase(object):
     """
     return self._model_json['output']['catoffsets']
 
-  def model_performance(self, test_data=None, train=False, valid=False):
+  def model_performance(self, test_data=None, train=False, valid=False, xval=False):
     """
     Generate model metrics for this model on test_data.
     
     Parameters
     ----------   
     test_data: H2OFrame, optional 
-      Data set for which model metrics shall be computed against. Both train and valid arguments are ignored if test_data is not None.
+      Data set for which model metrics shall be computed against. All three of train, valid and xval arguments are ignored if test_data is not None.
     train: boolean, optional
-      Report the training metrics for the model. If the test_data is the training data, the training metrics are returned.
+      Report the training metrics for the model.
     valid: boolean, optional 
-      Report the validation metrics for the model. If train and valid are True, then it defaults to True.
-    
+      Report the validation metrics for the model.
+    xval: boolean, optional
+      Report the cross-validation metrics for the model. If train and valid are True, then it defaults to True.
+
     Returns
     -------
       An object of class H2OModelMetrics.
     """
     if test_data is None:
-      if not train and not valid: train = True  # default to train
+      if not train and not valid and not xval: train = True  # default to train
       if train: return self._model_json["output"]["training_metrics"]
       if valid: return self._model_json["output"]["validation_metrics"]
+      if xval: return self._model_json["output"]["cross_validation_metrics"]
 
     else:  # cases dealing with test_data not None
       if not isinstance(test_data, h2o.H2OFrame):
@@ -264,7 +267,20 @@ class ModelBase(object):
     """
     warnings.warn("`score_history` is deprecated. Use `scoring_history`", category=DeprecationWarning, stacklevel=2)
     return self.scoring_history()
-  
+
+  def cross_validation_metrics_summary(self):
+    """
+    Retrieve Cross-Validation Metrics Summary
+
+    Returns
+    -------
+      The cross-validation metrics summary as an H2OTwoDimTable
+    """
+    model = self._model_json["output"]
+    if 'cross_validation_metrics_summary' in list(model.keys()) and model["cross_validation_metrics_summary"] is not None:
+      return model["cross_validation_metrics_summary"]
+    print("No cross-validation metrics summary for this model")
+
   def summary(self):
     """
     Print a detailed summary of the model.
@@ -304,6 +320,8 @@ class ModelBase(object):
     if vm: vm.show()
     xm = model["cross_validation_metrics"]
     if xm: xm.show()
+    xms = model["cross_validation_metrics_summary"]
+    if xms: xms.show()
 
     if "scoring_history" in list(model.keys()) and model["scoring_history"]: model["scoring_history"].show()
     if "variable_importances" in list(model.keys()) and model["variable_importances"]: model["variable_importances"].show()
@@ -648,3 +666,45 @@ class ModelBase(object):
     """
     if len(y_actual) != len(y_predicted):
       raise ValueError("Row mismatch: [{},{}]".format(len(y_actual),len(y_predicted)))
+
+  def cross_validation_models(self):
+    """
+    Obtain a list of cross-validation models.
+    :return: list of H2OModel objects
+    """
+    cvmodels = self._model_json["output"]["cross_validation_models"]
+    if cvmodels is None: return None
+    m = []
+    for p in cvmodels: m.append(h2o.get_model(p["name"]))
+    return m
+
+  def cross_validation_predictions(self):
+    """
+    Obtain the (out-of-sample) holdout predictions of all cross-validation models on their holdout data.
+    Note that the predictions are expanded to the full number of rows of the training data, with 0 fill-in.
+    :return: list of H2OFrame objects
+    """
+    preds = self._model_json["output"]["cross_validation_predictions"]
+    if preds is None: return None
+    m = []
+    for p in preds: m.append(h2o.get_frame(p["name"]))
+    return m
+
+  def cross_validation_holdout_predictions(self):
+    """
+    Obtain the (out-of-sample) holdout predictions of all cross-validation models on the training data.
+    This is equivalent to summing up all H2OFrames returned by cross_validation_predictions.
+    :return: H2OFrame
+    """
+    preds = self._model_json["output"]["cross_validation_holdout_predictions_frame_id"]
+    if preds is None: return None
+    return h2o.get_frame(preds["name"])
+
+  def cross_validation_fold_assignment(self):
+    """
+    Obtain the cross-validation fold assignment for all rows in the training data.
+    :return: H2OFrame
+    """
+    fid = self._model_json["output"]["cross_validation_fold_assignment_frame_id"]
+    if fid is None: return None
+    return h2o.get_frame(fid["name"])

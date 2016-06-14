@@ -3,6 +3,7 @@ package water;
 import jsr166y.CountedCompleter;
 import jsr166y.ForkJoinPool;
 import water.fvec.*;
+import water.util.DistributedException;
 import water.util.PrettyPrint;
 import water.fvec.Vec.VectorGroup;
 
@@ -458,16 +459,30 @@ public abstract class MRTask<T extends MRTask<T>> extends DTask<T> implements Fo
 
   /** Block for and get any final results from a dfork'd MRTask.
    *  Note: the desired name 'get' is final in ForkJoinTask.  */
-  public final T getResult() {
+  public final T getResult(boolean fjManagedBlock) {
     assert getCompleter()==null; // No completer allowed here; FJ never awakens threads with completers
-    try { ForkJoinPool.managedBlock(this); }
-    catch( InterruptedException ignore ) { }
-    catch( Throwable re ) { setException(re);  }
-    DException.DistributedException de = getDException();
-    if( de != null ) throw de;
+    do {
+      try {
+        if(fjManagedBlock)
+          ForkJoinPool.managedBlock(this);
+        else
+          // For the cases when we really want to block this thread without FJ framework scheduling a new worker thread.
+          // Model use is in MultifileParseTask - we want to be parsing at most cluster ncores files in parallel.
+          block();
+        join(); // Throw any exception the map call threw
+      } catch (InterruptedException ignore) {
+        // do nothing
+      } catch (Throwable re) {
+        onExceptionalCompletion(re,null); // block for left and rite
+        throw (re instanceof DistributedException)?new DistributedException(re.getMessage(),re.getCause()):new DistributedException(re);
+      }
+    } while( !isReleasable());
     assert _topGlobal:"lost top global flag";
     return self();
   }
+  /** Block for and get any final results from a dfork'd MRTask.
+   *  Note: the desired name 'get' is final in ForkJoinTask.  */
+  public final T getResult() {return getResult(true);}
 
   // Return true if blocking is unnecessary, which is true if the Task isDone.
   public boolean isReleasable() {  return isDone();  }
@@ -566,8 +581,8 @@ public abstract class MRTask<T extends MRTask<T>> extends DTask<T> implements Fo
       _left._hi = mid;          // Reset mid-point
       _rite._lo = mid;          // Also set self mid-point
       addToPendingCount(1);     // One fork awaiting completion
-      _left.fork();             // Runs in another thread/FJ instance
-      _rite.compute2();         // Runs in THIS F/J thread
+      if( !isCompletedAbnormally() ) _left.fork();     // Runs in another thread/FJ instance
+      if( !isCompletedAbnormally() ) _rite.compute2(); // Runs in THIS F/J thread
       if(_profile!=null) _profile._mapdone = System.currentTimeMillis();
       return;                   // Not complete until the fork completes
     }
@@ -731,28 +746,26 @@ public abstract class MRTask<T extends MRTask<T>> extends DTask<T> implements Fo
   // Full local work-tree cancellation
   void self_cancel2() { if( !isDone() ) { cancel(true); self_cancel1(); } }
   private void self_cancel1() {
-    T l = _left;  if( l != null ) { _left = null;  l.self_cancel2(); }
-    T r = _rite;  if( r != null ) { _rite = null;  r.self_cancel2(); }
+    T l = _left; if( l != null ) { l.self_cancel2(); }
+    T r = _rite; if( r != null ) { r.self_cancel2(); }
   }
 
   /** Cancel/kill all work as we can, then rethrow... do not invisibly swallow
    *  exceptions (which is the F/J default).  Called internal by F/J.  Not
    *  expected to be user-called.  */
   @Override public final boolean onExceptionalCompletion( Throwable ex, CountedCompleter caller ) {
-    if( !hasException() ) setException(ex);
     self_cancel1();
     // Block for completion - we don't want the work, but we want all the
     // workers stopped before we complete this task.  Otherwise this task quits
     // early and begins post-task processing (generally cleanup from the
     // exception) but the work is still on-going - often trying to use the same
     // Keys as are being cleaned-up!
-
+    
     // Since blocking can throw (generally the same exception, again and again)
     // catch & ignore, keeping only the first one we already got.
-    if( _nleft != null ) try { _nleft.get(); } catch( Throwable ignore ) { } _nleft = null;
-    if( _nrite != null ) try { _nrite.get(); } catch( Throwable ignore ) { } _nrite = null;
-
-    return super.onExceptionalCompletion(ex, caller);
+    RPC<T> nl = _nleft; if( nl != null ) try { nl.get(); } catch( Throwable ignore ) { } _nleft = null;
+    RPC<T> nr = _nrite; if( nr != null ) try { nr.get(); } catch( Throwable ignore ) { } _nrite = null;
+    return true;
   }
 
   // Make copy, setting final-field completer and clearing out a bunch of fields 

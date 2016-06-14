@@ -13,6 +13,9 @@ doJavapredictTest <- function(model,test_file,test_frame,params) {
   } else if (model == "randomForest") {
     model <- do.call("h2o.randomForest",params)
     print(model)
+  } else if (model == "deeplearning") {
+    model <- do.call("h2o.deeplearning",params)
+    print(model)
   } else {
     stop(paste("Unknown model type", model))
   }
@@ -22,7 +25,7 @@ doJavapredictTest <- function(model,test_file,test_frame,params) {
   tmpdir_name <- sprintf("%s/tmp_model_%s", sandbox(), as.character(Sys.getpid()))
   if (.Platform$OS.type == "windows") {
     shell(sprintf("C:\\cygwin64\\bin\\rm.exe -fr %s", normalizePath(tmpdir_name))) 
-    shell(sprintf("mkdir -p %s", normalizePath(tmpdir_name)))
+    shell(sprintf("C:\\cygwin64\\bin\\mkdir.exe -p %s", normalizePath(tmpdir_name)))
   } else {
     safeSystem(sprintf("rm -fr %s", tmpdir_name))
     safeSystem(sprintf("mkdir -p %s", tmpdir_name))

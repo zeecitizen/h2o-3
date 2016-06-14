@@ -26,7 +26,7 @@ If you're just getting started with H2O, here are some links to help you learn m
   At a minimum, we recommend the following for compatibility with H2O: 
   
   - **Operating Systems**: Windows 7 or later; OS X 10.9 or later, Ubuntu 12.04, or RHEL/CentOS 6 or later
-  - **Languages**: Java 7 or later; Scala v 2.10 or later; R v.3 or later; Python 2.7.x or later (Scala, R, and Python are not required to use H2O unless you want to use H2O in those environments, but Java is always required)
+  - **Languages**: Java 7 or later; Scala v 2.10 or later; R v.3 or later; Python 2.7.x or 3.5.x (Scala, R, and Python are not required to use H2O unless you want to use H2O in those environments, but Java is always required)
   - **Browsers**: Latest version of Chrome, Firefox, Safari, or Internet Explorer (An internet browser is required to use H2O's web UI, Flow)
   - **Hadoop**: Cloudera CDH 5.2 or later (5.3 is recommended); MapR v.3.1.1 or later; Hortonworks HDP 2.1 or later (Hadoop is not required to run H2O unless you want to deploy H2O on a Hadoop cluster)
   - **Spark**: v 1.3 or later (Spark is only required if you want to run [Sparkling Water](https://github.com/h2oai/sparkling-water))
@@ -84,10 +84,7 @@ For additional sales or marketing assistance, please email [sales@h2o.ai](mailto
 
 - <a href="http://h2o.ai/product/recommended-systems-for-h2o/" target="_blank">Recommended Systems</a>: This one-page PDF provides a basic overview of the operating systems, languages and APIs, Hadoop resource manager versions, cloud computing environments, browsers, and other resources recommended to run H2O. 
 
-- <a href="http://h2o.ai/enterprise-edition/" target="_blank">H2O Enterprise Edition</a>: This web page describes the benefits of H2O Enterprise Edition. 
- 
-- <a href="https://github.com/h2oai/h2o-3/blob/master/h2o-docs/src/product/security/Security.md" target="_blank">Security</a>: This document describes how to use the security features (available only in H2O Enterprise Edition). 
-
+- <a href="https://github.com/h2oai/h2o-3/blob/master/h2o-docs/src/product/security/Security.md" target="_blank">Security</a>: This document describes how to use the security features (available only to H2O Enterprise support customers). 
 
 - <a href="https://github.com/h2oai/h2o-3/blob/master/h2o-docs/src/product/howto/H2O-DevS3Creds.md" target="_blank">How to Pass S3 Credentials to H2O</a>: This document describes the necessary step of passing your S3 credentials to H2O so that H2O can be used with AWS, as well as how to run H2O on an EC2 cluster.  
 

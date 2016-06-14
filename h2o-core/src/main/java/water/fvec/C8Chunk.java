@@ -24,19 +24,49 @@ public class C8Chunk extends Chunk {
   @Override boolean set_impl(int i, float f ) { return false; }
   @Override boolean setNA_impl(int idx) { UnsafeUtils.set8(_mem,(idx<<3),_NA); return true; }
   @Override public NewChunk inflate_impl(NewChunk nc) {
+    nc.set_sparseLen(nc.set_len(0));
     for( int i=0; i< _len; i++ )
       if(isNA(i))nc.addNA();
       else nc.addNum(at8(i),0);
-    nc.set_sparseLen(nc.set_len(_len));
     return nc;
   }
-  @Override public C8Chunk read_impl(AutoBuffer bb) {
-    _mem = bb.bufClose();
+  @Override public final void initFromBytes () {
     _start = -1;  _cidx = -1;
     set_len(_mem.length>>3);
     assert _mem.length == _len <<3;
-    return this;
   }
   @Override
   public boolean hasFloat() {return false;}
+
+
+
+  /**
+   * Dense bulk interface, fetch values from the given range
+   * @param vals
+   * @param from
+   * @param to
+   */
+  @Override
+  public double[] getDoubles(double [] vals, int from, int to, double NA){
+    for(int i = from; i < to; ++i) {
+      long res = UnsafeUtils.get8(_mem, i << 3);;
+      vals[i - from] = res != _NA?res:NA;
+    }
+    return vals;
+  }
+  /**
+   * Dense bulk interface, fetch values from the given ids
+   * @param vals
+   * @param ids
+   */
+  @Override
+  public double[] getDoubles(double [] vals, int [] ids){
+    int j = 0;
+    for(int i:ids) {
+      long res = UnsafeUtils.get8(_mem,i<<3);
+      vals[j++] = res != _NA?res:Double.NaN;
+    }
+    return vals;
+  }
+
 }

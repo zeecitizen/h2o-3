@@ -220,9 +220,10 @@ There are multiple ways to import data in H2O flow:
  ![Flow - Import Files Auto-Suggest](images/Flow_Import_AutoSuggest.png)
  
 - In a blank cell, select the CS format, then enter `importFiles ["path/filename.format"]` (where `path/filename.format` represents the complete file path to the file, including the full file name. The file path can be a local file path or a website address. 
-  >**Note**: For S3 file locations, use the format `importFiles [ "s3n:/path/to/bucket/file/file.tab.gz" ]`
+
+>**Note**: For S3 file locations, use the format `importFiles [ "s3n:/path/to/bucket/file/file.tab.gz" ]`
   
-  >For an example of how to import a single file or a directory in R, refer to the following [example](https://github.com/h2oai/h2o-2/blob/master/R/tests/testdir_hdfs/runit_s3n_basic.R).  
+- For an example of how to import a single file or a directory in R, refer to the following [example](https://github.com/h2oai/h2o-2/blob/master/R/tests/testdir_hdfs/runit_s3n_basic.R).  
 
 After selecting the file to import, the file path displays in the "Search Results" section. To import a single file, click the plus sign next to the file. To import all files in the search results, click the **Add all** link. The files selected for import display in the "Selected Files" section. 
 ![Import Files](images/Flow_import.png)
@@ -647,7 +648,7 @@ The available options vary depending on the selected model. If an option is only
 
 - **nbins\_top\_level**: ([DRF](#DRF), [GBM](#GBM)) (For numerical [real/int] columns only) Specify the maximum number of bins at the root level to use to build the histogram. This number will then be decreased by a factor of two per level.  
 
-- **seed**: ([K-Means](#Kmeans), [GBM](#GBM), [DL](#DL), [DRF](#DRF)) Specify the random number generator (RNG) seed for algorithm components dependent on randomization. The seed is consistent for each H2O instance so that you can create models with the same starting conditions in alternative configurations. 
+- **seed**: ([K-Means](#Kmeans), [GLM](#GLM), [GBM](#GBM), [DL](#DL), [DRF](#DRF)) Specify the random number generator (RNG) seed for algorithm components dependent on randomization. The seed is consistent for each H2O instance so that you can create models with the same starting conditions in alternative configurations. 
 
 - **intercept**: ([GLM](#GLM)) To include a constant term in the model, check this checkbox. This option is selected by default. 
 

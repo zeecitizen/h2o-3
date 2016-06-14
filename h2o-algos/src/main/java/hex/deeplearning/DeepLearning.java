@@ -90,16 +90,16 @@ public class DeepLearning extends ModelBuilder<DeepLearningModel,DeepLearningMod
     // Checks and adjustments:
     // 1) observation weights (adjust mean/sigmas for predictors and response)
     // 2) NAs (check that there's enough rows left)
-    GLMTask.YMUTask ymt = new GLMTask.YMUTask(dinfo, nClasses, true, !parms._autoencoder && nClasses == 1, parms._missing_values_handling == MissingValuesHandling.Skip, !parms._autoencoder).doAll(dinfo._adaptedFrame);
-    if (ymt._wsum == 0 && parms._missing_values_handling == DeepLearningParameters.MissingValuesHandling.Skip)
+    GLMTask.YMUTask ymt = new GLMTask.YMUTask(dinfo, nClasses,!parms._autoencoder && nClasses == 1, parms._missing_values_handling == MissingValuesHandling.Skip, !parms._autoencoder).doAll(dinfo._adaptedFrame);
+    if (ymt.wsum() == 0 && parms._missing_values_handling == DeepLearningParameters.MissingValuesHandling.Skip)
       throw new H2OIllegalArgumentException("No rows left in the dataset after filtering out rows with missing values. Ignore columns with many NAs or set missing_values_handling to 'MeanImputation'.");
     if (parms._weights_column != null && parms._offset_column != null) {
       Log.warn("Combination of offset and weights can lead to slight differences because Rollupstats aren't weighted - need to re-calculate weighted mean/sigma of the response including offset terms.");
     }
     if (parms._weights_column != null && parms._offset_column == null /*FIXME: offset not yet implemented*/) {
-      dinfo.updateWeightedSigmaAndMean(ymt._basicStats.sigma(), ymt._basicStats.mean());
+      dinfo.updateWeightedSigmaAndMean(ymt.predictorSDs(), ymt.predictorMeans());
       if (nClasses == 1)
-        dinfo.updateWeightedSigmaAndMeanForResponse(ymt._basicStatsResponse.sigma(), ymt._basicStatsResponse.mean());
+        dinfo.updateWeightedSigmaAndMeanForResponse(ymt.responseSDs(), ymt.responseMeans());
     }
     return dinfo;
   }
@@ -190,25 +190,16 @@ public class DeepLearning extends ModelBuilder<DeepLearningModel,DeepLearningMod
   }
 
   public class DeepLearningDriver extends Driver {
-    @Override public void compute2() {
-      try {
-        Scope.enter();
-        long cs = _parms.checksum();
-        init(true);
-        // Read lock input
-        _parms.read_lock_frames(_job);
-        // Something goes wrong
-        if (error_count() > 0)
-          throw H2OModelBuilderIllegalArgumentException.makeFromBuilder(DeepLearning.this);
-        buildModel();
-        //check that _parms isn't changed during DL model training
-        long cs2 = _parms.checksum();
-        assert(cs == cs2);
-      } finally {
-        _parms.read_unlock_frames(_job);
-        Scope.exit();
-      }
-      tryComplete();
+    @Override public void computeImpl() {
+      long cs = _parms.checksum();
+      init(true);
+      // Something goes wrong
+      if (error_count() > 0)
+        throw H2OModelBuilderIllegalArgumentException.makeFromBuilder(DeepLearning.this);
+      buildModel();
+      //check that _parms isn't changed during DL model training
+      long cs2 = _parms.checksum();
+      assert(cs == cs2);
     }
 
     /**
@@ -228,8 +219,7 @@ public class DeepLearning extends ModelBuilder<DeepLearningModel,DeepLearningMod
           Log.info("Loading model parameters of input and hidden layers from the pretrained autoencoder model.");
           cp.model_info().initializeFromPretrainedModel(pretrained.model_info());
         } else {
-          Log.info("Creating random initial model state.");
-          cp.model_info().initializeMembers();
+          cp.model_info().initializeMembers(_parms._initial_weights, _parms._initial_biases);
         }
       } else {
         final DeepLearningModel previous = DKV.getGet(_parms._checkpoint);
@@ -429,7 +419,10 @@ public class DeepLearning extends ModelBuilder<DeepLearningModel,DeepLearningMod
                   new DeepLearningTask (_job._key,        model.model_info(), rowFraction(train, mp, model), model.iterations).doAll     (    train    ).model_info()); //distributed data (always in multi-node mode)
           if (stop_requested() && !timeout()) throw new Job.JobCancelledException();
           if (!model.doScoring(trainScoreFrame, validScoreFrame, _job._key, model.iterations, false)) break; //finished training (or early stopping or convergence)
-          if (timeout()) break; //stop after scoring
+          if (timeout()) { //stop after scoring
+            _job.update((long) (mp._epochs * train.numRows())); // mark progress as completed
+            break;
+          }
         }
 
         // replace the model with the best model so far (if it's better)

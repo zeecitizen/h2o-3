@@ -3,6 +3,7 @@ package water;
 import jsr166y.CountedCompleter;
 import java.util.Arrays;
 import water.H2O.H2OCountedCompleter;
+import water.util.ArrayUtils;
 import water.util.Log;
 
 /** Jobs are used to do minimal tracking of long-lifetime user actions,
@@ -24,6 +25,22 @@ public final class Job<T extends Keyed> extends Keyed<Job> {
 
   /** User description */
   public final String _description;
+
+  // whether the _result key is ready for view
+  private boolean _ready_for_view = true;
+
+  private String [] _warns;
+
+  public void warn(String warn) {
+    Log.warn(warn);
+    setWarnings(ArrayUtils.append(warns(),warn));
+  }
+  public void setWarnings(final String [] warns){
+    new JAtomic() {
+      @Override boolean abort(Job job) { return job._stop_requested; }
+      @Override void update(Job job) { job._warns = warns; }
+    }.apply(this);
+  }
 
   /** Create a Job
    *  @param key  Key of the final result
@@ -74,6 +91,9 @@ public final class Job<T extends Keyed> extends Keyed<Job> {
     return _end_time - _start_time; // Stopped
   }
 
+  public boolean readyForView() { return _ready_for_view; }
+  public void setReadyForView(boolean ready) { _ready_for_view = ready; }
+
   /** Jobs may be requested to Stop.  Each individual job will respond to this
    *  on a best-effort basis, and make some time to stop.  Stop really means
    *  "the Job stops", but is not an indication of any kind of error or fail.
@@ -94,30 +114,25 @@ public final class Job<T extends Keyed> extends Keyed<Job> {
    *  setting an exception generally triggers stopping a Job, stopping
    *  takes time, so the Job might still be running with an exception
    *  posted. */
-  private Throwable _ex;
-  public Throwable ex() { return _ex; }
-  public boolean hasEx() { update_from_remote(); return _ex != null; }
-  /** Set an exception into this Job, marking it as failing and setting the
-   *  _stop_requested flag.  Only the first exception (of possibly many) is kept. */
-  public void setEx(Throwable ex, Class thrower_clz) {
-    if( _ex == null ) {
-      final DException dex = new DException(ex, thrower_clz);
-      new JAtomic() {
-        @Override boolean abort(Job job) { return job._ex != null; } // One-shot update; keep first exception
-        @Override void update(Job job) { job._ex = dex.toEx(); job._stop_requested = true; }
-      }.apply(this);
-    }
+  private byte [] _ex;
+  public Throwable ex() {
+    if(_ex == null) return null;
+    return (Throwable)AutoBuffer.javaSerializeReadPojo(_ex);
   }
-
 
   /** Total expected work. */
   public long _work;            // Total work to-do
+  public long _max_runtime_msecs;
   private long _worked;         // Work accomplished; between 0 and _work
   private String _msg;          // Progress string
 
   /** Returns a float from 0 to 1 representing progress.  Polled periodically.
    *  Can default to returning e.g. 0 always.  */
-  public float progress() { update_from_remote(); return _work==0 ? 0f : Math.min(1,(float)_worked/_work); }
+  public float progress() { update_from_remote();
+    float regularProgress = _work==0 ? 0f : Math.min(1,(float)_worked/_work);
+    if (_max_runtime_msecs>0) return Math.min(1,Math.max(regularProgress, (float)msec()/_max_runtime_msecs));
+    return regularProgress;
+  }
   /** Returns last progress message. */
   public String progress_msg() { update_from_remote(); return _msg; }
 
@@ -137,6 +152,12 @@ public final class Job<T extends Keyed> extends Keyed<Job> {
   // --------------
   /** A system key for global list of Job keys. */
   public static final Key<Job> LIST = Key.make(" JobList", (byte) 0, Key.BUILT_IN_KEY, false);
+
+  public String[] warns() {
+    update_from_remote();
+    return _warns;
+  }
+
   private static class JobList extends Keyed {
     Key<Job>[] _jobs;
     JobList() { super(LIST); _jobs = new Key[0]; }
@@ -162,6 +183,11 @@ public final class Job<T extends Keyed> extends Keyed<Job> {
     // One-shot throw-away attempt at remove dead jobs from the jobs list
     DKV.DputIfMatch(LIST,new Value(LIST,new JobList(keys)),val,new Futures());
     return jobs;
+  }
+
+  public Job<T> start(final H2OCountedCompleter fjtask, long work, double max_runtime_secs) {
+    _max_runtime_msecs = (long)(max_runtime_secs*1e3);
+    return start(fjtask, work);
   }
 
   /** Start this task based on given top-level fork-join task representing job computation.
@@ -262,11 +288,10 @@ public final class Job<T extends Keyed> extends Keyed<Job> {
         new Barrier1OnCom().apply(Job.this);
         _barrier = null;
       } else {
-        final DException dex = new DException(ex, caller.getClass());
         try {
           Log.err(ex);
         } catch (Throwable t) {/* do nothing */}
-        new Barrier1OnExCom(dex).apply(Job.this);
+        new Barrier1OnExCom(ex).apply(Job.this);
       }
       _barrier = null;          // Free for GC
       return true;
@@ -274,7 +299,7 @@ public final class Job<T extends Keyed> extends Keyed<Job> {
   }
 
   static public boolean isCancelledException(Throwable ex) {
-    return ex instanceof Job.JobCancelledException || ex.getMessage() != null && ex.getMessage().contains("class water.Job$JobCancelledException");
+    return ex instanceof JobCancelledException || ex.getCause() != null && ex.getCause() instanceof JobCancelledException;
   }
 
   private static class Barrier1OnCom extends JAtomic {
@@ -287,11 +312,11 @@ public final class Job<T extends Keyed> extends Keyed<Job> {
     }
   }
   private static class Barrier1OnExCom extends JAtomic {
-    final DException _dex;
-    Barrier1OnExCom(DException dex) { _dex = dex; }
+    final byte[] _dex;
+    Barrier1OnExCom(Throwable ex) { _dex = AutoBuffer.javaSerializeWritePojo(ex); }
     @Override boolean abort(Job job) { return job._ex != null && job._end_time!=0; } // Already stopped & exception'd
     @Override void update(Job job) {
-      if( job._ex == null ) job._ex = _dex.toEx(); // Keep first exception ever
+      if( job._ex == null ) job._ex = _dex; // Keep first exception ever
       job._stop_requested = true; // Since exception set, also set stop
       if( job._end_time == 0 )    // Keep first end-time
         job._end_time = System.currentTimeMillis();
@@ -308,7 +333,8 @@ public final class Job<T extends Keyed> extends Keyed<Job> {
     if( bar != null )           // Barrier may be null if task already completed
       bar.join(); // Block on the *barrier* task, which blocks until the fjtask on*Completion code runs completely
     assert isStopped();
-    if (_ex!=null) throw _ex instanceof RuntimeException ? (RuntimeException)_ex : new RuntimeException(_ex);
+    if (_ex!=null)
+      throw new RuntimeException((Throwable)AutoBuffer.javaSerializeReadPojo(_ex));
     // Maybe null return, if the started fjtask does not actually produce a result at this Key
     return _result==null ? null : _result.get(); 
   }
@@ -344,7 +370,8 @@ public final class Job<T extends Keyed> extends Keyed<Job> {
     if(_work      != remote._work      ) differ = true;
     if(_worked    != remote._worked    ) differ = true;
     if(_msg       != remote._msg       ) differ = true;
-    if( differ ) 
+    if(_max_runtime_msecs != remote._max_runtime_msecs) differ = true;
+    if( differ )
       synchronized(this) { 
         _stop_requested = remote._stop_requested;
         _start_time= remote._start_time;
@@ -353,6 +380,7 @@ public final class Job<T extends Keyed> extends Keyed<Job> {
         _work      = remote._work      ;
         _worked    = remote._worked    ;
         _msg       = remote._msg       ;
+        _max_runtime_msecs = remote._max_runtime_msecs;
       }
   }
   @Override public Class<water.api.KeyV3.JobKeyV3> makeSchema() { return water.api.KeyV3.JobKeyV3.class; }

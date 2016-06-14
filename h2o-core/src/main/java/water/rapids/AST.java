@@ -10,7 +10,7 @@ import java.util.HashMap;
  *
  * Subclasses define the program semantics
  */
-abstract public class AST extends Iced<AST> {
+public abstract class AST extends Iced<AST> {
   // Subclasses define their execution.  Constants like Numbers & Strings just
   // return a ValXXX.  Constant functions also just return a ValFun.
 
@@ -24,7 +24,7 @@ abstract public class AST extends Iced<AST> {
   // Default action after the initial execution of a function.  Typically the
   // action is "execute all arguments, then apply a primitive action to the
   // arguments", but short-circuit evaluation may not execute all args.
-  Val apply( Env env, Env.StackHelp stk, AST asts[] ) { throw water.H2O.fail(); }
+  public Val apply(Env env, Env.StackHelp stk, AST asts[]) { throw water.H2O.fail(); }
 
   // Short name (there's lots of the simple math primtives, and we want them to
   // fit on one line)
@@ -90,6 +90,7 @@ abstract public class AST extends Iced<AST> {
     init(new ASTTanh  ());
     init(new ASTTriGamma());
     init(new ASTTrunc ());
+    init(new ASTNoOp());
 
     // Math binary ops
     init(new ASTAnd ());
@@ -155,6 +156,7 @@ abstract public class AST extends Iced<AST> {
     init(new ASTWeek());
     init(new ASTYear());
     init(new ASTasDate());
+    init(new ASTDiffLag1());
 
     // Complex Math
     init(new ASTHist());
@@ -166,6 +168,7 @@ abstract public class AST extends Iced<AST> {
     init(new ASTTable());
     init(new ASTUnique());
     init(new ASTVariance());
+    init(new ASTCorrelation());
 
     // Generic data mungers
     init(new ASTAnyFactor());
@@ -184,6 +187,8 @@ abstract public class AST extends Iced<AST> {
     init(new ASTRowSlice());
     init(new ASTSetDomain());
     init(new ASTSetLevel());
+    init(new ASTReLevel());
+    init(new ASTNAOmit());
 
     // Assignment; all of these lean heavily on Copy-On-Write optimizations.
     init(new ASTAppend());      // Add a column
@@ -216,6 +221,8 @@ abstract public class AST extends Iced<AST> {
     init(new ASTSubstring());
     init(new ASTLStrip());
     init(new ASTRStrip());
+    init(new ASTEntropy());
+    init(new ASTCountSubstringsWords());
 
     // Functional data mungers
     init(new ASTApply());
@@ -249,6 +256,7 @@ class ASTNum extends ASTParameter {
   ASTNum( double d ) { super(d); }
   @Override public Val exec(Env env) { return _v; }
   @Override int[] columns( String[] names ) { return new int[]{(int)_v.getNum()}; }
+  public void setNum(double d) { ((ValNum)_v).setNum(d); }
 }
 
 /** A String.  Execution is just to return the constant. */
@@ -271,15 +279,6 @@ class ASTFrame extends AST {
   ASTFrame(Frame fr) { _fr = new ValFrame(fr); }
   @Override public String str() { return _fr.toString(); }
   @Override public Val exec(Env env) { return env.returning(_fr); }
-  @Override int nargs() { return 1; }
-}
-
-/** A Row.  Execution is just to return the constant. */
-class ASTRow extends AST {
-  final ValRow _row;
-  ASTRow(double[] ds, String[] names) { _row = new ValRow(ds,names); }
-  @Override public String str() { return _row.toString(); }
-  @Override public ValRow exec(Env env) { return _row; }
   @Override int nargs() { return 1; }
 }
 

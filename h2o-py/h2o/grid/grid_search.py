@@ -5,11 +5,13 @@ from __future__ import print_function
 from __future__ import absolute_import
 from builtins import zip
 from builtins import range
-from .. import H2OConnection, H2OJob, H2OFrame
-from ..estimators import H2OEstimator
-from ..two_dim_table import H2OTwoDimTable
-from ..display import H2ODisplay
 import h2o
+from h2o.connection import H2OConnection
+from h2o.job import H2OJob
+from h2o.frame import H2OFrame
+from h2o.estimators.estimator_base import H2OEstimator
+from h2o.two_dim_table import H2OTwoDimTable
+from h2o.display import H2ODisplay
 import itertools
 from .metrics import *
 
@@ -38,9 +40,9 @@ class H2OGridSearch(object):
       Specify the 'RandomDiscrete' strategy to get random search of all the combinations 
       of your hyperparameters.  RandomDiscrete should usually be combined with at least one early 
       stopping criterion, max_models and/or max_runtime_secs, e.g. 
-      {strategy = "RandomDiscrete", max_models = 42, max_runtime_secs = 28800} or
-      {strategy = "RandomDiscrete", stopping_metric = "AUTO", stopping_tolerance = 0.001, stopping_rounds = 10} or
-      {strategy = "RandomDiscrete", stopping_metric = "misclassification", stopping_tolerance = 0.00001, stopping_rounds = 5}.
+      search_criteria = {strategy: 'RandomDiscrete', max_models: 42, max_runtime_secs: 28800} or
+      search_criteria = {strategy: 'RandomDiscrete', stopping_metric: 'AUTO', stopping_tolerance: 0.001, stopping_rounds: 10} or
+      search_criteria = {strategy: 'RandomDiscrete', stopping_metric: 'misclassification', stopping_tolerance: 0.00001, stopping_rounds: 5}.
      
     Returns
     -------
@@ -64,7 +66,6 @@ class H2OGridSearch(object):
     self.models = None # list of H2O Estimator instances
     self._parms = {} # internal, for object recycle #
     self.parms = {}    # external#
-    self._estimator_type = None#
     self._future = False  # used by __repr__/show to query job state#
     self._job = None      # used when _future is True#
 
@@ -150,12 +151,12 @@ class H2OGridSearch(object):
   def train(self,x,y=None,training_frame=None,offset_column=None,fold_column=None,weights_column=None,validation_frame=None,**params):
     #same api as estimator_base train
     algo_params = locals()
-
     parms = self._parms.copy()
     parms.update({k:v for k, v in algo_params.items() if k not in ["self","params", "algo_params", "parms"] })
     parms["search_criteria"] = self.search_criteria
     parms["hyper_parameters"] = self.hyper_params  # unique to grid search
     parms.update({k:v for k,v in list(self.model._parms.items()) if v is not None})  # unique to grid search
+    parms.update(params)
     if '__class__' in parms:  # FIXME: hackt for PY3
       del parms['__class__']
     y = algo_params["y"]
@@ -197,6 +198,7 @@ class H2OGridSearch(object):
     kwargs = dict([(k, kwargs[k].frame_id if isinstance(kwargs[k], H2OFrame) else kwargs[k]) for k in kwargs if kwargs[k] is not None])  # gruesome one-liner
     algo = self.model._compute_algo()  #unique to grid search
     kwargs["_rest_version"] = 99  #unique to grid search
+    if self.grid_id is not None: kwargs["grid_id"] = self.grid_id 
 
     grid = H2OJob(H2OConnection.post_json("Grid/"+algo, **kwargs), job_type=(algo+" Grid Build"))
 
@@ -205,14 +207,35 @@ class H2OGridSearch(object):
       return
 
     grid.poll()
-    if '_rest_version' in list(kwargs.keys()): grid_json = H2OConnection.get_json("Grids/"+grid.dest_key, _rest_version=kwargs['_rest_version'])
-    else:                                grid_json = H2OConnection.get_json("Grids/"+grid.dest_key)
+    if '_rest_version' in list(kwargs.keys()):
+      grid_json = H2OConnection.get_json("Grids/"+grid.dest_key, _rest_version=kwargs['_rest_version'])
+
+      error_index = 0
+      if len(grid_json["failure_details"]) > 0:
+        print("Errors/Warnings building gridsearch model\n")
+
+        for error_message in grid_json["failure_details"]:
+          if isinstance(grid_json["failed_params"][error_index], dict):
+            for h_name in grid_json['hyper_names']:
+              print("Hyper-parameter: {0}, {1}".format(h_name, grid_json['failed_params'][error_index][h_name]))
+
+          if len(grid_json["failure_stack_traces"]) > error_index:
+            print("failure_details: {0}\nfailure_stack_traces: "
+                  "{1}\n".format(error_message, grid_json['failure_stack_traces'][error_index]))
+          error_index += 1
+    else:
+      grid_json = H2OConnection.get_json("Grids/"+grid.dest_key)
 
     self.models = [h2o.get_model(key['name']) for key in grid_json['model_ids']]
-    #get first model returned in list of models from grid search to get model class (binomial, multinomial, etc)
-    first_model_json = H2OConnection.get_json("Models/"+grid_json['model_ids'][0]['name'], _rest_version=kwargs['_rest_version'])['models'][0]
 
-    self._resolve_grid(grid.dest_key, grid_json, first_model_json)
+    #get first model returned in list of models from grid search to get model class (binomial, multinomial, etc)
+    # sometimes no model is returned due to bad parameter values provided by the user.
+    if len(grid_json['model_ids']) > 0:
+      first_model_json = H2OConnection.get_json("Models/"+grid_json['model_ids'][0]['name'],
+                                                _rest_version=kwargs['_rest_version'])['models'][0]
+      self._resolve_grid(grid.dest_key, grid_json, first_model_json)
+    else:
+      raise ValueError("Gridsearch returns no model due to bad parameter values or other reasons....")
 
   def _resolve_grid(self, grid_id, grid_json, first_model_json):
     model_class = H2OGridSearch._metrics_class(first_model_json)
@@ -353,15 +376,16 @@ class H2OGridSearch(object):
     """
     return {model.model_id:model.catoffsets() for model in self.models}
 
-  def model_performance(self, test_data=None, train=False, valid=False):
+  def model_performance(self, test_data=None, train=False, valid=False, xval=False):
     """Generate model metrics for this model on test_data.
 
-    :param test_data: Data set for which model metrics shall be computed against. Both train and valid arguments are ignored if test_data is not None.
-    :param train: Report the training metrics for the model. If the test_data is the training data, the training metrics are returned.
-    :param valid: Report the validation metrics for the model. If train and valid are True, then it defaults to True.
+    :param test_data: Data set for which model metrics shall be computed against. All three of train, valid and xval arguments are ignored if test_data is not None.
+    :param train: Report the training metrics for the model.
+    :param valid: Report the validation metrics for the model.
+    :param xval: Report the validation metrics for the model.
     :return: An object of class H2OModelMetrics.
     """
-    return {model.model_id:model.model_performance(test_data, train, valid) for model in self.models}
+    return {model.model_id:model.model_performance(test_data, train, valid, xval) for model in self.models}
 
   def scoring_history(self):
     """Retrieve Model Score History
@@ -648,11 +672,49 @@ class H2OGridSearch(object):
     """
     idx = id if isinstance(id, int) else self.model_ids.index(id)
     model = self[idx]
+
+    # if cross-validation is turned on, parameters in one of the fold model actuall contains the max_runtime_secs
+    # parameter and not the main model that is returned.
+    if model._is_xvalidated:
+      model = h2o.get_model(model._xval_keys[0])
+
     res = [model.params[h]['actual'][0] if isinstance(model.params[h]['actual'],list)
            else model.params[h]['actual']
            for h in self.hyper_params]
     if display: print('Hyperparameters: [' + ', '.join(list(self.hyper_params.keys()))+']')
     return res
+
+  def get_hyperparams_dict(self, id, display=True):
+    """
+    Derived and returned the model parameters used to train the particular grid search model.
+
+    Parameters
+    ----------
+    id: str
+      The model id of the model with hyperparameters of interest.
+    display: boolean
+      Flag to indicate whether to display the hyperparameter names.
+
+    Returns
+    -------
+      A dict of model pararmeters derived from the hyper-parameters used to train this particular model.
+    """
+    idx = id if isinstance(id, int) else self.model_ids.index(id)
+    model = self[idx]
+
+    model_params = dict()
+
+    # if cross-validation is turned on, parameters in one of the fold model actual contains the max_runtime_secs
+    # parameter and not the main model that is returned.
+    if model._is_xvalidated:
+      model = h2o.get_model(model._xval_keys[0])
+
+    for param_name in self.hyper_names:
+      model_params[param_name] = model.params[param_name]['actual'][0] if \
+        isinstance(model.params[param_name]['actual'], list) else model.params[param_name]['actual']
+
+    if display: print('Hyperparameters: [' + ', '.join(list(self.hyper_params.keys()))+']')
+    return model_params
 
   def sorted_metric_table(self):
     """

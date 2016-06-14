@@ -1,10 +1,7 @@
 package water.fvec;
 
-import water.AutoBuffer;
 import water.H2O;
 import water.MemoryManager;
-
-import java.util.Arrays;
 
 /** A simple chunk for boolean values. In fact simple bit vector.
  *  Each boolean is represented by 2bits since we need to represent NA.
@@ -12,9 +9,9 @@ import java.util.Arrays;
 public class CBSChunk extends Chunk {
   static protected final byte _NA  = 0x02; // Internal representation of NA
   static protected final int _OFF = 2;
-  private byte _bpv;
+  private transient byte _bpv;
   public byte bpv() { return _bpv; } //bits per value
-  private byte _gap;// number of trailing unused bits in the end (== _len % 8, we allocate bytes, but our length i generally not multiple of 8)
+  private transient byte _gap;// number of trailing unused bits in the end (== _len % 8, we allocate bytes, but our length i generally not multiple of 8)
   public byte gap() { return _gap; } //number of trailing unused bits in the end
 
   public CBSChunk(boolean [] vals) {
@@ -98,14 +95,47 @@ public class CBSChunk extends Chunk {
   }
   @Override double min() { return 0; }
   @Override double max() { return 1; }
-  @Override public CBSChunk read_impl(AutoBuffer bb) {
-    _mem   = bb.bufClose();
+
+  @Override protected final void initFromBytes () {
     _start = -1;  _cidx = -1;
     _gap   = _mem[0];
     _bpv   = _mem[1];
     set_len(((_mem.length - _OFF)*8 - _gap) / _bpv);
-    return this;
   }
+
   @Override
   public boolean hasFloat() {return false;}
+
+
+
+  /**
+   * Dense bulk interface, fetch values from the given range
+   * @param vals
+   * @param from
+   * @param to
+   */
+  @Override
+  public double[] getDoubles(double [] vals, int from, int to, double NA){
+    for(int i = from; i < to; ++i) {
+      byte b = atb(i);
+      vals[i - from] = b == _NA ? NA : b;
+    }
+    return vals;
+  }
+  /**
+   * Dense bulk interface, fetch values from the given ids
+   * @param vals
+   * @param ids
+   */
+  @Override
+  public double[] getDoubles(double [] vals, int [] ids){
+    int j = 0;
+    for(int i:ids) {
+      byte b = atb(i);
+      vals[j++] = b == _NA ? Double.NaN : b;
+    }
+    return vals;
+  }
+
+
 }

@@ -61,11 +61,26 @@ public class BinaryMerge extends DTask<BinaryMerge> {
   public void compute2() {
     _timings = new double[20];
     long t0 = System.nanoTime();
+
+
+    /*for (int s=0; s<1; s++) {
+      try { Thread.sleep(1000); } catch(InterruptedException ex) { Thread.currentThread().interrupt(); }
+      System.gc();
+    }*/
+
     SingleThreadRadixOrder.OXHeader leftSortedOXHeader = DKV.getGet(getSortedOXHeaderKey(/*left=*/true, _leftMSB));
     if (leftSortedOXHeader == null) {
       if (_allRight) throw H2O.unimpl();  // TODO pass through _allRight and implement
       tryComplete(); return;
     }
+
+
+    /*for (int s=0; s<1; s++) {
+      try { Thread.sleep(1000); } catch(InterruptedException ex) { Thread.currentThread().interrupt(); }
+      System.gc();
+    }*/
+
+
     SingleThreadRadixOrder.OXHeader rightSortedOXHeader = DKV.getGet(getSortedOXHeaderKey(/*left=*/false, _rightMSB));
     if (rightSortedOXHeader == null) {
       if (_allLeft == false) { tryComplete(); return; }
@@ -83,7 +98,9 @@ public class BinaryMerge extends DTask<BinaryMerge> {
     _retFirst = new long[leftSortedOXHeader._nBatch][];
     _retLen = new long[leftSortedOXHeader._nBatch][];
     for (int b=0; b<leftSortedOXHeader._nBatch; ++b) {
-      SplitByMSBLocal.OXbatch oxLeft = DKV.getGet(SplitByMSBLocal.getSortedOXbatchKey(/*left=*/true, _leftMSB, b));
+      Value v = DKV.get(SplitByMSBLocal.getSortedOXbatchKey(/*left=*/true, _leftMSB, b));
+      SplitByMSBLocal.OXbatch oxLeft = v.get(); //mem version (obtained from remote) of the Values gets turned into POJO version
+      v.freeMem(); //only keep the POJO version of the Value
       _leftKey[b] = oxLeft._x;
       _leftOrder[b] = oxLeft._o;
       _retFirst[b] = new long[oxLeft._o.length];
@@ -95,7 +112,9 @@ public class BinaryMerge extends DTask<BinaryMerge> {
     _rightKey = new byte[rightSortedOXHeader._nBatch][];
     _rightOrder = new long[rightSortedOXHeader._nBatch][];
     for (int b=0; b<rightSortedOXHeader._nBatch; ++b) {
-      SplitByMSBLocal.OXbatch oxRight = DKV.getGet(SplitByMSBLocal.getSortedOXbatchKey(/*left=*/false, _rightMSB, b));
+      Value v = DKV.get(SplitByMSBLocal.getSortedOXbatchKey(/*left=*/false, _rightMSB, b));
+      SplitByMSBLocal.OXbatch oxRight = v.get();
+      v.freeMem();
       _rightKey[b] = oxRight._x;
       _rightOrder[b] = oxRight._o;
     }
@@ -105,7 +124,7 @@ public class BinaryMerge extends DTask<BinaryMerge> {
     _rightKeyNCol = _rightFieldSizes.length;
     _leftKeySize = ArrayUtils.sum(_leftFieldSizes);
     _rightKeySize = ArrayUtils.sum(_rightFieldSizes);
-    System.out.println("_leftKeySize="+_leftKeySize + " _rightKeySize="+_rightKeySize + " _leftN="+_leftN + " _rightN="+_rightN);
+    // System.out.println("_leftKeySize="+_leftKeySize + " _rightKeySize="+_rightKeySize + " _leftN="+_leftN + " _rightN="+_rightN);
     _numJoinCols = Math.min(_leftKeyNCol, _rightKeyNCol);
 
     // Create fast lookups to go from chunk index to node index of that chunk
@@ -123,6 +142,13 @@ public class BinaryMerge extends DTask<BinaryMerge> {
     _rightVec = _rightFrame.anyVec();
 
     _timings[0] += (System.nanoTime() - t0) / 1e9;
+
+
+    /*for (int s=0; s<1; s++) {
+      try { Thread.sleep(1000); } catch(InterruptedException ex) { Thread.currentThread().interrupt(); }
+      System.gc();
+    }*/
+
 
     if ((_leftN != 0 || _allRight) && (_rightN != 0 || _allLeft)) {
 
@@ -298,13 +324,18 @@ public class BinaryMerge extends DTask<BinaryMerge> {
     // Cannot use a List<Long> as that's restricted to 2Bn items and also isn't an Iced datatype
     long t0 = System.nanoTime();
     long perNodeRightRows[][][] = new long[H2O.CLOUD.size()][][];
-    //long perNodeRightRowsFrom[][][] = new long[H2O.CLOUD.size()][][];
     long perNodeRightLoc[] = new long[H2O.CLOUD.size()];
 
     long perNodeLeftRows[][][] = new long[H2O.CLOUD.size()][][];
-    //long perNodeLeftRowsFrom[][][] = new long[H2O.CLOUD.size()][][];
-    //long perNodeLeftRowsRepeat[][][] = new long[H2O.CLOUD.size()][][];
     long perNodeLeftLoc[] = new long[H2O.CLOUD.size()];
+
+
+    /*for (int s=0; s<1; s++) {
+      try { Thread.sleep(1000); } catch(InterruptedException ex) { Thread.currentThread().interrupt(); }
+      System.gc();
+    }
+    */
+
 
     // Allocate memory to split this MSB combn's left and right matching rows into contiguous batches sent to the nodes they reside on
     int batchSize = 256*1024*1024 / 8;  // 256GB DKV limit / sizeof(long)
@@ -313,41 +344,36 @@ public class BinaryMerge extends DTask<BinaryMerge> {
       if (_perNodeNumRightRowsToFetch[i] > 0) {
         int nbatch = (int) ((_perNodeNumRightRowsToFetch[i] - 1) / batchSize + 1);  // TODO: wrap in class to avoid this boiler plate
         int lastSize = (int) (_perNodeNumRightRowsToFetch[i] - (nbatch - 1) * batchSize);
-        System.out.println("Sending " +_perNodeNumRightRowsToFetch[i]+ " row requests to node " +i+ " in " +nbatch+ " batches from node " +thisNode+ " for rightMSB " +_rightMSB);
+        // System.out.println("Sending " +_perNodeNumRightRowsToFetch[i]+ " row requests to node " +i+ " in " +nbatch+ " batches from node " +thisNode+ " for rightMSB " +_rightMSB);
         assert nbatch >= 1;
         assert lastSize > 0;
         perNodeRightRows[i] = new long[nbatch][];
-        //perNodeRightRowsFrom[i] = new long[nbatch][];
         int b;
-        for (b = 0; b < nbatch - 1; b++) {
-          perNodeRightRows[i][b] = new long[batchSize];  // TO DO?: use MemoryManager.malloc()
-          //perNodeRightRowsFrom[i][b] = new long[batchSize];
-        }
-        perNodeRightRows[i][b] = new long[lastSize];
-        //perNodeRightRowsFrom[i][b] = new long[lastSize];
+        for (b = 0; b < nbatch - 1; b++) perNodeRightRows[i][b] = MemoryManager.malloc8(batchSize);
+        perNodeRightRows[i][b] = MemoryManager.malloc8(lastSize);
       }
       if (_perNodeNumLeftRowsToFetch[i] > 0) {
         int nbatch = (int) ((_perNodeNumLeftRowsToFetch[i] - 1) / batchSize + 1);  // TODO: wrap in class to avoid this boiler plate
         int lastSize = (int) (_perNodeNumLeftRowsToFetch[i] - (nbatch - 1) * batchSize);
-        System.out.println("Sending " +_perNodeNumLeftRowsToFetch[i]+ " row requests to node " +i+ " in " +nbatch+ " batches from node " +thisNode+ " for leftMSB " + _leftMSB);
+        // System.out.println("Sending " +_perNodeNumLeftRowsToFetch[i]+ " row requests to node " +i+ " in " +nbatch+ " batches from node " +thisNode+ " for leftMSB " + _leftMSB);
         assert nbatch >= 1;
         assert lastSize > 0;
         perNodeLeftRows[i] = new long[nbatch][];
-        //perNodeLeftRowsFrom[i] = new long[nbatch][];
-        //perNodeLeftRowsRepeat[i] = new long[nbatch][];
         int b;
-        for (b = 0; b < nbatch - 1; b++) {
-          perNodeLeftRows[i][b] = new long[batchSize];  // TO DO?: use MemoryManager.malloc()
-          //perNodeLeftRowsFrom[i][b] = new long[batchSize];
-          //perNodeLeftRowsRepeat[i][b] = new long[batchSize];
-        }
-        perNodeLeftRows[i][b] = new long[lastSize];
-        //perNodeLeftRowsFrom[i][b] = new long[lastSize];
-        //perNodeLeftRowsRepeat[i][b] = new long[lastSize];
+        for (b = 0; b < nbatch - 1; b++) perNodeLeftRows[i][b] = MemoryManager.malloc8(batchSize);
+        perNodeLeftRows[i][b] = MemoryManager.malloc8(lastSize);
       }
     }
     _timings[2] += (System.nanoTime() - t0) / 1e9;
     t0 = System.nanoTime();
+
+
+    /*for (int s=0; s<1; s++) {
+      try { Thread.sleep(1000); } catch(InterruptedException ex) { Thread.currentThread().interrupt(); }
+      System.gc();
+    }*/
+
+
 
     // Loop over _retFirst and _retLen and populate the batched requests for each node helper
     // _retFirst and _retLen are the same shape
@@ -373,8 +399,6 @@ public class BinaryMerge extends DTask<BinaryMerge> {
           int ni = _leftChunkNode[chkIdx];
           long pnl = perNodeLeftLoc[ni]++;   // pnl = per node location
           perNodeLeftRows[ni][(int)(pnl/batchSize)][(int)(pnl%batchSize)] = row;  // ask that node for global row number row
-          //perNodeLeftRowsFrom[ni][(int)(pnl/batchSize)][(int)(pnl%batchSize)] = resultLoc;  // TODO: could store the batch and offset separately?  If it will be used to assign into a Vec, then that's have different shape/espc so the location is better.
-          //perNodeLeftRowsRepeat[ni][(int)(pnl/batchSize)][(int)(pnl%batchSize)] = Math.max(1,l);
         }
         if (f==0) { resultLoc++; continue; }
         assert l > 0;
@@ -388,7 +412,6 @@ public class BinaryMerge extends DTask<BinaryMerge> {
           int ni = _rightChunkNode[chkIdx];
           long pnl = perNodeRightLoc[ni]++;   // pnl = per node location.   // TODO Split to an if() and batch and offset separately
           perNodeRightRows[ni][(int)(pnl/batchSize)][(int)(pnl%batchSize)] = row;  // ask that node for global row number row
-          //perNodeRightRowsFrom[ni][(int)(pnl/batchSize)][(int)(pnl%batchSize)] = resultLoc++;  // TODO: could store the batch and offset separately?  If it will be used to assign into a Vec, then that's have different shape/espc so the location is better.
         }
       }
     }
@@ -413,16 +436,24 @@ public class BinaryMerge extends DTask<BinaryMerge> {
     for (int col=0; col<_numColsInResult; col++) {
       int b;
       for (b = 0; b < nbatch - 1; b++) {
-        frameLikeChunks[col][b] = new double[batchSize];
+        frameLikeChunks[col][b] = MemoryManager.malloc8d(batchSize);
         Arrays.fill(frameLikeChunks[col][b], Double.NaN);   // NA by default to save filling with NA for nomatches when allLeft
         _chunkSizes[b] = batchSize;
       }
-      frameLikeChunks[col][b] = new double[lastSize];
+      frameLikeChunks[col][b] = MemoryManager.malloc8d(lastSize);
       Arrays.fill(frameLikeChunks[col][b], Double.NaN);
       _chunkSizes[b] = lastSize;
     }
     _timings[4] += (System.nanoTime() - t0) / 1e9;
     t0 = System.nanoTime();
+
+
+    /*for (int s=0; s<1; s++) {
+      try { Thread.sleep(1000); } catch(InterruptedException ex) { Thread.currentThread().interrupt(); }
+      System.gc();
+    }*/
+
+
 
     RPC<GetRawRemoteRows> grrrsRiteRPC[][] = new RPC[H2O.CLOUD.size()][];
     RPC<GetRawRemoteRows> grrrsLeftRPC[][] = new RPC[H2O.CLOUD.size()][];
@@ -437,7 +468,7 @@ public class BinaryMerge extends DTask<BinaryMerge> {
       grrrsRite[ni] = new GetRawRemoteRows[bUppRite];
       grrrsLeft[ni] = new GetRawRemoteRows[bUppLeft];
       for (int b = 0; b < bUppRite; b++) {
-        // Arrays.sort(perNodeRightRows[ni][b]);  Simple quick test of fetching in monotic order. Doesn't seem to help so far. TODO try again now with better method
+        // Arrays.sort(perNodeRightRows[ni][b]);  Simple quick test of fetching in monotonic order. Doesn't seem to help so far. TODO try again now with better surrounding method
         grrrsRiteRPC[ni][b] = new RPC<>(node, new GetRawRemoteRows(_rightFrame, perNodeRightRows[ni][b])).call();
       }
       for (int b = 0; b < bUppLeft; b++) {
@@ -459,6 +490,8 @@ public class BinaryMerge extends DTask<BinaryMerge> {
     }
     _timings[6] += (System.nanoTime() - t0) / 1e9;   // all this time is expected to be in [5]
     t0 = System.nanoTime();
+    grrrsRiteRPC = null;
+    grrrsLeftRPC = null;
 
     // Now loop through _retFirst and _retLen and populate
     resultLoc=0;  // sweep upwards through the final result, filling it in
@@ -530,6 +563,16 @@ public class BinaryMerge extends DTask<BinaryMerge> {
     }
     _timings[10] += (System.nanoTime() - t0) / 1e9;
     t0 = System.nanoTime();
+    grrrsLeft = null;  // remove now to free memory. We moved all these into frameLikeChunks now.
+    grrrsRite = null;
+
+
+    /*for (int s=0; s<1; s++) {
+      try { Thread.sleep(1000); } catch(InterruptedException ex) { Thread.currentThread().interrupt(); }
+      System.gc();
+    }*/
+
+
 
     // compress all chunks and store them
     Futures fs = new Futures();
@@ -542,6 +585,12 @@ public class BinaryMerge extends DTask<BinaryMerge> {
     }
     fs.blockForPending();
     _timings[11] += (System.nanoTime() - t0) / 1e9;
+
+    /*for (int s=0; s<1; s++) {
+      try { Thread.sleep(1000); } catch(InterruptedException ex) { Thread.currentThread().interrupt(); }
+      System.gc();
+    }*/
+
 
   }
 
@@ -568,10 +617,11 @@ public class BinaryMerge extends DTask<BinaryMerge> {
       assert(_rows!=null);
       assert(_chk ==null);
       long t0 = System.nanoTime();
-
-      _chk  = new double[_fr.numCols()][_rows.length];
-      int cidx[] = new int[_rows.length];
-      int offset[] = new int[_rows.length];
+      // System.out.print("Allocating _chk with " + _fr.numCols() +" by " + _rows.length + "...");
+      _chk  = MemoryManager.malloc8d(_fr.numCols(),_rows.length);  // TODO: should this be transposed in memory?
+      // System.out.println("done");
+      int cidx[] = MemoryManager.malloc4(_rows.length);
+      int offset[] = MemoryManager.malloc4(_rows.length);
       Vec anyVec = _fr.anyVec();
       for (int row=0; row<_rows.length; row++) {
         cidx[row] = anyVec.elem2ChunkIdx(_rows[row]);  // binary search of espc array.  TODO: sort input row numbers to avoid

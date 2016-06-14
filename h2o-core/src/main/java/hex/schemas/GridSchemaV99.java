@@ -63,6 +63,9 @@ public class GridSchemaV99 extends Schema<Grid, GridSchemaV99> {
   @API(help = "Cross validation model metrics for the returned models; only returned if sort_by is set", direction = API.Direction.OUTPUT)
   public ModelMetricsBase[] cross_validation_metrics;
 
+  @API(help = "Cross validation model metrics summary for the returned models; only returned if sort_by is set", direction = API.Direction.OUTPUT)
+  public TwoDimTableBase[] cross_validation_metrics_summary;
+
   @API(help="Summary", direction=API.Direction.OUTPUT)
   TwoDimTableBase summary_table;
 
@@ -107,7 +110,7 @@ public class GridSchemaV99 extends Schema<Grid, GridSchemaV99> {
     // If not, show all possible metrics
     if (modelKeys.size() > 0 && sort_by != null) {
       Set<String> possibleMetrics = ModelMetrics.getAllowedMetrics(modelKeys.get(0));
-      if (!possibleMetrics.contains(sort_by)) {
+      if (!possibleMetrics.contains(sort_by.toLowerCase())) {
         throw new H2OIllegalArgumentException("Invalid argument for sort_by specified. Must be one of: " + Arrays.toString(possibleMetrics.toArray(new String[0])));
       }
     }
@@ -121,6 +124,7 @@ public class GridSchemaV99 extends Schema<Grid, GridSchemaV99> {
       training_metrics = new ModelMetricsBase[modelKeys.size()];
       validation_metrics = new ModelMetricsBase[modelKeys.size()];
       cross_validation_metrics = new ModelMetricsBase[modelKeys.size()];
+      cross_validation_metrics_summary = new TwoDimTableBase[modelKeys.size()];
 
       for (int i = 0; i < modelKeys.size(); i++) {
         Model m = DKV.getGet(modelKeys.get(i));
@@ -128,9 +132,11 @@ public class GridSchemaV99 extends Schema<Grid, GridSchemaV99> {
         if (null != m) {
           Model.Output o = m._output;
 
-          training_metrics[i] = (ModelMetricsBase) Schema.schema(3, o._training_metrics).fillFromImpl(o._training_metrics);
+          if (null != o._training_metrics)
+            training_metrics[i] = (ModelMetricsBase) Schema.schema(3, o._training_metrics).fillFromImpl(o._training_metrics);
           if (null != o._validation_metrics) validation_metrics[i] = (ModelMetricsBase) Schema.schema(3, o._validation_metrics).fillFromImpl(o._validation_metrics);
           if (null != o._cross_validation_metrics) cross_validation_metrics[i] = (ModelMetricsBase) Schema.schema(3, o._cross_validation_metrics).fillFromImpl(o._cross_validation_metrics);
+          if (null != o._cross_validation_metrics_summary) cross_validation_metrics_summary[i] = (TwoDimTableBase) Schema.schema(3, o._cross_validation_metrics_summary).fillFromImpl(o._cross_validation_metrics_summary);
         }
       }
     }

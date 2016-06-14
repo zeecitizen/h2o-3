@@ -10,7 +10,7 @@
 #'        none is given, an id will automatically be generated.
 #' @param overwrite_with_best_model Logical. If \code{TRUE}, overwrite the final model with the best model found during training. Defaults to \code{TRUE}.
 #' @param validation_frame An H2OFrame object indicating the validation dataset used to construct the confusion matrix. Defaults to NULL.  If left as NULL, this defaults to the training data when \code{nfolds = 0}.
-#' @param checkpoint Model checkpoint (either key or H2ODeepLearningModel) to resume training with.
+#' @param checkpoint "Model checkpoint (provide the model_id) to resume training with."
 #' @param autoencoder Enable auto-encoder for model building.
 #' @param pretrained_autoencoder Pretrained autoencoder (either key or H2ODeepLearningModel) to initialize the model state of a supervised DL model with.
 #' @param use_all_factor_levels \code{Logical}. Use all factor levels of categorical variance.
@@ -43,7 +43,7 @@
 #'        (recommended).
 #' @param input_dropout_ratio A fraction of the features for each training row to be omitted from
 #'        training in order to improve generalization (dimension sampling).
-#' @param hidden_dropout_ratios Input layer dropout ratio (can improve generalization) specify one
+#' @param hidden_dropout_ratios Hidden layer dropout ratio (can improve generalization) specify one
 #'        value per hidden layer, defaults to 0.5.
 #' @param l1 L1 regularization (can add stability and improve generalization, causes many weights to
 #'        become 0).
@@ -52,6 +52,8 @@
 #' @param max_w2 Constraint for squared sum of incoming weights per unit (e.g. Rectifier).
 #' @param initial_weight_distribution Can be "Uniform", "UniformAdaptive", or "Normal".
 #' @param initial_weight_scale Uniform: -value ... value, Normal: stddev
+#' @param initial_weights Vector of frame ids for initial weight matrices
+#' @param initial_biases Vector of frame ids for initial bias vectors
 #' @param loss Loss function: "Automatic", "CrossEntropy" (for classification only), "Quadratic", "Absolute"
 #'        (experimental) or "Huber" (experimental)
 #' @param distribution A \code{character} string. The distribution function of the response.
@@ -73,7 +75,7 @@
 #'        (by stopping_tolerance) for k=stopping_rounds scoring events.
 #'        Can only trigger after at least 2k scoring events. Use 0 to disable.
 #' @param stopping_metric Metric to use for convergence checking, only for _stopping_rounds > 0
-#'        Can be one of "AUTO", "deviance", "logloss", "MSE", "AUC", "r2", "misclassification".
+#'        Can be one of "AUTO", "deviance", "logloss", "MSE", "AUC", "r2", "misclassification", or "mean_per_class_error".
 #' @param stopping_tolerance Relative tolerance for metric-based stopping criterion (if relative
 #'        improvement is not at least this much, stop).
 #' @param max_runtime_secs Maximum allowed runtime in seconds for model training. Use 0 to disable.
@@ -114,11 +116,13 @@
 #'        Frames"
 #' @param offset_column Specify the offset column.
 #' @param weights_column Specify the weights column.
-#' @param nfolds (Optional) Number of folds for cross-validation. If \code{nfolds >= 2}, then \code{validation} must remain empty.
+#' @param nfolds (Optional) Number of folds for cross-validation.
 #' @param fold_column (Optional) Column with cross-validation fold index assignment per observation.
-#' @param fold_assignment Cross-validation fold assignment scheme, if fold_column is not specified.
-#'        Must be "AUTO", "Random" or "Modulo".
+#' @param fold_assignment Cross-validation fold assignment scheme, if fold_column is not
+#'        specified, must be "AUTO", "Random",  "Modulo", or "Stratified".  The Stratified option will 
+#'        stratify the folds based on the response variable, for classification problems.
 #' @param keep_cross_validation_predictions Whether to keep the predictions of the cross-validation models.
+#' @param keep_cross_validation_fold_assignment Whether to keep the cross-validation fold assignment.
 #' @param ... extra parameters to pass onto functions (not implemented)
 #' @seealso \code{\link{predict.H2OModel}} for prediction.
 #' @examples
@@ -165,6 +169,8 @@ h2o.deeplearning <- function(x, y, training_frame,
                              max_w2 = Inf,
                              initial_weight_distribution = c("UniformAdaptive", "Uniform", "Normal"),
                              initial_weight_scale = 1,
+                             initial_weights = NULL,
+                             initial_biases = NULL,
                              loss = c("Automatic", "CrossEntropy", "Quadratic", "Absolute", "Huber"),
                              distribution = c("AUTO","gaussian", "bernoulli", "multinomial", "poisson", "gamma", "tweedie", "laplace", "huber", "quantile"),
                              quantile_alpha = 0.5,
@@ -176,7 +182,7 @@ h2o.deeplearning <- function(x, y, training_frame,
                              classification_stop,
                              regression_stop,
                              stopping_rounds=5,
-                             stopping_metric=c("AUTO", "deviance", "logloss", "MSE", "AUC", "r2", "misclassification"),
+                             stopping_metric=c("AUTO", "deviance", "logloss", "MSE", "AUC", "r2", "misclassification", "mean_per_class_error"),
                              stopping_tolerance=0,
                              max_runtime_secs=0,
                              quiet_mode,
@@ -206,8 +212,10 @@ h2o.deeplearning <- function(x, y, training_frame,
                              weights_column = NULL,
                              nfolds = 0,
                              fold_column = NULL,
-                             fold_assignment = c("AUTO","Random","Modulo"),
-                             keep_cross_validation_predictions = FALSE)
+                             fold_assignment = c("AUTO","Random","Modulo","Stratified"),
+                             keep_cross_validation_predictions = FALSE,
+                             keep_cross_validation_fold_assignment = FALSE
+                             )
 {
 
   # Training_frame and validation_frame may be a key or an H2OFrame object
@@ -298,6 +306,10 @@ h2o.deeplearning <- function(x, y, training_frame,
     parms$initial_weight_distribution <- initial_weight_distribution
   if(!missing(initial_weight_scale))
     parms$initial_weight_scale <- initial_weight_scale
+  if(!missing(initial_weights))
+    parms$initial_weights <- initial_weights
+  if(!missing(initial_biases))
+    parms$initial_biases <- initial_biases
   if(!missing(loss)) {
     if(loss == "MeanSquare") {
       warning("Loss name 'MeanSquare' is deprecated; please use 'Quadratic' instead.")
@@ -376,6 +388,7 @@ h2o.deeplearning <- function(x, y, training_frame,
   if( !missing(fold_column) )               parms$fold_column            <- fold_column
   if( !missing(fold_assignment) )           parms$fold_assignment        <- fold_assignment
   if( !missing(keep_cross_validation_predictions) )  parms$keep_cross_validation_predictions  <- keep_cross_validation_predictions
+  if( !missing(keep_cross_validation_fold_assignment) )  parms$keep_cross_validation_fold_assignment  <- keep_cross_validation_fold_assignment
   .h2o.modelJob('deeplearning', parms)
 }
 

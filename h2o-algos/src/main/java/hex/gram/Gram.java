@@ -13,7 +13,6 @@ import water.util.ArrayUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.concurrent.ForkJoinPool;
 
 public final class Gram extends Iced<Gram> {
   boolean _hasIntercept;
@@ -25,7 +24,7 @@ public final class Gram extends Iced<Gram> {
   final static int MIN_TSKSZ=10000;
 
   public Gram() {_diagN = _denseN = _fullN = 0; _hasIntercept = false; }
-  public Gram(DataInfo dinfo) {this(dinfo.fullN(), dinfo.largestCat(), dinfo._nums, dinfo._cats,true);}
+  public Gram(DataInfo dinfo) {this(dinfo.fullN(), dinfo.largestCat(), dinfo.numNums(), dinfo._cats,true);}
   public Gram(int N, int diag, int dense, int sparse, boolean hasIntercept) {
     _hasIntercept = hasIntercept;
     _fullN = N + (_hasIntercept?1:0);
@@ -142,7 +141,7 @@ public final class Gram extends Iced<Gram> {
     return res;
   }
 
-  private static double f_eps = 1e-7;
+  private static double r2_eps = 1e-7;
   private static final int MIN_PAR = 1000;
 
   private final void updateZij(int i, int j, double [][] Z, double [] gamma) {
@@ -214,12 +213,13 @@ public final class Gram extends Iced<Gram> {
    * @param dropped_cols - empty list which will be filled with collinear columns removed during computation
    * @return Cholesky - cholesky decomposition fo the gram
    */
-  public Cholesky qrCholesky(ArrayList<Integer> dropped_cols) {
+  public Cholesky qrCholesky(ArrayList<Integer> dropped_cols, boolean standardized) {
     final double [][] Z = getXX(true,true);
     final double [][] R = new double[Z.length][];
+    final double [] Zdiag = new double[Z.length];
     final double [] ZdiagInv = new double[Z.length];
     for(int i = 0; i < Z.length; ++i)
-      ZdiagInv[i] = 1.0/Z[i][i];
+      ZdiagInv[i] = 1.0/(Zdiag[i] = Z[i][i]);
     for(int j = 0; j < Z.length; ++j) {
       final double [] gamma = R[j] = new double[j+1];
       for(int l = 0; l <= j; ++l) // compute gamma_l_j
@@ -227,12 +227,21 @@ public final class Gram extends Iced<Gram> {
       double zjj = Z[j][j];
       for(int k = 0; k < j; ++k) // only need the diagonal, the rest is 0 (dot product of orthogonal vectors)
         zjj += gamma[k] * (gamma[k] * Z[k][k] - 2*Z[j][k]);
-      ZdiagInv[j] = 1./zjj;
-      if(zjj < f_eps) { // collinear column, drop it!
+      // Check R^2 for the current column and ignore if too high (1-R^2 too low), R^2 = 1- rs_res/rs_tot
+      // rs_res = zjj (the squared residual)
+      // rs_tot = sum((yi - mean(y))^2) = mean(y^2) - mean(y)^2,
+      //   mean(y^2) is on diagonal
+      //   mean(y) is in the intercept (0 if standardized)
+      //   might not be regularized with number of observations, that's why dividing by intercept diagonal
+      double rs_tot = standardized
+              ?ZdiagInv[j]
+              :1.0/(Zdiag[j]-Z[j][0]*ZdiagInv[0]*Z[j][0]);
+      if(j > 0 && zjj*rs_tot  < r2_eps) { // collinear column, drop it!
         zjj = 0;
         dropped_cols.add(j-1);
         ZdiagInv[j] = 0;
-      }
+      } else
+        ZdiagInv[j] = 1./zjj;
       Z[j][j] = zjj;
       int jchunk = Math.max(1,MIN_PAR/(Z.length-j));
       int nchunks = (Z.length - j - 1)/jchunk;
@@ -675,7 +684,6 @@ public final class Gram extends Iced<Gram> {
         int c = _pending;
         while(c != 0 && !U.compareAndSwapInt(this,PENDING,c,c-1))
           c = _pending;
-//        System.out.println(" tryFork of " + this + ". c = " + c);
         if(c == 0) fork();
       }
     }
@@ -1124,7 +1132,7 @@ public final class Gram extends Iced<Gram> {
       super(jobKey,dinfo);
     }
     @Override protected boolean chunkInit(){
-      _gram = new Gram(_dinfo.fullN(), _dinfo.largestCat(), _dinfo._nums, _dinfo._cats, false);
+      _gram = new Gram(_dinfo.fullN(), _dinfo.largestCat(), _dinfo.numNums(), _dinfo._cats, false);
       return true;
     }
     @Override protected void processRow(long gid, DataInfo.Row r) {

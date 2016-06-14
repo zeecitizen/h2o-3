@@ -26,7 +26,7 @@ def is_rdemo(file_name):
     packaged_demos = ["h2o.anomaly.R", "h2o.deeplearning.R", "h2o.gbm.R", "h2o.glm.R", "h2o.glrm.R", "h2o.kmeans.R",
                       "h2o.naiveBayes.R", "h2o.prcomp.R", "h2o.randomForest.R"]
     if (file_name in packaged_demos): return True
-    if (re.match("^rdemo.*\.[rR]$", file_name)): return True
+    if (re.match("^rdemo.*\.[rR]$", file_name)) or (re.match("^rdemo.*\.ipynb$", file_name)): return True
     return False
 
 def is_runit(file_name):
@@ -76,7 +76,7 @@ def is_gradle_build_python_test(file_name):
     """
     Return True if file_name matches a regexp for on of the python test run during gradle build.  False otherwise.
     """
-    return file_name in ["generate_rest_api_docs.py", "generate_java_bindings.py", "test_gbm_prostate.py",
+    return file_name in ["gen_docs_json.py", "gen_java.py", "gen_csharp.py", "gen_thrift.py", "test_gbm_prostate.py",
                          "test_rest_api.py"]
 
 def is_javascript_test_file(file_name):
@@ -231,7 +231,7 @@ class H2OCloudNode:
     """
 
     def __init__(self, is_client, cloud_num, nodes_per_cloud, node_num, cloud_name, h2o_jar, ip, base_port,
-                 xmx, output_dir):
+                 xmx, cp, output_dir):
         """
         Create a node in a cloud.
 
@@ -243,6 +243,7 @@ class H2OCloudNode:
         @param h2o_jar: Path to H2O jar file.
         @param base_port: The starting port number we are trying to get our nodes to listen on.
         @param xmx: Java memory parameter.
+        @param cp: Java classpath parameter.
         @param output_dir: The directory where we can create an output file for this process.
         @return: The node object.
         """
@@ -255,6 +256,7 @@ class H2OCloudNode:
         self.ip = ip
         self.base_port = base_port
         self.xmx = xmx
+        self.cp = cp
         self.output_dir = output_dir
 
         self.port = -1
@@ -294,11 +296,13 @@ class H2OCloudNode:
             java = os.environ["JAVA_HOME"] + "/bin/java"
         else:
             java = "java"
+        classpath_sep = ";" if sys.platform == "win32" else ":"
+        classpath = self.h2o_jar if self.cp == "" else self.h2o_jar + classpath_sep + self.cp
         cmd = [java,
                # "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005",
                "-Xmx" + self.xmx,
                "-ea",
-               "-cp", self.h2o_jar,
+               "-cp", classpath,
                main_class,
                "-name", self.cloud_name,
                "-baseport", str(self.my_base_port),
@@ -462,7 +466,7 @@ class H2OCloud:
     A class representing one of the H2O clouds.
     """
 
-    def __init__(self, cloud_num, use_client, nodes_per_cloud, h2o_jar, base_port, xmx, output_dir):
+    def __init__(self, cloud_num, use_client, nodes_per_cloud, h2o_jar, base_port, xmx, cp, output_dir):
         """
         Create a cloud.
         See node definition above for argument descriptions.
@@ -475,6 +479,7 @@ class H2OCloud:
         self.h2o_jar = h2o_jar
         self.base_port = base_port
         self.xmx = xmx
+        self.cp = cp
         self.output_dir = output_dir
 
         # Randomly choose a seven digit cloud number.
@@ -502,7 +507,7 @@ class H2OCloud:
                                 self.cloud_name,
                                 self.h2o_jar,
                                 "127.0.0.1", self.base_port,
-                                self.xmx, self.output_dir)
+                                self.xmx, self.cp, self.output_dir)
             if (is_client):
                 self.client_nodes.append(node)
             else:
@@ -835,15 +840,19 @@ class Test:
             if on_hadoop:         cmd = cmd + ["--onHadoop"]
             if hadoop_namenode:   cmd = cmd + ["--hadoopNamenode", hadoop_namenode]
             cmd = cmd + ["--rUnit"]
-        elif is_rdemo(test_name): cmd = cmd + ["--rDemo"]
-        else:                     cmd = cmd + ["--rBooklet"]
+        elif is_rdemo(test_name) and is_ipython_notebook(test_name): cmd = cmd + ["--rIPythonNotebook"]
+        elif is_rdemo(test_name):                                    cmd = cmd + ["--rDemo"]
+        elif is_rbooklet(test_name):                                 cmd = cmd + ["--rBooklet"]
+        else: raise ValueError("Unsupported R test type: {1}".format(test_name))
         return cmd
 
     def _pytest_cmd(self, test_name, ip, port, on_hadoop, hadoop_namenode):
       if g_pycoverage:
-        pyver = "coverage" if g_py3 else "coverage-3.5"
+        pyver = "coverage-3.5" if g_py3 else "coverage"
         cmd = [pyver,"run", "-a", g_py_test_setup, "--usecloud", ip + ":" + str(port), "--resultsDir", g_output_dir,
                "--testName", test_name]
+        print("Running Python test with coverage:")
+        print(cmd)
       else:
         pyver = "python3.5" if g_py3 else "python"
         cmd = [pyver, g_py_test_setup, "--usecloud", ip + ":" + str(port), "--resultsDir", g_output_dir,
@@ -895,7 +904,7 @@ class TestRunner:
     def __init__(self,
                  test_root_dir,
                  use_cloud, use_cloud2, use_client, cloud_config, use_ip, use_port,
-                 num_clouds, nodes_per_cloud, h2o_jar, base_port, xmx, output_dir,
+                 num_clouds, nodes_per_cloud, h2o_jar, base_port, xmx, cp, output_dir,
                  failed_output_dir, path_to_tar, path_to_whl, produce_unit_reports,
                  testreport_dir, r_pkg_ver_chk, hadoop_namenode, on_hadoop, perf):
         """
@@ -912,6 +921,7 @@ class TestRunner:
         @param h2o_jar: Path to H2O jar file to run.
         @param base_port: Base H2O port (e.g. 54321) to start choosing from.
         @param xmx: Java -Xmx parameter.
+        @param cp: Java -cp parameter (appended to h2o.jar cp).
         @param output_dir: Directory for output files.
         @param failed_output_dir: Directory to copy failed test output.
         @param path_to_tar: path to h2o R package.
@@ -981,7 +991,7 @@ class TestRunner:
                 node_num += 1
         else:
             for i in range(self.num_clouds):
-                cloud = H2OCloud(i, self.use_client, self.nodes_per_cloud, h2o_jar, self.base_port, xmx,
+                cloud = H2OCloud(i, self.use_client, self.nodes_per_cloud, h2o_jar, self.base_port, xmx, cp,
                                  self.output_dir)
                 self.clouds.append(cloud)
 
@@ -1093,13 +1103,13 @@ class TestRunner:
                 continue
 
             # http://stackoverflow.com/questions/18282370/os-walk-iterates-in-what-order
-            # os.walk() yields in each step what it will do in the next steps. 
-            # You can in each step influence the order of the next steps by sorting the 
+            # os.walk() yields in each step what it will do in the next steps.
+            # You can in each step influence the order of the next steps by sorting the
             # lists the way you want them. Quoting the 2.7 manual:
 
-            # When topdown is True, the caller can modify the dirnames list in-place 
-            # (perhaps using del or slice assignment), and walk() will only recurse into the 
-            # subdirectories whose names remain in dirnames; this can be used to prune the search, 
+            # When topdown is True, the caller can modify the dirnames list in-place
+            # (perhaps using del or slice assignment), and walk() will only recurse into the
+            # subdirectories whose names remain in dirnames; this can be used to prune the search,
             # impose a specific order of visiting
 
             # So sorting the dirNames will influence the order in which they will be visited:
@@ -1812,6 +1822,7 @@ g_use_ip = None
 g_use_port = None
 g_no_run = False
 g_jvm_xmx = "1g"
+g_jvm_cp = ""
 g_nopass = False
 g_nointernal = False
 g_convenient = False
@@ -1849,6 +1860,7 @@ g_r_test_setup = os.path.realpath(os.path.join(os.path.dirname(os.path.realpath(
 g_py_test_setup = os.path.realpath(os.path.join(os.path.dirname(os.path.realpath(__file__)),
                                                 "../h2o-py/scripts/h2o-py-test-setup.py"))
 g_date = time.strftime('%Y-%m-%d', time.localtime(time.time()))
+# If you get an exception in this line, then reboot your WiFi (or restart computer)
 g_machine_ip = socket.gethostbyname(socket.gethostname())
 g_ncpu = multiprocessing.cpu_count()
 g_os = platform.system()
@@ -1926,6 +1938,8 @@ def usage():
     print("    --norun          Perform side effects like wipe, but don't actually run tests.")
     print("")
     print("    --jvm.xmx        Configure size of launched JVM running H2O. E.g. '--jvm.xmx 3g'")
+    print("")
+    print("    --jvm.cp         Classpath argument, in addition to h2o.jar path. E.g. '--jvm.cp /Users/h2o/mysql-connector-java-5.1.38-bin.jar'")
     print("")
     print("    --nopass         Run the NOPASS and NOFEATURE tests only and do not ignore any failures.")
     print("")
@@ -2033,6 +2047,7 @@ def parse_args(argv):
     global g_use_port
     global g_no_run
     global g_jvm_xmx
+    global g_jvm_cp
     global g_nopass
     global g_nointernal
     global g_convenient
@@ -2070,14 +2085,8 @@ def parse_args(argv):
                 usage()
             g_base_port = int(argv[i])
         elif s == "--py3":
-            i += 1
-            if i > len(argv):
-                usage()
             g_py3 = True
         elif s == "--coverage":
-            i += 1
-            if i > len(argv):
-              usage()
             g_pycoverage = True
         elif (s == "--numclouds"):
             i += 1
@@ -2179,6 +2188,11 @@ def parse_args(argv):
             if (i > len(argv)):
                 usage()
             g_jvm_xmx = argv[i]
+        elif (s == "--jvm.cp"):
+            i += 1
+            if (i > len(argv)):
+                usage()
+            g_jvm_cp = argv[i]
         elif (s == "--norun"):
             g_no_run = True
         elif (s == "--noxunit"):
@@ -2388,7 +2402,7 @@ def main(argv):
 
     g_runner = TestRunner(test_root_dir,
                           g_use_cloud, g_use_cloud2, g_use_client, g_config, g_use_ip, g_use_port,
-                          g_num_clouds, g_nodes_per_cloud, h2o_jar, g_base_port, g_jvm_xmx,
+                          g_num_clouds, g_nodes_per_cloud, h2o_jar, g_base_port, g_jvm_xmx, g_jvm_cp,
                           g_output_dir, g_failed_output_dir, g_path_to_tar, g_path_to_whl, g_produce_unit_reports,
                           testreport_dir, g_r_pkg_ver_chk, g_hadoop_namenode, g_on_hadoop, g_perf)
 

@@ -2,7 +2,7 @@ import sys
 sys.path.insert(1,"../../")
 import h2o
 from tests import pyunit_utils
-
+from h2o.estimators.gbm import H2OGradientBoostingEstimator
 
 
 
@@ -17,13 +17,11 @@ def metric_accessors():
     response_col = "economy"
     distribution = "gaussian"
     predictors = ["displacement","power","weight","acceleration","year"]
-    gbm = h2o.gbm(y=train[response_col],
-                  x=train[predictors],
-                  validation_y=valid[response_col],
-                  validation_x=valid[predictors],
-                  nfolds=3,
-                  distribution=distribution,
-                  fold_assignment="Random")
+
+    gbm = H2OGradientBoostingEstimator(nfolds=3,
+                                       distribution=distribution,
+                                       fold_assignment="Random")
+    gbm.train(x=predictors, y=response_col, training_frame=train, validation_frame=valid)
 
     #   mse
     mse1 = gbm.mse(train=True,  valid=False, xval=False)
@@ -143,7 +141,8 @@ def metric_accessors():
     response_col = "economy_20mpg"
     distribution = "bernoulli"
     predictors = ["displacement","power","weight","acceleration","year"]
-    gbm = h2o.gbm(y=train[response_col], x=train[predictors], validation_y=valid[response_col], validation_x=valid[predictors], nfolds=3, distribution=distribution, fold_assignment="Random")
+    gbm = H2OGradientBoostingEstimator(nfolds=3, distribution=distribution, fold_assignment="Random")
+    gbm.train(y=response_col, x=predictors, validation_frame=valid, training_frame=train)
 
     #   auc
     auc1 = gbm.auc(train=True,  valid=False, xval=False)
@@ -376,6 +375,16 @@ def metric_accessors():
     max_per_class_error = gbm.max_per_class_error(train=False, valid=False, xval=False) # default: return training metrics
     max_per_class_error = gbm.max_per_class_error(train=False, valid=True,  xval=True)
 
+    #   mean_per_class_error
+    mean_per_class_error1 = gbm.mean_per_class_error(train=True,  valid=False, xval=False)
+    mean_per_class_error2 = gbm.mean_per_class_error(train=False, valid=True,  xval=False)
+    mean_per_class_error3 = gbm.mean_per_class_error(train=False, valid=False, xval=True)
+    mean_per_class_error = gbm.mean_per_class_error(train=True,  valid=True,  xval=False)
+    mean_per_class_error = gbm.mean_per_class_error(train=True,  valid=False, xval=True)
+    mean_per_class_error = gbm.mean_per_class_error(train=True,  valid=True,  xval=True)
+    mean_per_class_error = gbm.mean_per_class_error(train=False, valid=False, xval=False) # default: return training metrics
+    mean_per_class_error = gbm.mean_per_class_error(train=False, valid=True,  xval=True)
+
     #   confusion_matrix
     confusion_matrix1 = gbm.confusion_matrix(train=True,  valid=False, xval=False)
     confusion_matrix2 = gbm.confusion_matrix(train=False, valid=True,  xval=False)
@@ -447,13 +456,8 @@ def metric_accessors():
     response_col = "cylinders"
     distribution = "multinomial"
     predictors = ["displacement","power","weight","acceleration","year"]
-    gbm = h2o.gbm(y=train[response_col],
-                  x=train[predictors],
-                  validation_y=valid[response_col],
-                  validation_x=valid[predictors],
-                  nfolds=3,
-                  distribution=distribution,
-                  fold_assignment="Random")
+    gbm.distribution="multinomial"
+    gbm.train(x=predictors,y=response_col, training_frame=train, validation_frame=valid)
 
     #   mse
     mse1 = gbm.mse(train=True,  valid=False, xval=False)
@@ -537,12 +541,21 @@ def metric_accessors():
     hit_ratio_table = gbm.hit_ratio_table(train=False, valid=False, xval=False) # default: return training metrics
     hit_ratio_table = gbm.hit_ratio_table(train=False, valid=True,  xval=True)
 
+    #   mean_per_class_error
+    mean_per_class_error1 = gbm.mean_per_class_error(train=True,  valid=False, xval=False)
+    mean_per_class_error2 = gbm.mean_per_class_error(train=False, valid=True,  xval=False)
+    mean_per_class_error3 = gbm.mean_per_class_error(train=False, valid=False, xval=True)
+    mean_per_class_error = gbm.mean_per_class_error(train=True,  valid=True,  xval=False)
+    mean_per_class_error = gbm.mean_per_class_error(train=True,  valid=False, xval=True)
+    mean_per_class_error = gbm.mean_per_class_error(train=True,  valid=True,  xval=True)
+    mean_per_class_error = gbm.mean_per_class_error(train=False, valid=False, xval=False) # default: return training metrics
+    mean_per_class_error = gbm.mean_per_class_error(train=False, valid=True,  xval=True)
 
     # clustering
     iris = h2o.import_file(path=pyunit_utils.locate("smalldata/iris/iris.csv"))
-    km = h2o.kmeans(x=iris[0:4],
-                    nfolds=3,
-                    k=3)
+    from h2o.estimators.kmeans import H2OKMeansEstimator
+    km = H2OKMeansEstimator(k=3, nfolds=3)
+    km.train(x=list(range(4)), training_frame=iris)
 
     #   betweenss
     betweenss1 = km.betweenss(train=True,  valid=False, xval=False)
