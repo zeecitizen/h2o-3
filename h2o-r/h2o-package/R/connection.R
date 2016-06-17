@@ -175,12 +175,27 @@ h2o.init <- function(ip = "localhost", port = 54321, startH2O = TRUE, forceDL = 
         verH2O, toString(verPkg)))
       } else if (build_number_H2O =="99999"){
         stop((sprintf("Version mismatch! H2O is running version %s but h2o-R package is version %s.
-        This is a developer build, please contact your developer",verH2O, toString(verPkg) )))
+        This is a developer build, please contact your developer", verH2O, toString(verPkg))))
       } else {
          stop(sprintf("Version mismatch! H2O is running version %s but h2o-R package is version %s.
          Install the matching h2o-R version from - http://h2o-release.s3.amazonaws.com/h2o/%s/%s/index.html",
-         verH2O, toString(verPkg),branch_name_H2O,build_number_H2O))
+         verH2O, toString(verPkg), branch_name_H2O, build_number_H2O))
       }
+    }
+  }
+  
+  # Online check for newer version of h2o
+  try(latest_stable <- sub(".zip\n", "", strsplit(RCurl::getURL(url = "http://h2o-release.s3.amazonaws.com/h2o/latest_stable"), split = "-")[[1]][4]), silent = TRUE)
+  if (exists("latest_stable")) {
+    verPkg <- packageVersion("h2o")
+    if (!identical(package_version(latest_stable), verPkg)) {
+      warning("A newer version of the h2o package is available here: http://www.h2o.ai/download/h2o/r")
+    }
+  } else {
+    # Offline check for newer version of h2o
+    # If more than 90 days old, recommend downloading new version
+    if ((Sys.Date() - 90) > as.Date(packageDescription("h2o")$Date)) {
+      warning("A newer version of the h2o package is available here: http://www.h2o.ai/download/h2o/r")
     }
   }
 
