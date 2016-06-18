@@ -11,6 +11,12 @@
 #' Imports files into an H2O cloud. The default behavior is to pass-through to the parse phase
 #' automatically.
 #'
+#' The difference between `h2o.importFile` and `h2o.uploadFile` are two-fold.  For one, `h2o.importFile` 
+#' is a parallelized reader and `h2o.uploadFile` is not, so users will generally prefer to use the former. 
+#' In addition, this should be noted that `h2o.uploadFile` is push from client to server, so the path must 
+#' be a client side path.  `h2o.importFile` is pull from server from the location specified by the client, so
+#' the path is a server side path. 
+#'
 #' Other than \code{h2o.uploadFile}, if the given path is relative, then it will be relative to the
 #' start location of the H2O instance. Additionally, the file must be on the same machine as the H2O
 #' cloud. In the case of \code{h2o.uploadFile}, a relative path will resolve relative to the working
@@ -58,8 +64,18 @@
 #' }
 #' @name h2o.importFile
 #' @export
+h2o.importFile <- function(path, destination_frame = "", parse = TRUE, header=NA, sep = "", col.names=NULL,
+                           col.types=NULL, na.strings=NULL) {
+  h2o.importFolder(path, pattern = "", destination_frame = destination_frame, parse, header, sep, col.names, col.types,
+                   na.strings = na.strings)
+}
+
+
+
+#' @rdname h2o.importFile
+#' @export
 h2o.importFolder <- function(path, pattern = "", destination_frame = "", parse = TRUE, header = NA, sep = "",
-                             col.names = NULL, col.types=NULL, na.strings=NULL) {
+                             col.names = NULL, col.types = NULL, na.strings = NULL) {
   if(!is.character(path) || is.na(path) || !nzchar(path)) stop("`path` must be a non-empty character string")
   if(!is.character(pattern) || length(pattern) != 1L || is.na(pattern)) stop("`pattern` must be a character string")
   .key.validate(destination_frame)
@@ -88,10 +104,10 @@ h2o.importFolder <- function(path, pattern = "", destination_frame = "", parse =
   if(length(res$files) <= 0L) stop("all files failed to import")
   if(parse) {
     srcKey <- res$destination_frames
-    return( h2o.parseRaw(data=.newH2OFrame(op="ImportFolder",id=srcKey,-1,-1), destination_frame=destination_frame,
-                         header=header, sep=sep, col.names=col.names, col.types=col.types, na.strings=na.strings) )
+    return( h2o.parseRaw(data = .newH2OFrame(op = "ImportFolder",id=srcKey,-1,-1), destination_frame = destination_frame,
+                         header = header, sep = sep, col.names = col.names, col.types = col.types, na.strings = na.strings) )
   }
-  myData <- lapply(res$destination_frames, function(x) .newH2OFrame( op="ImportFolder", id=x,-1,-1))  # do not gc, H2O handles these nfs:// vecs
+  myData <- lapply(res$destination_frames, function(x) .newH2OFrame(op = "ImportFolder", id=x,-1,-1))  # do not gc, H2O handles these nfs:// vecs
   if(length(res$destination_frames) == 1L)
     return( myData[[1L]] )
   else
@@ -99,24 +115,17 @@ h2o.importFolder <- function(path, pattern = "", destination_frame = "", parse =
 }
 
 
-#' @export
-h2o.importFile <- function(path, destination_frame = "", parse = TRUE, header=NA, sep = "", col.names=NULL,
-                           col.types=NULL, na.strings=NULL) {
-  h2o.importFolder(path, pattern = "", destination_frame=destination_frame, parse, header, sep, col.names, col.types,
-                   na.strings=na.strings)
-}
-
 
 #' @rdname h2o.importFile
 #' @export
-h2o.importURL <- function(path, destination_frame = "", parse = TRUE, header = NA, sep = "", col.names = NULL, na.strings=NULL) {
+h2o.importURL <- function(path, destination_frame = "", parse = TRUE, header = NA, sep = "", col.names = NULL, na.strings = NULL) {
   .Deprecated("h2o.importFile")
 }
 
 
 #' @rdname h2o.importFile
 #' @export
-h2o.importHDFS <- function(path, pattern = "", destination_frame = "", parse = TRUE, header = NA, sep = "", col.names = NULL, na.strings=NULL) {
+h2o.importHDFS <- function(path, pattern = "", destination_frame = "", parse = TRUE, header = NA, sep = "", col.names = NULL, na.strings = NULL) {
   .Deprecated("h2o.importFolder")
 }
 
@@ -219,7 +228,7 @@ h2o.import_sql_table <- function(connection_url, table, username, password, colu
 #' @param password Password for SQL server
 #' @param optimize (Optional) Optimize import of SQL table for faster imports. Experimental. Default is true. 
 #' @export
-h2o.import_sql_select<- function(connection_url, select_query, username, password, optimize = NULL) {
+h2o.import_sql_select <- function(connection_url, select_query, username, password, optimize = NULL) {
   parms <- list()
   parms$connection_url <- connection_url
   parms$select_query <- select_query
