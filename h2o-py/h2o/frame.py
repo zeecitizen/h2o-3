@@ -1903,13 +1903,17 @@ class H2OFrame(object):
       If plot is False, return H2OFrame with these columns: breaks, counts, mids_true,
       mids, and density; otherwise produce the plot.
     """
-    frame = H2OFrame._expr(expr=ExprNode("hist", self, breaks))._frame()
-    total = frame["counts"].sum(True)
-    densities = [[(frame[i,"counts"]/total)*(1/(frame[i,"breaks"]-frame[i-1,"breaks"]))] for i in range(1,frame["counts"].nrow)]
-    densities.insert(0,[0])
-    densities_frame = H2OFrame(densities)
-    densities_frame.set_names(["density"])
-    frame = frame.cbind(densities_frame)
+    try:
+      frame = H2OFrame._expr(expr=ExprNode("hist", self, breaks))._frame()
+      total = frame["counts"].sum(True)
+      densities = [[(frame[i,"counts"]/total)*(1/(frame[i,"breaks"]-frame[i-1,"breaks"]))] for i in range(1,frame["counts"].nrow)]
+      densities.insert(0,[0])
+      densities_frame = H2OFrame(densities)
+      densities_frame.set_names(["density"])
+      frame = frame.cbind(densities_frame)
+    except ZeroDivisionError:
+      print("H2OFrame has only a single entry. More data needed for histogram.")
+      return
 
     if plot:
       try:
