@@ -23,6 +23,12 @@ def parametersKmeans():
             # and ((parameters[p]['label'] not in 'keep_cross_validation_fold_assignment')):
             param_dict[parameters[p]['label']] = parameters[p]['actual_value']
 
+    del param_dict['fold_column']
+    del param_dict['training_frame']
+    del param_dict['validation_frame']
+    del param_dict['user_points']
+    del param_dict["model_id"]
+
     iris_km_again = h2o.kmeans(x=iris[0:4], **param_dict)
 
     print("wss")
