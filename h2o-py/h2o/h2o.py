@@ -533,17 +533,20 @@ def download_csv(data, filename):
 
 def download_all_logs(dirname=".", filename=None):
   """Download H2O Log Files to Disk
+
   Parameters
   ----------
-  dirname : str, optional
-    A character string indicating the directory that the log file should be saved in.
-  filename : str, optional
-    A string indicating the name that the CSV file should be
+    dirname : str, optional
+      A character string indicating the directory that the log file should be saved in.
+
+    filename : str, optional
+      A string indicating the name that the CSV file should be
+
   Returns
   -------
     Path of logs written.
   """
-  url = 'http://{}:{}/Logs/download'.format(H2OConnection.ip(),H2OConnection.port())
+  url = 'http://{}:{}/3/Logs/download'.format(H2OConnection.ip(),H2OConnection.port())
   opener = urlopen()
   response = opener(url)
 
