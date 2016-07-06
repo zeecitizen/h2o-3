@@ -27,8 +27,6 @@ test <- function(h) {
 #	expect_equal(mean(pr), mean(ph[,1]),tolerance=1e-5 )
 #	expect_equal(min(pr), min(ph[,1]) ,tolerance=1e-5)
 #	expect_equal(max(pr), max(ph[,1]) ,tolerance=1e-5)
-
-	browser()
 	
 	expect_equal(-1.714958, hh@model$init_f, tolerance=1e-4)
 	expect_equal(50.18252, mean(ph[,1]),tolerance=1e-4 )

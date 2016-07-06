@@ -29,14 +29,14 @@ def offset_gamma():
   #           data = Insurance, distribution ="gamma", n.trees = 600)
   #	pr = predict(fit2, Insurance)
   #	pr = exp(pr+log(Insurance$Holders))
-  assert abs(-1.714958 - gbm._model_json['output']['init_f']) < 1e-5, "expected init_f to be {0}, but got {1}". \
-    format(-1.714958, gbm._model_json['output']['init_f'])
-  assert abs(50.1087 - predictions.mean()[0]) < 5e-2, "expected prediction mean to be {0}, but got {1}". \
-    format(50.1087, predictions.mean()[0])
-  assert abs(0.9133843 - predictions.min()) < 0.0041, "expected prediction min to be {0}, but got {1}". \
-    format(0.9133843, predictions.min())
-  assert abs(392.6667 - predictions.max()) < 1.13, "expected prediction max to be {0}, but got {1}". \
-    format(392.6667, predictions.max())
+  assert abs(-1.71495770754 - gbm._model_json['output']['init_f']) < 1e-5, "expected init_f to be {0}, but got {1}". \
+    format(-1.71495770754, gbm._model_json['output']['init_f'])
+  assert abs(50.1584874405 - predictions.mean()[0]) < 1e-2, "expected prediction mean to be {0}, but got {1}". \
+    format(50.1584874405, predictions.mean()[0])
+  assert abs(0.909348917216- predictions.min()) < 1e-4, "expected prediction min to be {0}, but got {1}". \
+    format(0.909348917216, predictions.min())
+  assert abs(393.788225427 - predictions.max()) < 0.1, "expected prediction max to be {0}, but got {1}". \
+    format(393.788225427, predictions.max())
 
 
 
