@@ -225,9 +225,6 @@ h2o.gbm <- function(x, y, training_frame,
   if(!missing(histogram_type)) parms$histogram_type <- histogram_type
   if(!missing(max_abs_leafnode_pred)) parms$max_abs_leafnode_pred <- max_abs_leafnode_pred
 
-  
-  browser()
-  
   .h2o.modelJob('gbm', parms)
 }
 
