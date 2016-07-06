@@ -20,15 +20,17 @@ def parametersKmeans():
   parameters = iris_km._model_json['parameters']
   param_dict = {}
   for p in range(len(parameters)):
-    if (('max_runtime_secs' not in parameters[p]['label']) and
-          ('keep_cross_validation_fold_assignment' not in parameters[p]['label'])):
-      param_dict[parameters[p]['label']] = parameters[p]['actual_value']
+    param_dict[parameters[p]['name']] = parameters[p]['actual_value']
 
   fold_column = param_dict['fold_column']
   del param_dict['fold_column']
   del param_dict['training_frame']
   del param_dict['validation_frame']
-  iris_km_again = H2OKMeansEstimator(**param_dict)
+  del param_dict['max_runtime_secs']
+  del param_dict['user_points']
+  del param_dict["model_id"]
+  del param_dict['keep_cross_validation_fold_assignment']
+  iris_km_again = H2OKMeansEstimator(**param_dict) ## not all parameters go here - invalid test
   iris_km_again.train(x=list(range(4)), training_frame=iris, fold_column=fold_column)
 
   print("wss")
