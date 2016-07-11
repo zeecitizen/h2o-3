@@ -53,6 +53,41 @@ class ModelBase(object):
     return params
 
   @property
+  def default_params(self):
+    """
+    Get the default parameters of the model only
+    :return: A dictionary of default parameters for the model
+    """
+    params = {}
+    for p in self.parms:
+      params[p] = self.parms[p]["default_value"]
+    return params
+
+  @property
+  def actual_params(self):
+    """
+    Get the actual parameters of the model only
+    :return: A dictionary of actual parameters for the model
+    """
+    params_to_select = {'model_id':'name', \
+                        'response_column':'column_name',\
+                        'training_frame': 'name',\
+                        'validation_frame':'name'}
+    params = {}
+    for p in self.parms:
+      if p in params_to_select.keys():
+        try:
+          params[p] = self.parms[p]["actual_value"][params_to_select[p]]
+        except:
+          params[p] = None
+      
+      else:
+        params[p] = self.parms[p]["actual_value"]
+    return params
+
+
+
+  @property
   def full_parameters(self):
     """
     Get the full specification of all parameters.
