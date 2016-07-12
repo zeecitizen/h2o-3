@@ -1676,19 +1676,7 @@ class H2OFrame(object):
     """
     Returns
     -------
-      H2Oframe of one column converted to a factor.
-    """
-    """
-
-    for i in range(len(col_names)):
-      if i == 0:
-        fr = H2OFrame._expr(expr=ExprNode("as.factor",self[col_names[i]]), cache=self[[col_names[i]]]._ex._cache)
-      else:
-        fr_ext = H2OFrame._expr(expr=ExprNode("as.factor",self[col_names[i]]), cache=self[[col_names[i]]]._ex._cache)
-        fr = fr.cbind(fr_ext)
-      if fr._ex._cache.types_valid():
-        fr._ex._cache.types[col_names[i]] = "enum"
-    return fr
+      H2Oframe of one or more columns converted to a factor.
     """
     col_names = self._ex._cache.names
     if len(col_names) == 1:
