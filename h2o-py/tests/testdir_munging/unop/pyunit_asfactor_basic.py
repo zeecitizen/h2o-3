@@ -32,6 +32,18 @@ def asfactor_basic():
   bar = h2oframe["cylinders"].isfactor()[0]
   assert bar, "expected the bar H2OVec to be a factor"
 
+  #Running tests for multiple column functionality
+  h2oframe =  h2o.import_file(path=pyunit_utils.locate("smalldata/junit/cars.csv"))
+  h2oframe.show()
+
+  h2oframe[["cylinders", "year"]] = h2oframe[["cylinders", "year"]].asfactor()
+
+  bar_cylinders = h2oframe["cylinders"].isfactor()[0]
+  assert bar_cylinders, "expected the bar_cylinders H2OVec to be a factor"
+
+  bar_year = h2oframe["year"].isfactor()[0]
+  assert bar_year, "expected the bar_year H2OVec to be a factor"
+
 
 
 if __name__ == "__main__":
