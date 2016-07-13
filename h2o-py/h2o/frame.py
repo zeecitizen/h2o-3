@@ -297,6 +297,14 @@ class H2OFrame(object):
       >>> l = H2OFrame(l)
       >>> l
     """
+
+    #Adding support for python pandas dataframes
+    if can_use_pandas():
+      import pandas
+      if isinstance(python_obj, pandas.DataFrame) and column_names == None:
+        fr = H2OFrame()
+        fr._upload_python_object(python_obj, destination_frame, 1, separator, list(python_obj.columns), column_types, na_strings)
+        return fr
     fr = H2OFrame()
     fr._upload_python_object(python_obj, destination_frame, header, separator, column_names, column_types, na_strings)
     return fr
