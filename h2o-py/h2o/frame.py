@@ -1727,6 +1727,24 @@ class H2OFrame(object):
     """
     return bool(ExprNode("any.factor", self)._eager_scalar())
 
+  def categories(self):
+    """Categories for a column which is a factor(works for only one column)
+
+    Returns
+    -------
+      Pythonic list of categories if the column is a factor
+    """
+    if self._ex._cache.ncols > 1:
+      raise ValueError, "Categories applies to a single factor column only"
+    if self._ex._cache.types.values()[0] != "enum":
+      raise ValueError, "Column is not categorical"
+
+    fr = H2OFrame._expr(expr=ExprNode("unique", self))
+    #Converting into a list
+    catList = fr.as_data_frame(use_pandas=False)[1:]
+    #Flattening the list
+    return [val[0] for val in catList]
+  
   def transpose(self):
     """Transpose rows and columns of H2OFrame.
 
