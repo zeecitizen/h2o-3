@@ -4,6 +4,7 @@ import hex.*;
 import hex.quantile.Quantile;
 import hex.quantile.QuantileModel;
 import hex.schemas.DeepLearningModelV3;
+import hex.util.LinearAlgebraUtils;
 import water.*;
 import water.api.schemas3.ModelSchemaV3;
 import water.codegen.CodeGenerator;
@@ -21,6 +22,7 @@ import java.util.Arrays;
 
 import static hex.ModelMetrics.calcVarImp;
 import static hex.deeplearning.DeepLearning.makeDataInfo;
+import static hex.deeplearning.DeepLearningModel.DeepLearningParameters.Loss.*;
 import static water.H2O.technote;
 
 /**
@@ -31,6 +33,11 @@ import static water.H2O.technote;
 
 public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel.DeepLearningParameters,DeepLearningModel.DeepLearningModelOutput> implements Model.DeepFeatures {
 
+  @Override
+  public ToEigenVec getToEigenVec() {
+    return LinearAlgebraUtils.toEigen;
+  }
+
   /**
    * The Deep Learning model output contains a few extra fields in addition to the metrics in Model.Output
    * 1) Scoring history (raw data)
@@ -38,7 +45,6 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
    * 3) variable importances (TwoDimTable)
    */
   public static class DeepLearningModelOutput extends Model.Output {
-    public DeepLearningModelOutput() { super(); autoencoder = false;}
     public DeepLearningModelOutput(DeepLearning b) {
       super(b);
       autoencoder = b._parms._autoencoder;
@@ -67,20 +73,6 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
       return !autoencoder;
     }
   } // DeepLearningModelOutput
-
-  /**
-   * Deviance of given distribution function at predicted value f
-   * @param w observation weight
-   * @param y (actual) response
-   * @param f (predicted) response in original response space
-   * @return value of gradient
-   */
-  @Override
-  public double deviance(double w, double y, double f) {
-    // Note: Must use sanitized parameters via get_params() as this._params can still have defaults AUTO, etc.)
-    assert(get_params()._distribution != Distribution.Family.AUTO);
-    return new Distribution(get_params()).deviance(w,y,f);
-  }
 
   // Default publicly visible Schema is V2
   public ModelSchemaV3 schema() { return new DeepLearningModelV3(); }
@@ -122,6 +114,7 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
   public Key model_info_key;
 
   public DeepLearningScoringInfo last_scored() { return (DeepLearningScoringInfo) super.last_scored(); }
+
 
   /**
    * Get the parameters actually used for model building, not the user-given ones (_parms)
@@ -190,6 +183,8 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
       }
     }
     assert(get_params() != cp.model_info().get_params()); //make sure we have a clone
+    _dist = new Distribution(get_params());
+    assert(_dist.distribution != Distribution.Family.AUTO); // Note: Must use sanitized parameters via get_params() as this._params can still have defaults AUTO, etc.)
     actual_best_model_key = cp.actual_best_model_key;
     time_of_start_ms = cp.time_of_start_ms;
     total_training_time_ms = cp.total_training_time_ms;
@@ -234,6 +229,8 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
     DKV.put(dinfo);
     model_info = new DeepLearningModelInfo(parms, destKey, dinfo, nClasses, train, valid);
     model_info_key = Key.make(H2O.SELF);
+    _dist = new Distribution(get_params());
+    assert(_dist.distribution != Distribution.Family.AUTO); // Note: Must use sanitized parameters via get_params() as this._params can still have defaults AUTO, etc.)
     actual_best_model_key = Key.make(H2O.SELF);
     if (parms._nfolds != 0) actual_best_model_key = null;
     if (!parms._autoencoder) {
@@ -284,12 +281,12 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
   /**
    * Score this DeepLearning model
    * @param fTrain potentially downsampled training data for scoring
-   * @param fTest  potentially downsampled validation data for scoring
+   * @param fValid  potentially downsampled validation data for scoring
    * @param jobKey key of the owning job
    * @param iteration Map/Reduce iteration count
    * @return true if model building is ongoing
    */
-  boolean doScoring(Frame fTrain, Frame fTest, Key<Job> jobKey, int iteration, boolean finalScoring) {
+  boolean doScoring(Frame fTrain, Frame fValid, Key<Job> jobKey, int iteration, boolean finalScoring) {
     final long now = System.currentTimeMillis();
     final double time_since_last_iter = now - _timeLastIterationEnter;
     updateTiming(jobKey);
@@ -331,7 +328,7 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
     if( !keep_running || get_params()._score_each_iteration ||
         (sinceLastScore > get_params()._score_interval *1000 //don't score too often
             &&(double)(_timeLastScoreEnd-_timeLastScoreStart)/sinceLastScore < get_params()._score_duty_cycle) ) { //duty cycle
-      jobKey.get().update(0,"Scoring on " + fTrain.numRows() + " training samples" +(fTest != null ? (", " + fTest.numRows() + " validation samples") : ""));
+      jobKey.get().update(0,"Scoring on " + fTrain.numRows() + " training samples" +(fValid != null ? (", " + fValid.numRows() + " validation samples") : ""));
       final boolean printme = !get_params()._quiet_mode;
       _timeLastScoreStart = System.currentTimeMillis();
       model_info().computeStats(); //might not be necessary, but is done to be certain that numbers are good
@@ -344,7 +341,7 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
       scoringInfo.epoch_counter = epoch_counter;
       scoringInfo.iterations = iterations;
       scoringInfo.training_samples = (double)model_info().get_processed_total();
-      scoringInfo.validation = fTest != null;
+      scoringInfo.validation = fValid != null;
       scoringInfo.score_training_samples = fTrain.numRows();
       scoringInfo.is_classification = _output.isClassifier();
       scoringInfo.is_autoencoder = _output.isAutoencoder();
@@ -359,10 +356,10 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
           _output._training_metrics = mtrain;
           scoringInfo.scored_train = new ScoreKeeper(mtrain);
         }
-        if (fTest != null) {
-          final Frame mse_frame = scoreAutoEncoder(fTest, Key.make(), false);
+        if (fValid != null) {
+          final Frame mse_frame = scoreAutoEncoder(fValid, Key.make(), false);
           mse_frame.delete();
-          ModelMetrics mtest = ModelMetrics.getFromDKV(this, fTest); //updated by model.score
+          ModelMetrics mtest = ModelMetrics.getFromDKV(this, fValid); //updated by model.score
           _output._validation_metrics = mtest;
           scoringInfo.scored_valid = new ScoreKeeper(mtest);
         }
@@ -371,13 +368,32 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
         // compute errors
         final String m = model_info().toString();
         if (m.length() > 0) Log.info(m);
-        final Frame trainPredict = score(fTrain);
-        trainPredict.delete();
 
-        hex.ModelMetrics mtrain = ModelMetrics.getFromDKV(this, fTrain);
+        // For GainsLift and Huber, we need the full predictions to compute the model metrics
+        boolean needPreds = _output.nclasses() == 2 /* gains/lift table requires predictions */ || get_params()._distribution==Distribution.Family.huber;
+
+        // Scoring on training data
+        hex.ModelMetrics mtrain;
+        Frame preds = null;
+        if (needPreds) {
+          // allocate predictions since they are needed
+          preds = score(fTrain);
+          mtrain = ModelMetrics.getFromDKV(this, fTrain);
+          if (get_params()._distribution == Distribution.Family.huber) {
+            Vec absdiff = new MathUtils.ComputeAbsDiff().doAll(1, (byte)3,
+                new Frame(new String[]{"a","p"}, new Vec[]{fTrain.vec(get_params()._response_column), preds.anyVec()})
+            ).outputFrame().anyVec();
+            double huberDelta = MathUtils.computeWeightedQuantile(fTrain.vec(get_params()._weights_column), absdiff, get_params()._huber_alpha);
+            if (model_info().gradientCheck==null) _dist.setHuberDelta(huberDelta);
+          }
+        } else {
+          // no need to allocate predictions
+          ModelMetrics.MetricBuilder mb = scoreMetrics(fTrain);
+          mtrain = mb.makeModelMetrics(this,fTrain,fTrain,null);
+        }
+        if (preds!=null) preds.remove();
         _output._training_metrics = mtrain;
         scoringInfo.scored_train = new ScoreKeeper(mtrain);
-        hex.ModelMetrics mtest;
         hex.ModelMetricsSupervised mm1 = (ModelMetricsSupervised)mtrain;
         if (mm1 instanceof ModelMetricsBinomial) {
           ModelMetricsBinomial mm = (ModelMetricsBinomial)(mm1);
@@ -391,23 +407,33 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
           _output._training_metrics._description = "Metrics reported on full training frame";
         }
 
-        if (fTest != null) {
-          Frame validPred = score(fTest);
-          validPred.delete();
-          mtest = ModelMetrics.getFromDKV(this, fTest);
-          _output._validation_metrics = mtest;
-          scoringInfo.scored_valid = new ScoreKeeper(mtest);
-          if (mtest != null) {
-            if (mtest instanceof ModelMetricsBinomial) {
-              ModelMetricsBinomial mm = (ModelMetricsBinomial)mtest;
+        // Scoring on validation data
+        hex.ModelMetrics mvalid;
+        if (fValid != null) {
+          preds = null;
+          if (needPreds) {
+            // allocate predictions since they are needed
+            preds = score(fValid);
+            mvalid = ModelMetrics.getFromDKV(this, fValid);
+          } else {
+            // no need to allocate predictions
+            ModelMetrics.MetricBuilder mb = scoreMetrics(fValid);
+            mvalid = mb.makeModelMetrics(this, fValid, fValid,null);
+          }
+          if (preds!=null) preds.remove();
+          _output._validation_metrics = mvalid;
+          scoringInfo.scored_valid = new ScoreKeeper(mvalid);
+          if (mvalid != null) {
+            if (mvalid instanceof ModelMetricsBinomial) {
+              ModelMetricsBinomial mm = (ModelMetricsBinomial) mvalid;
               scoringInfo.validation_AUC = mm._auc;
             }
-            if (fTest.numRows() != validation_rows) {
-              _output._validation_metrics._description = "Metrics reported on temporary validation frame with " + fTest.numRows() + " samples";
+            if (fValid.numRows() != validation_rows) {
+              _output._validation_metrics._description = "Metrics reported on temporary validation frame with " + fValid.numRows() + " samples";
               if (get_params()._score_validation_sampling == DeepLearningParameters.ClassSamplingMethod.Stratified) {
                 _output._validation_metrics._description += " (stratified sampling)";
               }
-            } else if (fTest._key != null && fTest._key.toString().contains("chunks")){
+            } else if (fValid._key != null && fValid._key.toString().contains("chunks")){
               _output._validation_metrics._description = "Metrics reported on temporary (load-balanced) validation frame";
             } else {
               _output._validation_metrics._description = "Metrics reported on full validation frame";
@@ -578,7 +604,6 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
     double loss = 0;
     Neurons[] neurons = DeepLearningTask.makeNeuronsForTraining(model_info());
     //for absolute error, gradient -1/1 matches the derivative of abs(x) without correction term
-    final double prefactor = get_params()._distribution == Distribution.Family.laplace || get_params()._distribution == Distribution.Family.quantile ? 1 : 0.5;
     long seed = -1; //ignored
 
     double[] responses = new double[myRows.length];
@@ -613,7 +638,7 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
         assert (ArrayUtils.sum(e.raw()) == 0);
       }
 
-      if (get_params()._loss == DeepLearningParameters.Loss.CrossEntropy) {
+      if (get_params()._loss == CrossEntropy) {
         if (get_params()._balance_classes) throw H2O.unimpl();
         int actual = (int) myRow.response[0];
         double pred = neurons[neurons.length - 1]._a[mb].get(actual);
@@ -632,23 +657,25 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
 //        pred = (pred / di._normRespMul[0] + di._normRespSub[0]);
 //        actual = (actual / di._normRespMul[0] + di._normRespSub[0]);
 //      }
-        Distribution dist = new Distribution(model_info.get_params());
-        pred = dist.linkInv(pred);
-        loss += prefactor * dist.deviance(1 /*weight*/, actual, pred);
+        pred = _dist.linkInv(pred);
+        loss += _dist.deviance(1 /*weight*/, actual, pred);
       }
 
       // add L1/L2 penalty of model coefficients (weights & biases)
-      for (int i = 0; i < get_params()._hidden.length + 1; ++i) {
-        if (neurons[i]._w == null) continue;
-        for (int row = 0; row < neurons[i]._w.rows(); ++row) {
-          for (int col = 0; col < neurons[i]._w.cols(); ++col) {
-            loss += get_params()._l1 * Math.abs(neurons[i]._w.get(row, col));
-            loss += 0.5 * get_params()._l2 * Math.pow(neurons[i]._w.get(row, col), 2);
+      for (int i = 0; i <= get_params()._hidden.length+1; ++i) {
+        if (neurons[i]._w != null) {
+          for (int row = 0; row < neurons[i]._w.rows(); ++row) {
+            for (int col = 0; col < neurons[i]._w.cols(); ++col) {
+              loss += get_params()._l1 * Math.abs(neurons[i]._w.get(row, col));
+              loss += 0.5 * get_params()._l2 * Math.pow(neurons[i]._w.get(row, col), 2);
+            }
           }
         }
-        for (int row = 0; row < neurons[i]._b.size(); ++row) {
-          loss += get_params()._l1 * Math.abs(neurons[i]._b.get(row));
-          loss += 0.5 * get_params()._l2 * Math.pow(neurons[i]._b.get(row), 2);
+        if (neurons[i]._b != null) {
+          for (int row = 0; row < neurons[i]._b.size(); ++row) {
+            loss += get_params()._l1 * Math.abs(neurons[i]._b.get(row));
+            loss += 0.5 * get_params()._l2 * Math.pow(neurons[i]._b.get(row), 2);
+          }
         }
       }
     }
@@ -674,7 +701,13 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
     ((Neurons.Input)neurons[0]).setInput(-1, data, mb);
     DeepLearningTask.fpropMiniBatch(-1, neurons, model_info, null, false, null, new double[]{offset}, n);
     double[] out = neurons[neurons.length - 1]._a[mb].raw();
-    if (_output.isClassifier()) {
+
+    if (get_params()._distribution== Distribution.Family.modified_huber) {
+      preds[0] = -1;
+      preds[2] = _dist.linkInv(out[0]);
+      preds[1] = 1-preds[2];
+      return preds;
+    } else if (_output.isClassifier()) {
       assert (preds.length == out.length + 1);
       for (int i = 0; i < preds.length - 1; ++i) {
         preds[i + 1] = out[i];
@@ -688,7 +721,7 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
       else
         preds[0] = out[0];
       // transform prediction to response space
-      preds[0] = new Distribution(model_info.get_params()).linkInv(preds[0]);
+      preds[0] = _dist.linkInv(preds[0]);
       if (Double.isNaN(preds[0]))
         throw new RuntimeException("Predicted regression target NaN!");
     }
@@ -758,12 +791,10 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
     if (layer < 0 || layer >= model_info().get_params()._hidden.length)
       throw new H2OIllegalArgumentException("hidden layer (index) to extract must be between " + 0 + " and " + (model_info().get_params()._hidden.length-1),"");
     final int len = _output.nfeatures();
-    Vec resp = null;
     if (isSupervised()) {
       int ridx = frame.find(_output.responseName());
       if (ridx != -1) { // drop the response for scoring!
         frame = new Frame(frame);
-        resp = frame.vecs()[ridx];
         frame.remove(ridx);
       }
     }
@@ -775,7 +806,7 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
     if (vecs == null) throw new IllegalArgumentException("Cannot create deep features from a frame with no columns.");
 
     Scope.enter();
-    adaptTestForTrain(_output._names, _output.weightsName(), _output.offsetName(), _output.foldName(), null /*don't skip response*/, _output._domains, adaptFrm, get_params().missingColumnsType(), true, true,_output.interactions());
+    adaptTestForTrain(adaptFrm, true, false);
     for (int j=0; j<features; ++j) {
       adaptFrm.add("DF.L"+(layer+1)+".C" + (j+1), vecs[j]);
     }
@@ -802,7 +833,6 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
     // Return just the output columns
     int x=_output._names.length, y=adaptFrm.numCols();
     Frame ret = adaptFrm.extractFrame(x, y);
-//    if (resp != null) ret.prepend(_output.responseName(), resp);
     Scope.exit();
     return ret;
   }
@@ -1189,7 +1219,7 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
       pureMatVec(bodySb);
       bodySb.i(1).p("}").nl();
     }
-    if (_output.isClassifier()) {
+    if (_output.isClassifier() && _parms._distribution!= Distribution.Family.modified_huber) {
       bodySb.i(1).p("if (i == ACTIVATION.length-1) {").nl();
       // softmax
       bodySb.i(2).p("double max = ACTIVATION[i][0];").nl();
@@ -1209,7 +1239,7 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
       bodySb.i(2).p("}").nl();
       bodySb.i(1).p("}").nl();
       bodySb.i().p("}").nl();
-    } else if (!p._autoencoder) { //Regression
+    } else if (!p._autoencoder) { //Regression and modified_huber
       bodySb.i(1).p("if (i == ACTIVATION.length-1) {").nl();
       // regression: set preds[1], FillPreds0 will put it into preds[0]
       if (model_info().data_info()._normRespMul != null) {
@@ -1218,7 +1248,11 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
       else {
         bodySb.i(2).p("preds[1] = ACTIVATION[i][0];").nl();
       }
-      bodySb.i(2).p("preds[1] = " + new Distribution(model_info.get_params()).linkInvString("preds[1]")+";").nl();
+      bodySb.i(2).p("preds[1] = " + _dist.linkInvString("preds[1]") + ";").nl();
+      if (_parms._distribution== Distribution.Family.modified_huber){
+        bodySb.i(2).p("preds[2] = preds[1];").nl();
+        bodySb.i(2).p("preds[1] = 1-preds[2];").nl();
+      }
       bodySb.i(2).p("if (Double.isNaN(preds[1])) throw new RuntimeException(\"Predicted regression target NaN!\");").nl();
       bodySb.i(1).p("}").nl();
       bodySb.i().p("}").nl();
@@ -1452,7 +1486,6 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
      * traditional gradient descent for convex functions. The method relies on
      * gradient information at various points to build a polynomial approximation that
      * minimizes the residuals in fewer iterations of the descent.
-     * This parameter is only active if adaptive learning rate is disabled.
      */
     public boolean _nesterov_accelerated_gradient = true;
   
@@ -1529,7 +1562,7 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
      * be used for classification as well (where it emphasizes the error on all
      * output classes, not just for the actual class).
      */
-    public Loss _loss = Loss.Automatic;
+    public Loss _loss = Automatic;
   
   /*Scoring*/
     /**
@@ -1679,11 +1712,11 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
   
     /**
      * Loss functions
-     * Absolute, Quadratic, Huber for regression
-     * Absolute, Quadratic, Huber or CrossEntropy for classification
+     * Absolute, Quadratic, Huber, Quantile for regression
+     * Quadratic, ModifiedHuber or CrossEntropy for classification
      */
     public enum Loss {
-      Automatic, Quadratic, CrossEntropy, Huber, Absolute, Quantile
+      Automatic, Quadratic, CrossEntropy, ModifiedHuber, Huber, Absolute, Quantile
     }
   
     /**
@@ -1692,7 +1725,7 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
      * @param expensive (whether or not this is the "final" check)
      */
     void validate(DeepLearning dl, boolean expensive) {
-      boolean classification = expensive || dl.nclasses() != 0 ? dl.isClassifier() : _loss == Loss.CrossEntropy;
+      boolean classification = expensive || dl.nclasses() != 0 ? dl.isClassifier() : _loss == CrossEntropy || _loss == ModifiedHuber;
       if (_hidden == null || _hidden.length == 0) dl.error("_hidden", "There must be at least one hidden layer.");
       for (int h : _hidden) if (h <= 0) dl.error("_hidden", "Hidden layer size must be positive.");
       if (_mini_batch_size < 1)
@@ -1720,7 +1753,12 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
           dl.error("_nfolds", "N-fold cross-validation is not supported for Autoencoder.");
         }
       }
-  
+      if (_categorical_encoding==CategoricalEncodingScheme.Enum) {
+        dl.error("_categorical_encoding", "Cannot use Enum encoding for categoricals - need numbers!");
+      }
+      if (_categorical_encoding==CategoricalEncodingScheme.OneHotExplicit) {
+        dl.error("_categorical_encoding", "Won't use explicit Enum encoding for categoricals - it's much faster with OneHotInternal!");
+      }
       if (_activation != Activation.TanhWithDropout && _activation != Activation.MaxoutWithDropout && _activation != Activation.RectifierWithDropout && _activation != Activation.ExpRectifierWithDropout) {
         dl.hide("_hidden_dropout_ratios", "hidden_dropout_ratios requires a dropout activation function.");
       }
@@ -1759,7 +1797,12 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
         dl.hide("_momentum_start", "momentum_start is not used with adaptive_rate.");
         dl.hide("_momentum_ramp", "momentum_ramp is not used with adaptive_rate.");
         dl.hide("_momentum_stable", "momentum_stable is not used with adaptive_rate.");
-        dl.hide("_nesterov_accelerated_gradient", "nesterov_accelerated_gradient is not used with adaptive_rate.");
+        if (_rate!=0.005) dl.warn("_rate", "rate cannot be specified if adaptive_rate is enabled.");
+        if (_rate_annealing!=1e-6) dl.warn("_rate_annealing", "rate_annealing cannot be specified if adaptive_rate is enabled.");
+        if (_rate_decay!=1) dl.warn("_rate_decay", "rate_decay cannot be specified if adaptive_rate is enabled.");
+        if (_momentum_start!=0) dl.warn("_momentum_start", "momentum_start cannot be specified if adaptive_rate is enabled.");
+        if (_momentum_ramp!=1e6) dl.warn("_momentum_ramb", "momentum_ramp cannot be specified if adaptive_rate is enabled.");
+        if (_momentum_stable!=0) dl.warn("_momentum_stable", "momentum_stable cannot be specified if adaptive_rate is enabled.");
       } else {
         // ! adaptive_rate
         dl.hide("_rho", "rho is only used with adaptive_rate.");
@@ -1779,17 +1822,19 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
       }
       if (_loss == null) {
         if (expensive || dl.nclasses() != 0) {
-          dl.error("_loss", "Loss function must be specified. Try CrossEntropy for categorical response (classification), Quadratic, Absolute or Huber for numerical response (regression).");
+          dl.error("_loss", "Loss function must be specified. Try CrossEntropy for categorical response (classification), ModifiedHuber for binomial response, Quadratic, Absolute or Huber for numerical response (regression).");
         }
         //otherwise, we might not know whether classification=true or false (from R, for example, the training data isn't known when init(false) is called).
       } else {
-        if (_autoencoder && _loss == Loss.CrossEntropy)
+        if (_autoencoder && _loss == CrossEntropy)
           dl.error("_loss", "Cannot use CrossEntropy loss for auto-encoder.");
-        if (!classification && _loss == Loss.CrossEntropy)
+        if (!classification && _loss == CrossEntropy)
           dl.error("_loss", technote(2, "For CrossEntropy loss, the response must be categorical."));
       }
-      if (!classification && _loss == Loss.CrossEntropy)
-        dl.error("_loss", "For CrossEntropy loss, the response must be categorical. Either select Automatic, Quadratic, Absolute or Huber loss for regression, or use a categorical response.");
+      if (!classification && _loss == CrossEntropy)
+        dl.error("_loss", "For CrossEntropy loss, the response must be categorical.");
+      if (classification && (_loss != Automatic && _loss != CrossEntropy && _loss != Quadratic && _loss != ModifiedHuber))
+        dl.error("_loss", "For classification tasks, the loss must be one of: Automatic, Quadratic, CrossEntropy or ModifiedHuber.");
       if (classification) {
         switch(_distribution) {
           case gaussian:
@@ -1803,6 +1848,7 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
             break;
           case AUTO:
           case bernoulli:
+          case modified_huber:
           case multinomial:
           default:
             //OK
@@ -1812,24 +1858,25 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
         switch(_distribution) {
           case multinomial:
           case bernoulli:
+          case modified_huber:
             dl.error("_distribution", technote(2, _distribution  + " distribution is not allowed for regression."));
             break;
           case tweedie:
           case gamma:
           case poisson:
-            if (_loss != Loss.Automatic)
+            if (_loss != Automatic)
               dl.error("_distribution", "Only Automatic loss (deviance) is allowed for " + _distribution + " distribution.");
             break;
           case laplace:
-            if (_loss != Loss.Absolute && _loss != Loss.Automatic)
+            if (_loss != Loss.Absolute && _loss != Automatic)
               dl.error("_distribution", "Only Automatic or Absolute loss is allowed for " + _distribution + " distribution.");
             break;
           case quantile:
-            if (_loss != Loss.Quantile && _loss != Loss.Automatic)
+            if (_loss != Loss.Quantile && _loss != Automatic)
               dl.error("_distribution", "Only Automatic or Quantile loss is allowed for " + _distribution + " distribution.");
             break;
           case huber:
-            if (_loss != Loss.Huber && _loss != Loss.Automatic)
+            if (_loss != Loss.Huber && _loss != Automatic)
               dl.error("_distribution", "Only Automatic or Huber loss is allowed for " + _distribution + " distribution.");
             break;
           case AUTO:
@@ -1977,6 +2024,7 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
               "_nfolds",
               "_distribution",
               "_quantile_alpha",
+              "_huber_alpha",
               "_tweedie_power"
       };
   
@@ -2109,6 +2157,11 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
             Log.info("_overwrite_with_best_model: Disabling overwrite_with_best_model in combination with n-fold cross-validation.");
           toParms._overwrite_with_best_model = false;
         }
+        if (fromParms._categorical_encoding==CategoricalEncodingScheme.AUTO) {
+          if (!fromParms._quiet_mode)
+            Log.info("_categorical_encoding: Automatically enabling OneHotInternal categorical encoding.");
+          toParms._categorical_encoding = CategoricalEncodingScheme.OneHotInternal;
+         }
         if (fromParms._adaptive_rate) {
           if (!fromParms._quiet_mode)
             Log.info("_adaptive_rate: Using automatic learning rate. Ignoring the following input parameters: "
@@ -2168,16 +2221,20 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
               case Huber:
                 toParms._distribution = Distribution.Family.huber;
                 break;
+              case ModifiedHuber:
+                toParms._distribution = Distribution.Family.modified_huber;
+                break;
               default:
                 throw H2O.unimpl();
             }
           }
         }
   
-        if (fromParms._loss == Loss.Automatic) {
+        if (fromParms._loss == Automatic) {
           switch (toParms._distribution) {
+            // regression
             case gaussian:
-              toParms._loss = Loss.Quadratic;
+              toParms._loss = Quadratic;
               break;
             case quantile:
               toParms._loss = Loss.Quantile;
@@ -2188,14 +2245,19 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
             case huber:
               toParms._loss = Loss.Huber;
               break;
-            case multinomial:
-            case bernoulli:
-              toParms._loss = Loss.CrossEntropy;
-              break;
             case tweedie:
             case poisson:
             case gamma:
-              toParms._loss = Loss.Automatic; //deviance
+              toParms._loss = Automatic; //deviance
+              break;
+
+            // classification
+            case multinomial:
+            case bernoulli:
+              toParms._loss = CrossEntropy;
+              break;
+            case modified_huber:
+              toParms._loss = ModifiedHuber;
               break;
             default:
               throw H2O.unimpl();

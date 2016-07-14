@@ -1,10 +1,13 @@
 package hex.util;
 
 import Jama.CholeskyDecomposition;
+import Jama.EigenvalueDecomposition;
 import Jama.Matrix;
 import hex.DataInfo;
 import hex.FrameTask;
+import hex.ToEigenVec;
 import hex.gram.Gram;
+import water.DKV;
 import water.Job;
 import water.Key;
 import water.MRTask;
@@ -347,4 +350,52 @@ public class LinearAlgebraUtils {
       cols += (vec.isCategorical() && vec.domain() != null) ? vec.domain().length - uAFL : 1;
     return cols;
   }
+
+  static double[] multiple(double[] diagYY /*diagonal*/, int nTot, int nVars) {
+    int ny = diagYY.length;
+    for (int i = 0; i < ny; i++) {
+      diagYY[i] *= nTot;
+    }
+    double[][] uu = new double[ny][ny];
+    for (int i = 0; i < ny; i++) {
+      for (int j = 0; j < ny; j++) {
+        double yyij = i==j ? diagYY[i] : 0;
+        uu[i][j] = (yyij - diagYY[i] * diagYY[j] / nTot) / (nVars * Math.sqrt(diagYY[i] * diagYY[j]));
+      }
+    }
+    EigenvalueDecomposition eigen = new EigenvalueDecomposition(new Matrix(uu));
+    double[] eigenvalues = eigen.getRealEigenvalues();
+    double[][] eigenvectors = eigen.getV().getArray();
+    int maxIndex = ArrayUtils.maxIndex(eigenvalues);
+    return eigenvectors[maxIndex];
+  }
+
+  static class ProjectOntoEigenVector extends MRTask<ProjectOntoEigenVector> {
+    ProjectOntoEigenVector(double[] yCoord) { _yCoord = yCoord; }
+    final double[] _yCoord; //projection
+    @Override public void map(Chunk[] cs, NewChunk[] nc) {
+      for (int i=0;i<cs[0]._len;++i) {
+        if (cs[0].isNA(i)) {
+          nc[0].addNA();
+        } else {
+          int which = (int) cs[0].at8(i);
+          nc[0].addNum(_yCoord[which]);
+        }
+      }
+    }
+  }
+
+  public static Vec toEigen(Vec src) {
+    Frame train = new Frame(Key.make(), new String[]{"enum"}, new Vec[]{src});
+    DataInfo dinfo = new DataInfo(train, null, 0, true /*_use_all_factor_levels*/, DataInfo.TransformType.NONE,
+            DataInfo.TransformType.NONE, /* skipMissing */ false, /* imputeMissing */ true,
+            /* missingBucket */ false, /* weights */ false, /* offset */ false, /* fold */ false, /* intercept */ false);
+    DKV.put(dinfo);
+    Gram.GramTask gtsk = new Gram.GramTask(null, dinfo).doAll(dinfo._adaptedFrame);
+    dinfo.remove();
+    return new ProjectOntoEigenVector(multiple(gtsk._gram._diag,(int)gtsk._nobs,1)).doAll(1,(byte)3,train).outputFrame().anyVec();
+  }
+  public static ToEigenVec toEigen = new ToEigenVec() {
+    @Override public Vec toEigenVec(Vec src) { return toEigen(src); }
+  };
 }

@@ -1,10 +1,7 @@
 package hex.deeplearning;
 
 
-import hex.Distribution;
-import hex.ModelMetricsAutoEncoder;
-import hex.ModelMetricsRegression;
-import hex.ScoreKeeper;
+import hex.*;
 import hex.deeplearning.DeepLearningModel.DeepLearningParameters;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -15,12 +12,15 @@ import water.exceptions.H2OIllegalArgumentException;
 import water.exceptions.H2OModelBuilderIllegalArgumentException;
 import water.fvec.Chunk;
 import water.fvec.Frame;
+import water.fvec.NFSFileVec;
 import water.fvec.Vec;
+import water.parser.ParseDataset;
 import water.util.ArrayUtils;
 import water.util.Log;
 import water.util.MathUtils;
 import water.util.RandomUtils;
 
+import java.io.File;
 import java.util.Arrays;
 
 import static hex.Distribution.Family.*;
@@ -269,7 +269,7 @@ public class DeepLearningTest extends TestUtil {
               }
             },
             1,
-            46.2696942006363,
+            46.26952683659,
             DeepLearningParameters.Activation.Rectifier);
 
   }
@@ -285,7 +285,7 @@ public class DeepLearningTest extends TestUtil {
           }
         },
         1,
-        43.458837416075966,
+        43.457087913127,
         DeepLearningParameters.Activation.Tanh);
 
   }
@@ -301,7 +301,7 @@ public class DeepLearningTest extends TestUtil {
           }
         },
         100,
-        32.79983057944052,
+        32.81408434266,
         DeepLearningParameters.Activation.Maxout);
 
   }
@@ -317,7 +317,7 @@ public class DeepLearningTest extends TestUtil {
           }
         },
         5,
-        41.85026474777778,
+        41.8498354737908,
         DeepLearningParameters.Activation.Rectifier);
 
   }
@@ -333,7 +333,7 @@ public class DeepLearningTest extends TestUtil {
               }
             },
             50,
-            37.894819598316246,
+            37.93380250522667,
             DeepLearningParameters.Activation.Rectifier);
 
   }
@@ -362,7 +362,7 @@ public class DeepLearningTest extends TestUtil {
               }
             },
             10,
-            4.628994955036487E-6,
+            4.975570190016591E-6,
             DeepLearningParameters.Activation.Rectifier);
   }
 
@@ -668,7 +668,7 @@ public class DeepLearningTest extends TestUtil {
       assertEquals(0.7592592592592592, mm.auc_obj()._auc, 1e-8);
 
       double mse = dl._output._training_metrics.mse();
-      assertEquals(0.31481334186707816, mse, 1e-8);
+      assertEquals(0.314813341867078, mse, 1e-8);
 
       assertTrue(dl.testJavaScoring(tfr, fr2 = dl.score(tfr), 1e-5));
       dl.delete();
@@ -708,7 +708,7 @@ public class DeepLearningTest extends TestUtil {
       assertEquals(0.7592592592592592, mm.auc_obj()._auc, 1e-8);
 
       double mse = dl._output._training_metrics.mse();
-      assertEquals(0.314813341867078, mse, 1e-8); //Note: better results than non-shuffled
+      assertEquals(0.3148133418670781, mse, 1e-8); //Note: better results than non-shuffled
 
 //      assertTrue(dl.testJavaScoring(tfr, fr2=dl.score(tfr, 1e-5)); //PUBDEV-1900
       dl.delete();
@@ -747,7 +747,7 @@ public class DeepLearningTest extends TestUtil {
       assertEquals(0.7222222222222222, mm.auc_obj()._auc, 1e-8);
 
       double mse = dl._output._training_metrics.mse();
-      assertEquals(0.3164307133994674, mse, 1e-8);
+      assertEquals(0.31643071339946, mse, 1e-8);
 
       assertTrue(dl.testJavaScoring(tfr, fr2 = dl.score(tfr), 1e-5));
       dl.delete();
@@ -1112,6 +1112,7 @@ public class DeepLearningTest extends TestUtil {
     }) {
       Frame tfr = null;
       DeepLearningModel dl = null;
+      Frame pred = null;
 
       try {
         tfr = parse_test_file("./smalldata/junit/two_spiral.csv");
@@ -1146,11 +1147,17 @@ public class DeepLearningTest extends TestUtil {
 //          assertTrue(de.getMessage().contains("Trying to predict with an unstable model."));
         }
         dl = DKV.getGet(job.dest());
+        try {
+          pred = dl.score(tfr);
+        } catch ( RuntimeException ex) {
+          // OK
+        }
         assertTrue(dl.model_info().isUnstable());
         assertTrue(dl._output._job.isCrashed());
       } finally {
         if (tfr != null) tfr.delete();
         if (dl != null) dl.delete();
+        if (pred != null) pred.delete();
       }
     }
   }
@@ -1437,6 +1444,49 @@ public class DeepLearningTest extends TestUtil {
     }
   }
   @Test
+  public void testConvergenceAUC_ModifiedHuber() {
+    Frame tfr = null;
+    DeepLearningModel dl = null;
+    DeepLearningModel dl2 = null;
+
+    try {
+      tfr = parse_test_file("./smalldata/logreg/prostate.csv");
+      for (String s : new String[]{
+              "CAPSULE"
+      }) {
+        Vec resp = tfr.vec(s).toCategoricalVec();
+        tfr.remove(s).remove();
+        tfr.add(s, resp);
+        DKV.put(tfr);
+      }
+      DeepLearningParameters parms = new DeepLearningParameters();
+      parms._train = tfr._key;
+      parms._epochs = 1000000;
+      parms._response_column = "CAPSULE";
+      parms._reproducible = true;
+      parms._hidden = new int[]{2,2};
+      parms._seed = 0xdecaf;
+      parms._variable_importances = true;
+      parms._distribution = modified_huber;
+
+      parms._score_duty_cycle = 1.0;
+      parms._score_interval = 0;
+      parms._classification_stop = -1; //don't stop based on absolute classification error
+      parms._stopping_rounds = 2; //don't stop based on absolute classification error
+      parms._stopping_metric = ScoreKeeper.StoppingMetric.AUC; //don't stop based on absolute classification error
+      parms._stopping_tolerance = 0.0;
+
+      dl = new DeepLearning(parms).trainModel().get();
+
+      Assert.assertTrue(dl.epoch_counter < parms._epochs);
+
+    } finally {
+      if (tfr != null) tfr.delete();
+      if (dl != null) dl.delete();
+      if (dl2 != null) dl2.delete();
+    }
+  }
+  @Test
   public void testCrossValidation() {
     Frame tfr = null;
     DeepLearningModel dl = null;
@@ -1453,8 +1503,8 @@ public class DeepLearningTest extends TestUtil {
 
       dl = new DeepLearning(parms).trainModel().get();
 
-      Assert.assertEquals(dl._output._training_metrics._MSE,12.892871729257042,1e-6);
-      Assert.assertEquals(dl._output._cross_validation_metrics._MSE,17.2918678,1e-6);
+      Assert.assertEquals(12.959355363801334,dl._output._training_metrics._MSE,1e-6);
+      Assert.assertEquals(17.296871012606317,dl._output._cross_validation_metrics._MSE,1e-6);
 
     } finally {
       if (tfr != null) tfr.delete();
@@ -1480,7 +1530,7 @@ public class DeepLearningTest extends TestUtil {
 
       dl = new DeepLearning(parms).trainModel().get();
 
-      Assert.assertEquals(dl._output._training_metrics._MSE,12.957507332154576,1e-6);
+      Assert.assertEquals(12.938076268040659,dl._output._training_metrics._MSE,1e-6);
 
     } finally {
       if (tfr != null) tfr.delete();
@@ -1506,7 +1556,7 @@ public class DeepLearningTest extends TestUtil {
 
       dl = new DeepLearning(parms).trainModel().get();
 
-      Assert.assertEquals(15.664562089179249, dl._output._training_metrics._MSE, 1e-6);
+      Assert.assertEquals(15.594774935758249, dl._output._training_metrics._MSE, 1e-6);
 
     } finally {
       if (tfr != null) tfr.delete();
@@ -1532,7 +1582,7 @@ public class DeepLearningTest extends TestUtil {
 
       dl = new DeepLearning(parms).trainModel().get();
 
-      Assert.assertEquals(23.14666210443877,dl._output._training_metrics._MSE,1e-6);
+      Assert.assertEquals(22.555132824953393,dl._output._training_metrics._MSE,1e-6);
 
     } finally {
       if (tfr != null) tfr.delete();
@@ -1711,5 +1761,480 @@ public class DeepLearningTest extends TestUtil {
       for (Key f : dl1._output.biases) if (f!=null) f.remove();
     }
   }
+
+  @Test
+  public void testLaplace() {
+    Frame tfr = null;
+    DeepLearningModel dl = null;
+
+    try {
+      tfr = parse_test_file("./smalldata/gbm_test/BostonHousing.csv");
+      DeepLearningParameters parms = new DeepLearningParameters();
+      parms._train = tfr._key;
+      parms._response_column = tfr.lastVecName();
+      parms._reproducible = true;
+      parms._hidden = new int[]{20,20};
+      parms._seed = 0xdecaf;
+      parms._distribution = laplace;
+
+      dl = new DeepLearning(parms).trainModel().get();
+
+      Assert.assertEquals(2.31398/*MAE*/,((ModelMetricsRegression)dl._output._training_metrics)._mean_residual_deviance,1e-5);
+      Assert.assertEquals(14.889,((ModelMetricsRegression)dl._output._training_metrics)._MSE,1e-3);
+
+    } finally {
+      if (tfr != null) tfr.delete();
+      if (dl != null) dl.deleteCrossValidationModels();
+      if (dl != null) dl.delete();
+    }
+  }
+
+  @Test
+  public void testGaussian() {
+    Frame tfr = null;
+    DeepLearningModel dl = null;
+
+    try {
+      tfr = parse_test_file("./smalldata/gbm_test/BostonHousing.csv");
+      DeepLearningParameters parms = new DeepLearningParameters();
+      parms._train = tfr._key;
+      parms._response_column = tfr.lastVecName();
+      parms._reproducible = true;
+      parms._hidden = new int[]{20,20};
+      parms._seed = 0xdecaf;
+      parms._distribution = gaussian;
+
+      dl = new DeepLearning(parms).trainModel().get();
+
+      Assert.assertEquals(12.93808 /*MSE*/,((ModelMetricsRegression)dl._output._training_metrics)._mean_residual_deviance,1e-5);
+      Assert.assertEquals(12.93808 /*MSE*/,((ModelMetricsRegression)dl._output._training_metrics)._MSE,1e-5);
+
+    } finally {
+      if (tfr != null) tfr.delete();
+      if (dl != null) dl.deleteCrossValidationModels();
+      if (dl != null) dl.delete();
+    }
+  }
+
+  @Test
+  public void testHuberDeltaLarge() {
+    Frame tfr = null;
+    DeepLearningModel dl = null;
+
+    try {
+      tfr = parse_test_file("./smalldata/gbm_test/BostonHousing.csv");
+      DeepLearningParameters parms = new DeepLearningParameters();
+      parms._train = tfr._key;
+      parms._response_column = tfr.lastVecName();
+      parms._reproducible = true;
+      parms._hidden = new int[]{20,20};
+      parms._seed = 0xdecaf;
+      parms._distribution = huber;
+      parms._huber_alpha = 1; //just like gaussian
+
+      dl = new DeepLearning(parms).trainModel().get();
+
+      Assert.assertEquals(12.93808 /*MSE*/,((ModelMetricsRegression)dl._output._training_metrics)._mean_residual_deviance,0.7);
+      Assert.assertEquals(12.93808 /*MSE*/,((ModelMetricsRegression)dl._output._training_metrics)._MSE,0.7);
+
+    } finally {
+      if (tfr != null) tfr.delete();
+      if (dl != null) dl.deleteCrossValidationModels();
+      if (dl != null) dl.delete();
+    }
+  }
+
+  @Test
+  public void testHuberDeltaTiny() {
+    Frame tfr = null;
+    DeepLearningModel dl = null;
+
+    try {
+      tfr = parse_test_file("./smalldata/gbm_test/BostonHousing.csv");
+      DeepLearningParameters parms = new DeepLearningParameters();
+      parms._train = tfr._key;
+      parms._response_column = tfr.lastVecName();
+      parms._reproducible = true;
+      parms._hidden = new int[]{20,20};
+      parms._seed = 0xdecaf;
+      parms._distribution = huber;
+      parms._huber_alpha = 1e-2;
+      // more like Laplace, but different slope and different prefactor -> so can't compare deviance 1:1
+
+      dl = new DeepLearning(parms).trainModel().get();
+
+      double delta = 0.011996;
+      // can compute huber loss from MAE since no obs weights
+      Assert.assertEquals((2*2.31398/*MAE*/-delta)*delta,((ModelMetricsRegression)dl._output._training_metrics)._mean_residual_deviance,2e-2);
+      Assert.assertEquals(19.856,((ModelMetricsRegression)dl._output._training_metrics)._MSE,1e-3);
+
+    } finally {
+      if (tfr != null) tfr.delete();
+      if (dl != null) dl.deleteCrossValidationModels();
+      if (dl != null) dl.delete();
+    }
+  }
+
+  @Test
+  public void testHuber() {
+    Frame tfr = null;
+    DeepLearningModel dl = null;
+
+    try {
+      tfr = parse_test_file("./smalldata/gbm_test/BostonHousing.csv");
+      DeepLearningParameters parms = new DeepLearningParameters();
+      parms._train = tfr._key;
+      parms._response_column = tfr.lastVecName();
+      parms._reproducible = true;
+      parms._hidden = new int[]{20,20};
+      parms._seed = 0xdecaf;
+      parms._distribution = huber;
+
+      dl = new DeepLearning(parms).trainModel().get();
+
+      Assert.assertEquals(6.4964976811,((ModelMetricsRegression)dl._output._training_metrics)._mean_residual_deviance,1e-5);
+
+    } finally {
+      if (tfr != null) tfr.delete();
+      if (dl != null) dl.deleteCrossValidationModels();
+      if (dl != null) dl.delete();
+    }
+  }
+
+  @Test
+  public void testCategoricalEncodingAUTO() {
+    Frame tfr = null;
+    DeepLearningModel dl = null;
+
+    try {
+      tfr = parse_test_file("./smalldata/junit/titanic_alt.csv");
+      Vec v = tfr.remove("survived");
+      tfr.add("survived", v.toCategoricalVec());
+      v.remove();
+      DKV.put(tfr);
+      DeepLearningParameters parms = new DeepLearningParameters();
+      parms._train = tfr._key;
+      parms._valid = tfr._key;
+      parms._response_column = "survived";
+      parms._reproducible = true;
+      parms._hidden = new int[]{20,20};
+      parms._seed = 0xdecaf;
+      parms._nfolds = 3;
+      parms._distribution = bernoulli;
+      parms._categorical_encoding = Model.Parameters.CategoricalEncodingScheme.AUTO;
+
+      dl = new DeepLearning(parms).trainModel().get();
+
+      Assert.assertEquals(0.97329 , ((ModelMetricsBinomial)dl._output._training_metrics)._auc._auc,1e-3);
+      Assert.assertEquals(0.97329 , ((ModelMetricsBinomial)dl._output._validation_metrics)._auc._auc,1e-3);
+      Assert.assertEquals(0.93152165, ((ModelMetricsBinomial)dl._output._cross_validation_metrics)._auc._auc,1e-5);
+
+    } finally {
+      if (tfr != null) tfr.delete();
+      if (dl != null) dl.deleteCrossValidationModels();
+      if (dl != null) dl.delete();
+    }
+  }
+
+  @Test
+  public void testCategoricalEncodingBinary() {
+    Frame tfr = null;
+    DeepLearningModel dl = null;
+
+    try {
+      String response = "survived";
+      tfr = parse_test_file("./smalldata/junit/titanic_alt.csv");
+      if (tfr.vec(response).isBinary()) {
+        Vec v = tfr.remove(response);
+        tfr.add(response, v.toCategoricalVec());
+        v.remove();
+      }
+      DKV.put(tfr);
+      DeepLearningParameters parms = new DeepLearningParameters();
+      parms._train = tfr._key;
+      parms._valid = tfr._key;
+      parms._response_column = response;
+      parms._reproducible = true;
+      parms._hidden = new int[]{20,20};
+      parms._seed = 0xdecaf;
+      parms._nfolds = 3;
+      parms._categorical_encoding = Model.Parameters.CategoricalEncodingScheme.Binary;
+
+      dl = new DeepLearning(parms).trainModel().get();
+
+      Assert.assertEquals(0.94696  , ((ModelMetricsBinomial)dl._output._training_metrics)._auc._auc,1e-4);
+      Assert.assertEquals(0.94696  , ((ModelMetricsBinomial)dl._output._validation_metrics)._auc._auc,1e-4);
+      Assert.assertEquals(0.86556613, ((ModelMetricsBinomial)dl._output._cross_validation_metrics)._auc._auc,1e-5);
+      Assert.assertEquals(0.86556613, Double.parseDouble((String)(dl._output._cross_validation_metrics_summary).get(1,0)), 1e-2);
+
+    } finally {
+      if (tfr != null) tfr.remove();
+      if (dl != null) dl.deleteCrossValidationModels();
+      if (dl != null) dl.delete();
+    }
+  }
+
+  @Test
+  public void testCategoricalEncodingEigen() {
+    Frame tfr = null;
+    DeepLearningModel dl = null;
+
+    try {
+      String response = "survived";
+      tfr = parse_test_file("./smalldata/junit/titanic_alt.csv");
+      if (tfr.vec(response).isBinary()) {
+        Vec v = tfr.remove(response);
+        tfr.add(response, v.toCategoricalVec());
+        v.remove();
+      }
+      DKV.put(tfr);
+      DeepLearningParameters parms = new DeepLearningParameters();
+      parms._train = tfr._key;
+      parms._valid = tfr._key;
+      parms._response_column = response;
+      parms._reproducible = true;
+      parms._hidden = new int[]{20,20};
+      parms._seed = 0xdecaf;
+      parms._nfolds = 3;
+      parms._categorical_encoding = Model.Parameters.CategoricalEncodingScheme.Eigen;
+      parms._score_training_samples = 0;
+
+      dl = new DeepLearning(parms).trainModel().get();
+
+      Assert.assertEquals(0.95176, ((ModelMetricsBinomial)dl._output._training_metrics)._auc._auc,1e-4);
+      Assert.assertEquals(0.94829, ((ModelMetricsBinomial)dl._output._validation_metrics)._auc._auc,1e-3);
+      Assert.assertEquals(0.9128, ((ModelMetricsBinomial)dl._output._cross_validation_metrics)._auc._auc,1e-2);
+      Assert.assertEquals(0.9200, Double.parseDouble((String)(dl._output._cross_validation_metrics_summary).get(1,0)), 1e-2);
+
+    } finally {
+      if (tfr != null) tfr.remove();
+      if (dl != null) dl.deleteCrossValidationModels();
+      if (dl != null) dl.delete();
+    }
+  }
+
+  @Test
+  public void testCategoricalEncodingRegressionHuber() {
+    Frame tfr = null;
+    DeepLearningModel dl = null;
+
+    try {
+      String response = "age";
+      tfr = parse_test_file("./smalldata/junit/titanic_alt.csv");
+      if (tfr.vec(response).isBinary()) {
+        Vec v = tfr.remove(response);
+        tfr.add(response, v.toCategoricalVec());
+        v.remove();
+      }
+      DKV.put(tfr);
+      DeepLearningParameters parms = new DeepLearningParameters();
+      parms._train = tfr._key;
+      parms._valid = tfr._key;
+      parms._response_column = response;
+      parms._reproducible = true;
+      parms._hidden = new int[]{20,20};
+      parms._seed = 0xdecaf;
+      parms._nfolds = 3;
+      parms._distribution = huber;
+      parms._categorical_encoding = Model.Parameters.CategoricalEncodingScheme.Binary;
+
+      dl = new DeepLearning(parms).trainModel().get();
+
+      Assert.assertEquals(87.26206135855, ((ModelMetricsRegression)dl._output._training_metrics)._mean_residual_deviance,1e-4);
+      Assert.assertEquals(87.26206135855, ((ModelMetricsRegression)dl._output._validation_metrics)._mean_residual_deviance,1e-4);
+      Assert.assertEquals(117.8014, ((ModelMetricsRegression)dl._output._cross_validation_metrics)._mean_residual_deviance,1e-4);
+      Assert.assertEquals(117.8014, Double.parseDouble((String)(dl._output._cross_validation_metrics_summary).get(2,0)), 1);
+
+    } finally {
+      if (tfr != null) tfr.remove();
+      if (dl != null) dl.deleteCrossValidationModels();
+      if (dl != null) dl.delete();
+    }
+  }
+
+  @Ignore
+  @Test
+  public void testMultinomialMNIST() {
+    Frame train = null;
+    Frame preds = null;
+    Frame small = null, large = null;
+    DeepLearningModel model = null;
+    Scope.enter();
+    try {
+      File file = find_test_file("bigdata/laptop/mnist/train.csv.gz");
+      if (file != null) {
+        NFSFileVec trainfv = NFSFileVec.make(file);
+        train = ParseDataset.parse(Key.make(), trainfv._key);
+        int ci = train.find("C785");
+        Scope.track(train.replace(ci, train.vecs()[ci].toCategoricalVec()));
+        DKV.put(train);
+
+        DeepLearningParameters p = new DeepLearningParameters();
+        p._train = train._key;
+        p._response_column = "C785"; // last column is the response
+        p._activation = DeepLearningParameters.Activation.RectifierWithDropout;
+        p._hidden = new int[]{50,50};
+        p._epochs = 1;
+        p._adaptive_rate = false;
+        p._rate = 0.005;
+        p._sparse = true;
+        model = new DeepLearning(p).trainModel().get();
+
+        FrameSplitter fs = new FrameSplitter(train, new double[]{0.0001},new Key[]{Key.make("small"),Key.make("large")},null);
+        fs.compute2();
+        small = fs.getResult()[0];
+        large = fs.getResult()[1];
+        preds = model.score(small);
+        preds.remove(0); //remove label, keep only probs
+        Vec labels = small.vec("C785"); //actual
+        String[] fullDomain = train.vec("C785").domain(); //actual
+
+        ModelMetricsMultinomial mm = ModelMetricsMultinomial.make(preds, labels, fullDomain);
+        Log.info(mm.toString());
+      }
+    } catch(Throwable t) {
+      t.printStackTrace();
+      throw t;
+    }
+    finally {
+      if (model!=null)  model.delete();
+      if (preds!=null)  preds.remove();
+      if (train!=null)  train.remove();
+      if (small!=null)  small.delete();
+      if (large!=null)  large.delete();
+      Scope.exit();
+    }
+  }
+
+
+  @Test
+  public void testMultinomial() {
+    Frame train = null;
+    Frame preds = null;
+    DeepLearningModel model = null;
+    Scope.enter();
+    try {
+      train = parse_test_file("./smalldata/junit/titanic_alt.csv");
+      Vec v = train.remove("pclass");
+      train.add("pclass", v.toCategoricalVec());
+      v.remove();
+      DKV.put(train);
+
+      DeepLearningParameters p = new DeepLearningParameters();
+      p._train = train._key;
+      p._response_column = "pclass"; // last column is the response
+      p._activation = DeepLearningParameters.Activation.RectifierWithDropout;
+      p._hidden = new int[]{50, 50};
+      p._epochs = 1;
+      p._adaptive_rate = false;
+      p._rate = 0.005;
+      p._sparse = true;
+      model = new DeepLearning(p).trainModel().get();
+
+      preds = model.score(train);
+      preds.remove(0); //remove label, keep only probs
+      Vec labels = train.vec("pclass"); //actual
+      String[] fullDomain = train.vec("pclass").domain(); //actual
+
+      ModelMetricsMultinomial mm = ModelMetricsMultinomial.make(preds, labels, fullDomain);
+      Log.info(mm.toString());
+    } finally {
+      if (model!=null)  model.delete();
+      if (preds!=null)  preds.remove();
+      if (train!=null)  train.remove();
+      Scope.exit();
+    }
+  }
+
+  @Test
+  public void testBinomial() {
+    Frame train = null;
+    Frame preds = null;
+    Frame small = null, large = null;
+    DeepLearningModel model = null;
+    Scope.enter();
+    try {
+      train = parse_test_file("./smalldata/junit/titanic_alt.csv");
+      Vec v = train.remove("survived");
+      train.add("survived", v.toCategoricalVec());
+      v.remove();
+      DKV.put(train);
+      DeepLearningParameters parms = new DeepLearningParameters();
+      parms._train = train._key;
+      parms._response_column = "survived";
+      parms._reproducible = true;
+      parms._hidden = new int[]{20,20};
+      parms._seed = 0xdecaf;
+      model = new DeepLearning(parms).trainModel().get();
+
+      FrameSplitter fs = new FrameSplitter(train, new double[]{0.002},new Key[]{Key.make("small"),Key.make("large")},null);
+      fs.compute2();
+      small = fs.getResult()[0];
+      large = fs.getResult()[1];
+      preds = model.score(small);
+      Vec labels = small.vec("survived"); //actual
+      String[] fullDomain = train.vec("survived").domain(); //actual
+
+      ModelMetricsBinomial mm = ModelMetricsBinomial.make(preds.vec(2), labels, fullDomain);
+      Log.info(mm.toString());
+
+      mm = ModelMetricsBinomial.make(preds.vec(2), labels, new String[]{"NO","1"});
+      Log.info(mm.toString());
+
+    } catch(Throwable t) {
+      t.printStackTrace();
+      throw t;
+    }
+    finally {
+      if (model!=null)  model.delete();
+      if (preds!=null)  preds.remove();
+      if (train!=null)  train.remove();
+      if (small!=null)  small.delete();
+      if (large!=null)  large.delete();
+      Scope.exit();
+    }
+  }
+
+  @Test
+  public void testRegression() {
+    Frame train = null;
+    Frame preds = null;
+    DeepLearningModel model = null;
+    Scope.enter();
+    try {
+      train = parse_test_file("./smalldata/junit/titanic_alt.csv");
+      DeepLearningParameters parms = new DeepLearningParameters();
+      parms._train = train._key;
+      parms._response_column = "age";
+      parms._reproducible = true;
+      parms._hidden = new int[]{20,20};
+      parms._distribution = laplace;
+      parms._seed = 0xdecaf;
+      model = new DeepLearning(parms).trainModel().get();
+
+      preds = model.score(train);
+      Vec targets = train.vec("age"); //actual
+
+      ModelMetricsRegression mm = ModelMetricsRegression.make(preds.vec(0), targets, parms._distribution);
+      Log.info(mm.toString());
+
+      mm = ModelMetricsRegression.make(preds.vec(0), targets, gaussian);
+      Log.info(mm.toString());
+
+      mm = ModelMetricsRegression.make(preds.vec(0), targets, poisson);
+      Log.info(mm.toString());
+
+    } catch(Throwable t) {
+      t.printStackTrace();
+      throw t;
+    }
+    finally {
+      if (model!=null)  model.delete();
+      if (preds!=null)  preds.remove();
+      if (train!=null)  train.remove();
+      Scope.exit();
+    }
+  }
+
 }
 

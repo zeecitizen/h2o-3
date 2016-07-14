@@ -1,5 +1,6 @@
 package hex.pca;
 
+import Jama.EigenvalueDecomposition;
 import Jama.Matrix;
 import Jama.SingularValueDecomposition;
 import hex.DataInfo;
@@ -16,6 +17,7 @@ import hex.pca.PCAModel.PCAParameters;
 import hex.svd.SVD;
 import hex.svd.SVDModel;
 import water.*;
+import water.fvec.Vec;
 import water.util.*;
 
 import java.util.Arrays;
@@ -36,7 +38,8 @@ public class PCA extends ModelBuilder<PCAModel,PCAModel.PCAParameters,PCAModel.P
   @Override protected void checkMemoryFootPrint() {
     HeartBeat hb = H2O.SELF._heartbeat;
     double p = hex.util.LinearAlgebraUtils.numColsExp(_train,true);
-    long mem_usage = (long)(hb._cpus_allowed * p*p * 8/*doubles*/ * Math.log((double)_train.lastVec().nChunks())/Math.log(2.)); //one gram per core
+    long mem_usage =
+            _parms._pca_method == PCAParameters.Method.GramSVD ? (long)(hb._cpus_allowed * p*p * 8/*doubles*/ * Math.log((double)_train.lastVec().nChunks())/Math.log(2.)) : 1; //one gram per core
     long max_mem = hb.get_free_mem();
     if (mem_usage > max_mem) {
       String msg = "Gram matrices (one per thread) won't fit in the driver node's memory ("

@@ -4,6 +4,7 @@ import hex.*;
 import hex.deeplearning.DeepLearningModel.DeepLearningParameters;
 import hex.deeplearning.DeepLearningModel.DeepLearningParameters.MissingValuesHandling;
 import hex.glm.GLMTask;
+import hex.util.LinearAlgebraUtils;
 import water.*;
 import water.exceptions.H2OIllegalArgumentException;
 import water.exceptions.H2OModelBuilderIllegalArgumentException;
@@ -16,7 +17,9 @@ import water.util.Log;
 import water.util.MRUtils;
 import water.util.PrettyPrint;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 import static water.util.MRUtils.sampleFrame;
 import static water.util.MRUtils.sampleFrameStratified;
@@ -39,6 +42,12 @@ public class DeepLearning extends ModelBuilder<DeepLearningModel,DeepLearningMod
             ModelCategory.AutoEncoder
     };
   }
+
+  @Override
+  public ToEigenVec getToEigenVec() {
+    return LinearAlgebraUtils.toEigen;
+  }
+
   @Override public boolean isSupervised() { return !_parms._autoencoder; }
 
   @Override protected int nModelsInParallel() {

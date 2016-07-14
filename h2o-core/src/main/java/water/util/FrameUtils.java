@@ -2,8 +2,10 @@ package water.util;
 
 import java.io.*;
 import java.net.URI;
-import java.util.Random;
+import java.util.*;
 
+import hex.Model;
+import hex.ToEigenVec;
 import water.*;
 import water.fvec.Chunk;
 import water.fvec.NewChunk;
@@ -64,6 +66,23 @@ public class FrameUtils {
     for (int i=0; i<uris.length; i++)  inKeys[i] = H2O.getPM().anyURIToKey(uris[i]);
 
     return ParseSetup.guessSetup(inKeys, userParserSetup);
+  }
+
+  public static Frame categoricalEncoder(Frame dataset, String[] skipCols, Model.Parameters.CategoricalEncodingScheme scheme, ToEigenVec tev) {
+    switch (scheme) {
+      case AUTO:
+      case Enum:
+      case OneHotInternal:
+        return dataset; //leave as is - most algos do their own internal default handling of enums
+      case OneHotExplicit:
+        return new CategoricalOneHotEncoder(dataset, skipCols).exec().get();
+      case Binary:
+        return new CategoricalBinaryEncoder(dataset, skipCols).exec().get();
+      case Eigen:
+        return new CategoricalEigenEncoder(tev, dataset, skipCols).exec().get();
+      default:
+        throw H2O.unimpl();
+    }
   }
 
   private static class Vec2ArryTsk extends MRTask<Vec2ArryTsk> {
@@ -141,98 +160,6 @@ public class FrameUtils {
     }
     for (int i=0; i<num; i++) ks[i] = Key.make(n+delim+i+suffix);
     return ks;
-  }
-
-  /**
-   * Helper to convert a categorical variable into a "binary" encoding format. In this format each categorical value is
-   * first assigned an integer value, then that integer is written in binary, and each bit column is converted into a
-   * separate column. This is intended as an improvement to an existing one-hot transformation.
-   * For each categorical variable we assume that the number of categories is 1 + domain cardinality, the extra
-   * category is reserved for NAs.
-   * See http://www.willmcginnis.com/2015/11/29/beyond-one-hot-an-exploration-of-categorical-variables/
-   */
-  public static class CategoricalBinaryEncoder extends Iced {
-    final Key<Frame> _frameKey;
-    Job<Frame> _job;
-
-    public CategoricalBinaryEncoder(Key<Frame> dataset) {
-      _frameKey = dataset;
-    }
-
-    /**
-     * Driver for CategoricalBinaryEncoder
-     */
-    class CategoricalBinaryEncoderDriver extends H2O.H2OCountedCompleter {
-      final Frame _frame;
-      final Key<Frame> _destKey;
-      CategoricalBinaryEncoderDriver(Frame frame, Key<Frame> destKey) { _frame = frame; _destKey = destKey; }
-
-      class BinaryConverter extends MRTask<BinaryConverter> {
-        int[] _categorySizes;
-        public BinaryConverter(int[] categorySizes) { _categorySizes = categorySizes; }
-
-        @Override public void map(Chunk[] cs, NewChunk[] ncs) {
-          int targetColOffset = 0;
-          for (int iCol = 0; iCol < cs.length; ++iCol) {
-            Chunk col = cs[iCol];
-            int numTargetColumns = _categorySizes[iCol];
-            for (int iRow = 0; iRow < col._len; ++iRow) {
-              long val = col.isNA(iRow)? 0 : 1 + col.at8(iRow);
-              for (int j = 0; j < numTargetColumns; ++j) {
-                ncs[targetColOffset + j].addNum(val & 1, 0);
-                val >>>= 1;
-              }
-              assert val == 0 : "";
-            }
-            targetColOffset += numTargetColumns;
-          }
-        }
-      }
-
-      @Override public void compute2() {
-        Vec[] frameVecs = _frame.vecs();
-        int numCategoricals = 0;
-        for (Vec v : frameVecs)
-          if (v.isCategorical())
-            numCategoricals++;
-
-        Frame categoricalFrame = new Frame();
-        Frame outputFrame = new Frame(_destKey);
-        int[] binaryCategorySizes = new int[numCategoricals];
-        int numOutputColumns = 0;
-        for (int i = 0, j = 0; i < frameVecs.length; ++i) {
-          int numCategories = frameVecs[i].cardinality(); // Returns -1 if non-categorical variable
-          if (numCategories > 0) {
-            categoricalFrame.add(_frame.name(i), frameVecs[i]);
-            binaryCategorySizes[j] = 1 + MathUtils.log2(numCategories - 1 + 1/* for NAs */);
-            numOutputColumns += binaryCategorySizes[j];
-            ++j;
-          } else
-            outputFrame.add(_frame.name(i), frameVecs[i].makeCopy());
-        }
-        BinaryConverter mrtask = new BinaryConverter(binaryCategorySizes);
-        Frame binaryCols = mrtask.doAll(numOutputColumns, Vec.T_NUM, categoricalFrame).outputFrame();
-        // change names of binaryCols so that they reflect the original names of the categories
-        for (int i = 0, j = 0; i < binaryCategorySizes.length; j += binaryCategorySizes[i++]) {
-          for (int k = 0; k < binaryCategorySizes[i]; ++k) {
-            binaryCols._names[j + k] = categoricalFrame.name(i) + ":" + k;
-          }
-        }
-        outputFrame.add(binaryCols);
-        DKV.put(outputFrame);
-        tryComplete();
-      }
-    }
-
-    public Job<Frame> exec() {
-      final Frame frame = DKV.getGet(_frameKey);
-      if (frame == null)
-        throw new IllegalArgumentException("Invalid Frame key " + _frameKey + " (Frame doesn't exist).");
-      Key<Frame> destKey = Key.make();
-      _job = new Job<>(destKey, Frame.class.getName(), "CategoricalBinaryEncoder");
-      int workAmount = frame.lastVec().nChunks();
-      return _job.start(new CategoricalBinaryEncoderDriver(frame, destKey), workAmount);
-    }
   }
 
   /**
@@ -388,5 +315,278 @@ public class FrameUtils {
       }
       tryComplete();
     }
+  }
+
+  public static class CategoricalOneHotEncoder extends Iced {
+    final Frame _frame;
+    Job<Frame> _job;
+    final String[] _skipCols;
+
+    public CategoricalOneHotEncoder(Frame dataset, String[] skipCols) {
+      _frame = dataset;
+      _skipCols = skipCols;
+    }
+
+    /**
+     * Driver for CategoricalOneHotEncoder
+     */
+    class CategoricalOneHotEncoderDriver extends H2O.H2OCountedCompleter {
+      final Frame _frame;
+      final Key<Frame> _destKey;
+      final String[] _skipCols;
+      CategoricalOneHotEncoderDriver(Frame frame, Key<Frame> destKey, String[] skipCols) { _frame = frame; _destKey = destKey; _skipCols = skipCols; }
+
+      class OneHotConverter extends MRTask<OneHotConverter> {
+        int[] _categorySizes;
+        public OneHotConverter(int[] categorySizes) { _categorySizes = categorySizes; }
+
+        @Override public void map(Chunk[] cs, NewChunk[] ncs) {
+          int targetColOffset = 0;
+          for (int iCol = 0; iCol < cs.length; ++iCol) {
+            Chunk col = cs[iCol];
+            int numTargetColumns = _categorySizes[iCol];
+            for (int iRow = 0; iRow < col._len; ++iRow) {
+              long val = col.isNA(iRow)? 0 : 1 + col.at8(iRow);
+              for (int j = 0; j < numTargetColumns; ++j) {
+                ncs[targetColOffset + j].addNum(val==j ? 1 : 0, 0);
+              }
+            }
+            targetColOffset += numTargetColumns;
+          }
+        }
+      }
+
+      @Override public void compute2() {
+        Vec[] frameVecs = _frame.vecs();
+        int numCategoricals = 0;
+        for (int i=0;i<frameVecs.length;++i)
+          if (frameVecs[i].isCategorical() && ArrayUtils.find(_skipCols, _frame._names[i])==-1)
+            numCategoricals++;
+
+        Vec[] extraVecs = new Vec[_skipCols.length];
+        for (int i=0; i< extraVecs.length; ++i) {
+          Vec v = _frame.vec(_skipCols[i]); //can be null
+          if (v!=null) extraVecs[i] = v;
+        }
+
+        Frame categoricalFrame = new Frame();
+        Frame outputFrame = new Frame(_destKey);
+        int[] categorySizes = new int[numCategoricals];
+        int numOutputColumns = 0;
+        List<String> catnames= new ArrayList<>();
+        for (int i = 0, j = 0; i < frameVecs.length; ++i) {
+          if (ArrayUtils.find(_skipCols, _frame._names[i])>=0) continue;
+          int numCategories = frameVecs[i].cardinality(); // Returns -1 if non-categorical variable
+          if (numCategories > 0) {
+            categoricalFrame.add(_frame.name(i), frameVecs[i]);
+            categorySizes[j] = numCategories + 1/* for NAs */;
+            numOutputColumns += categorySizes[j];
+            catnames.add(_frame.name(i) + ".missing(NA)");
+            for (int k=0;k<categorySizes[j]-1;++k)
+              catnames.add(_frame.name(i) + "." + _frame.vec(i).domain()[k]);
+            ++j;
+          } else {
+            catnames.add(_frame.name(i));
+            outputFrame.add(_frame.name(i), frameVecs[i].makeCopy());
+          }
+        }
+        OneHotConverter mrtask = new OneHotConverter(categorySizes);
+        Frame binaryCols = mrtask.doAll(numOutputColumns, Vec.T_NUM, categoricalFrame).outputFrame();
+        binaryCols._names = catnames.toArray(new String[0]);
+        outputFrame.add(binaryCols);
+        for (int i=0;i<extraVecs.length;++i) {
+          if (extraVecs[i]!=null)
+            outputFrame.add(_skipCols[i], extraVecs[i].makeCopy());
+        }
+        DKV.put(outputFrame);
+        tryComplete();
+      }
+    }
+
+    public Job<Frame> exec() {
+      if (_frame == null)
+        throw new IllegalArgumentException("Frame doesn't exist.");
+      Key<Frame> destKey = Key.makeSystem(Key.make().toString());
+      _job = new Job<>(destKey, Frame.class.getName(), "CategoricalOneHotEncoder");
+      int workAmount = _frame.lastVec().nChunks();
+      return _job.start(new CategoricalOneHotEncoderDriver(_frame, destKey, _skipCols), workAmount);
+    }
+  }
+
+
+  /**
+   * Helper to convert a categorical variable into a "binary" encoding format. In this format each categorical value is
+   * first assigned an integer value, then that integer is written in binary, and each bit column is converted into a
+   * separate column. This is intended as an improvement to an existing one-hot transformation.
+   * For each categorical variable we assume that the number of categories is 1 + domain cardinality, the extra
+   * category is reserved for NAs.
+   * See http://www.willmcginnis.com/2015/11/29/beyond-one-hot-an-exploration-of-categorical-variables/
+   */
+  public static class CategoricalBinaryEncoder extends Iced {
+    final Frame _frame;
+    Job<Frame> _job;
+    final String[] _skipCols;
+
+    public CategoricalBinaryEncoder(Frame dataset, String[] skipCols) {
+      _frame = dataset;
+      _skipCols = skipCols;
+    }
+
+    /**
+     * Driver for CategoricalBinaryEncoder
+     */
+    class CategoricalBinaryEncoderDriver extends H2O.H2OCountedCompleter {
+      final Frame _frame;
+      final Key<Frame> _destKey;
+      final String[] _skipCols;
+      CategoricalBinaryEncoderDriver(Frame frame, Key<Frame> destKey, String[] skipCols) { _frame = frame; _destKey = destKey; _skipCols = skipCols; }
+
+      class BinaryConverter extends MRTask<BinaryConverter> {
+        int[] _categorySizes;
+        public BinaryConverter(int[] categorySizes) { _categorySizes = categorySizes; }
+
+        @Override public void map(Chunk[] cs, NewChunk[] ncs) {
+          int targetColOffset = 0;
+          for (int iCol = 0; iCol < cs.length; ++iCol) {
+            Chunk col = cs[iCol];
+            int numTargetColumns = _categorySizes[iCol];
+            for (int iRow = 0; iRow < col._len; ++iRow) {
+              long val = col.isNA(iRow)? 0 : 1 + col.at8(iRow);
+              for (int j = 0; j < numTargetColumns; ++j) {
+                ncs[targetColOffset + j].addNum(val & 1, 0);
+                val >>>= 1;
+              }
+              assert val == 0 : "";
+            }
+            targetColOffset += numTargetColumns;
+          }
+        }
+      }
+
+      @Override public void compute2() {
+        Vec[] frameVecs = _frame.vecs();
+        int numCategoricals = 0;
+        for (int i=0;i<frameVecs.length;++i)
+          if (frameVecs[i].isCategorical() && ArrayUtils.find(_skipCols, _frame._names[i])==-1)
+            numCategoricals++;
+
+        Vec[] extraVecs = new Vec[_skipCols.length];
+        for (int i=0; i< extraVecs.length; ++i) {
+          Vec v = _frame.vec(_skipCols[i]); //can be null
+          if (v!=null) extraVecs[i] = v;
+        }
+
+        Frame categoricalFrame = new Frame();
+        Frame outputFrame = new Frame(_destKey);
+        int[] binaryCategorySizes = new int[numCategoricals];
+        int numOutputColumns = 0;
+        for (int i = 0, j = 0; i < frameVecs.length; ++i) {
+          if (ArrayUtils.find(_skipCols, _frame._names[i])>=0) continue;
+          int numCategories = frameVecs[i].cardinality(); // Returns -1 if non-categorical variable
+          if (numCategories > 0) {
+            categoricalFrame.add(_frame.name(i), frameVecs[i]);
+            binaryCategorySizes[j] = 1 + MathUtils.log2(numCategories - 1 + 1/* for NAs */);
+            numOutputColumns += binaryCategorySizes[j];
+            ++j;
+          } else
+            outputFrame.add(_frame.name(i), frameVecs[i].makeCopy());
+        }
+        BinaryConverter mrtask = new BinaryConverter(binaryCategorySizes);
+        Frame binaryCols = mrtask.doAll(numOutputColumns, Vec.T_NUM, categoricalFrame).outputFrame();
+        // change names of binaryCols so that they reflect the original names of the categories
+        for (int i = 0, j = 0; i < binaryCategorySizes.length; j += binaryCategorySizes[i++]) {
+          for (int k = 0; k < binaryCategorySizes[i]; ++k) {
+            binaryCols._names[j + k] = categoricalFrame.name(i) + ":" + k;
+          }
+        }
+        outputFrame.add(binaryCols);
+        for (int i=0;i<extraVecs.length;++i) {
+          if (extraVecs[i]!=null)
+            outputFrame.add(_skipCols[i], extraVecs[i].makeCopy());
+        }
+        DKV.put(outputFrame);
+        tryComplete();
+      }
+    }
+
+    public Job<Frame> exec() {
+      if (_frame == null)
+        throw new IllegalArgumentException("Frame doesn't exist.");
+      Key<Frame> destKey = Key.makeSystem(Key.make().toString());
+      _job = new Job<>(destKey, Frame.class.getName(), "CategoricalBinaryEncoder");
+      int workAmount = _frame.lastVec().nChunks();
+      return _job.start(new CategoricalBinaryEncoderDriver(_frame, destKey, _skipCols), workAmount);
+    }
+  }
+
+  /**
+   * Helper to convert a categorical variable into the first eigenvector of the dummy-expanded matrix.
+   */
+  public static class CategoricalEigenEncoder {
+    final Frame _frame;
+    Job<Frame> _job;
+    final String[] _skipCols;
+    final ToEigenVec _tev;
+
+    public CategoricalEigenEncoder(ToEigenVec tev, Frame dataset, String[] skipCols) {
+      _frame = dataset;
+      _skipCols = skipCols;
+      _tev = tev;
+    }
+
+    /**
+     * Driver for CategoricalEigenEncoder
+     */
+    class CategoricalEigenEncoderDriver extends H2O.H2OCountedCompleter {
+      final Frame _frame;
+      final Key<Frame> _destKey;
+      final String[] _skipCols;
+      final ToEigenVec _tev;
+      CategoricalEigenEncoderDriver(ToEigenVec tev, Frame frame, Key<Frame> destKey, String[] skipCols) {
+        _tev = tev; _frame = frame; _destKey = destKey; _skipCols = skipCols;
+        assert _tev!=null : "Override toEigenVec for this Algo!";
+      }
+
+      @Override public void compute2() {
+        Vec[] frameVecs = _frame.vecs();
+        Vec[] extraVecs = new Vec[_skipCols.length];
+        for (int i=0; i< extraVecs.length; ++i) {
+          Vec v = _frame.vec(_skipCols[i]); //can be null
+          if (v!=null) extraVecs[i] = v;
+        }
+        Frame outputFrame = new Frame(_destKey);
+        for (int i = 0; i < frameVecs.length; ++i) {
+          if (ArrayUtils.find(_skipCols, _frame._names[i])>=0) continue;
+          if (frameVecs[i].isCategorical())
+            outputFrame.add(_frame.name(i), _tev.toEigenVec(frameVecs[i]));
+          else
+            outputFrame.add(_frame.name(i), frameVecs[i].makeCopy());
+        }
+        for (int i=0;i<extraVecs.length;++i) {
+          if (extraVecs[i]!=null)
+            outputFrame.add(_skipCols[i], extraVecs[i].makeCopy());
+        }
+        DKV.put(outputFrame);
+        tryComplete();
+      }
+    }
+
+    public Job<Frame> exec() {
+      if (_frame == null)
+        throw new IllegalArgumentException("Frame doesn't exist.");
+      Key<Frame> destKey = Key.makeSystem(Key.make().toString());
+      _job = new Job<>(destKey, Frame.class.getName(), "CategoricalEigenEncoder");
+      int workAmount = _frame.lastVec().nChunks();
+      return _job.start(new CategoricalEigenEncoderDriver(_tev, _frame, destKey, _skipCols), workAmount);
+    }
+  }
+
+  static public void cleanUp(IcedHashMap<Key, StackTraceElement[]> toDelete) {
+    Futures fs = new Futures();
+    for (Key k : toDelete.keySet()) {
+      k.remove(fs);
+    }
+    fs.blockForPending();
+    toDelete.clear();
   }
 }

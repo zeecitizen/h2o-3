@@ -122,7 +122,7 @@ class H2OGradientBoostingEstimator(H2OEstimator):
 
       r2_stopping : float
         Stop making trees when the R^2 metric equals or exceeds this
-        Default: 0.999999
+        Default: 1.79769313486e+308
 
       stopping_rounds : int
         Early stopping based on convergence of stopping_metric. Stop if simple moving average of length k of the
@@ -158,18 +158,22 @@ class H2OGradientBoostingEstimator(H2OEstimator):
         Scale the learning rate by this factor after each tree (e.g., 0.99 or 0.999)
         Default: 1.0
 
-      distribution : "AUTO" | "bernoulli" | "multinomial" | "gaussian" | "poisson" | "gamma" | "tweedie" | "laplace" |
-                     "quantile"
+      distribution : "AUTO" | "bernoulli" | "modified_huber" | "multinomial" | "gaussian" | "poisson" | "gamma" |
+                     "tweedie" | "laplace" | "quantile" | "huber"
         Distribution function
         Default: "AUTO"
 
       quantile_alpha : float
-        Desired quantile for quantile regression (from 0.0 to 1.0)
+        Desired quantile for Quantile regression, must be between 0 and 1.
         Default: 0.5
 
       tweedie_power : float
-        Tweedie Power (between 1 and 2)
+        Tweedie power for Tweedie regression, must be between 1 and 2.
         Default: 1.5
+
+      huber_alpha : float
+        Desired quantile for Huber/M-regression (threshold between quadratic and linear loss, must be between 0 and 1).
+        Default: 0.9
 
       checkpoint : str
         Model checkpoint to resume training with.
@@ -217,7 +221,7 @@ class H2OGradientBoostingEstimator(H2OEstimator):
                      "min_rows", "nbins", "nbins_top_level", "nbins_cats", "r2_stopping", "stopping_rounds",
                      "stopping_metric", "stopping_tolerance", "max_runtime_secs", "seed", "build_tree_one_node",
                      "learn_rate", "learn_rate_annealing", "distribution", "quantile_alpha", "tweedie_power",
-                     "checkpoint", "sample_rate", "sample_rate_per_class", "col_sample_rate",
+                     "huber_alpha", "checkpoint", "sample_rate", "sample_rate_per_class", "col_sample_rate",
                      "col_sample_rate_change_per_level", "col_sample_rate_per_tree", "min_split_improvement",
                      "histogram_type", "max_abs_leafnode_pred"]:
             pname = name[:-1] if name[-1] == '_' else name
@@ -518,6 +522,14 @@ class H2OGradientBoostingEstimator(H2OEstimator):
     @tweedie_power.setter
     def tweedie_power(self, value):
         self._parms["tweedie_power"] = value
+
+    @property
+    def huber_alpha(self):
+        return self._parms["huber_alpha"]
+
+    @huber_alpha.setter
+    def huber_alpha(self, value):
+        self._parms["huber_alpha"] = value
 
     @property
     def checkpoint(self):

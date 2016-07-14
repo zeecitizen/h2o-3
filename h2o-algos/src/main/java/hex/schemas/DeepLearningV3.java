@@ -66,6 +66,7 @@ public class DeepLearningV3 extends ModelBuilderSchema<DeepLearning,DeepLearning
         "distribution",
         "quantile_alpha",
         "tweedie_power",
+        "huber_alpha",
         "score_interval",
         "score_training_samples",
         "score_validation_samples",
@@ -95,6 +96,7 @@ public class DeepLearningV3 extends ModelBuilderSchema<DeepLearning,DeepLearning
         "reproducible",
         "export_weights_and_biases",
         "mini_batch_size",
+        "categorical_encoding",
         "elastic_averaging",
         "elastic_averaging_moving_rate",
         "elastic_averaging_regularization"
@@ -451,20 +453,6 @@ public class DeepLearningV3 extends ModelBuilderSchema<DeepLearning,DeepLearning
         values = {"Automatic", "CrossEntropy", "Quadratic", "Huber", "Absolute", "Quantile"},
         help = "Loss function.")
     public DeepLearningParameters.Loss loss;
-
-    @API(level = API.Level.secondary, direction = API.Direction.INPUT, gridable = true,
-        values = {"AUTO", "bernoulli", "multinomial", "gaussian", "poisson", "gamma", "tweedie", "laplace", "huber", "quantile"},
-        help = "Distribution function.")
-    public Distribution.Family distribution;
-
-    @API(level = API.Level.secondary, direction = API.Direction.INPUT, gridable = true,
-        help = "Tweedie power.")
-    public double tweedie_power;
-
-    @API(level = API.Level.secondary, direction = API.Direction.INPUT, gridable = true,
-        help = "Desired quantile for quantile regression (from 0.0 to 1.0).")
-    public double quantile_alpha;
-
 
     /*Scoring*/
 

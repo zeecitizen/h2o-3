@@ -1,9 +1,9 @@
 package hex.aggregator;
 
-import hex.DataInfo;
-import hex.ModelBuilder;
-import hex.ModelCategory;
+import hex.*;
+import hex.util.LinearAlgebraUtils;
 import water.*;
+import water.exceptions.H2OModelBuilderIllegalArgumentException;
 import water.fvec.Chunk;
 import water.fvec.Frame;
 import water.fvec.Vec;
@@ -12,6 +12,12 @@ import water.util.ArrayUtils;
 import java.util.Arrays;
 
 public class Aggregator extends ModelBuilder<AggregatorModel,AggregatorModel.AggregatorParameters,AggregatorModel.AggregatorOutput> {
+
+  @Override
+  public ToEigenVec getToEigenVec() {
+    return LinearAlgebraUtils.toEigen;
+  }
+
   @Override public BuilderVisibility builderVisibility() { return BuilderVisibility.Experimental; }
 
   public static class Exemplar extends Iced<Exemplar> {
@@ -89,7 +95,20 @@ public class Aggregator extends ModelBuilder<AggregatorModel,AggregatorModel.Agg
 
   @Override
   public void init(boolean expensive) {
+    if (expensive && _parms._categorical_encoding == Model.Parameters.CategoricalEncodingScheme.AUTO){
+      _parms._categorical_encoding=Model.Parameters.CategoricalEncodingScheme.Eigen;
+    }
     super.init(expensive);
+    if (expensive) {
+      byte[] types = _train.types();
+      for (byte b : types) {
+        if (b != Vec.T_NUM) {
+          error("_categorical_encoding", "Categorical features must be turned into numeric features. Specify categorical_encoding=\"Eigen\", \"OneHotExplicit\" or \"Binary\"");
+        }
+      }
+    }
+    if (error_count() > 0)
+      throw H2OModelBuilderIllegalArgumentException.makeFromBuilder(Aggregator.this);
   }
 
   class AggregatorDriver extends Driver {
@@ -108,7 +127,6 @@ public class Aggregator extends ModelBuilder<AggregatorModel,AggregatorModel.Agg
         model = new AggregatorModel(dest(), _parms, new AggregatorModel.AggregatorOutput(Aggregator.this));
         model.delete_and_lock(_job);
 
-        //TODO -> replace all categoricals with k pca components in _train (create new FrameUtils)
         Frame orig = train(); //this has ignored columns removed etc.
 
         _job.update(1,"Preprocessing data.");
@@ -135,14 +153,17 @@ public class Aggregator extends ModelBuilder<AggregatorModel,AggregatorModel.Agg
         model._output._output_frame = Key.make("aggregated_" + _parms._train.toString() + "_by_" + model._key);
 
         _job.update(1, "Creating output frame.");
-        model.createFrameOfExemplars(model._output._output_frame);
+        model.createFrameOfExemplars(di._adaptedFrame, model._output._output_frame);
 
         _job.update(1, "Done.");
         model.update(_job);
       } finally {
-        if (model != null) model.unlock(_job);
+        if (model != null) {
+          model.unlock(_job);
+          Scope.untrack(new Key[]{model._exemplar_assignment_vec_key});
+          Scope.untrack(model._output._output_frame.get().keys());
+        }
         if (di!=null) di.remove();
-        Scope.untrack(new Key[]{model._exemplar_assignment_vec_key});
       }
     }
   }

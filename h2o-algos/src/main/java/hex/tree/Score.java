@@ -4,7 +4,6 @@ import hex.*;
 import hex.genmodel.GenModel;
 import water.Key;
 import water.MRTask;
-import water.fvec.C0DChunk;
 import water.fvec.Chunk;
 import water.fvec.Frame;
 import water.fvec.Vec;
@@ -30,8 +29,8 @@ public class Score extends MRTask<Score> {
   @Override public void map( Chunk chks[] ) {
     Chunk ys = _bldr.chk_resp(chks);  // Response
     Model m = _bldr._model;
-    Chunk weightsChunk = m._output.hasWeights() ? chks[m._output.weightsIdx()] : new C0DChunk(1, chks[0]._len);
-    Chunk offsetChunk = m._output.hasOffset() ? chks[m._output.offsetIdx()] : new C0DChunk(0, chks[0]._len);
+    Chunk weightsChunk = m._output.hasWeights() ? chks[m._output.weightsIdx()] : null;
+    Chunk offsetChunk = m._output.hasOffset() ? chks[m._output.offsetIdx()] : null;
     final int nclass = _bldr.nclasses();
     // Because of adaption - the validation training set has at least as many
     // classes as the training set (it may have more).  The Confusion Matrix
@@ -54,9 +53,9 @@ public class Score extends MRTask<Score> {
       if( ys.isNA(row) ) continue; // Ignore missing response vars only if it was actual NA
       // Ignore out-of-bag rows
       if( _oob && chks[oobColIdx].atd(row)==0 ) continue;
-      double weight = weightsChunk.atd(row);
+      double weight = weightsChunk!=null?weightsChunk.atd(row):1;
       if (weight == 0) continue; //ignore holdout rows
-      double offset = offsetChunk.atd(row);
+      double offset = offsetChunk!=null?offsetChunk.atd(row):0;
       if( _is_train ) // Passed in the model-specific columns
         _bldr.score2(chks, weight, offset, cdists, row); // Use the training data directly (per-row predictions already made)
       else            // Must score "the hard way"
@@ -79,7 +78,7 @@ public class Score extends MRTask<Score> {
 
   // Run after the doAll scoring to convert the MetricsBuilder to a ModelMetrics
   ModelMetricsSupervised makeModelMetrics(SharedTreeModel model, Frame fr) {
-    Frame preds = model._output.nclasses()==2 && _computeGainsLift ? model.score(fr) : null;
+    Frame preds = (model._output.nclasses()==2 && _computeGainsLift) || model._parms._distribution==Distribution.Family.huber ? model.score(fr) : null;
     ModelMetricsSupervised mms = (ModelMetricsSupervised) _mb.makeModelMetrics(model, fr, null, preds);
     if (preds != null) preds.remove();
     return mms;

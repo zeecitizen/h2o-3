@@ -21,6 +21,8 @@ import java.lang.reflect.Field;
 import java.util.*;
 
 import static hex.ModelMetricsMultinomial.getHitRatioTable;
+import static water.util.FrameUtils.categoricalEncoder;
+import static water.util.FrameUtils.cleanUp;
 
 /**
  * A Model models reality (hopefully).
@@ -63,8 +65,9 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
       return ((ModelMetricsBinomial)_output._training_metrics)._auc.defaultThreshold();
     return 0.5;
   }
-
   public final boolean isSupervised() { return _output.isSupervised(); }
+
+  public ToEigenVec getToEigenVec() { return null; }
 
   /** Model-specific parameter class.  Each model sub-class contains
    *  instance of one of these containing its builder parameters, with
@@ -93,6 +96,12 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
     /** The Java class name for this Model (e.g., hex.tree.gbm.GBM, rather than GBM).*/
     abstract public String javaName();
 
+    /** Default relative tolerance for convergence-based early stopping  */
+    protected double defaultStoppingTolerance() { return 1e-3; }
+
+    /** How much work will be done for this model? */
+    abstract public long progressUnits();
+
     public Key<Frame> _train;               // User-Key of the Frame the Model is trained on
     public Key<Frame> _valid;               // User-Key of the Frame the Model is validated on, if any
     public int _nfolds = 0;
@@ -103,6 +112,9 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
     public enum FoldAssignmentScheme {
       AUTO, Random, Modulo, Stratified
     }
+    public enum CategoricalEncodingScheme {
+      AUTO, OneHotInternal, OneHotExplicit, Enum, Binary, Eigen
+    }
     public long _seed = -1;
     public long getOrMakeRealSeed(){
       while (_seed==-1) {
@@ -112,11 +124,12 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
       return _seed;
     }
     public FoldAssignmentScheme _fold_assignment = FoldAssignmentScheme.AUTO;
+    public CategoricalEncodingScheme _categorical_encoding = CategoricalEncodingScheme.AUTO;
+
     public Distribution.Family _distribution = Distribution.Family.AUTO;
     public double _tweedie_power = 1.5;
     public double _quantile_alpha = 0.5;
-    protected double defaultStoppingTolerance() { return 1e-3; }
-    abstract public long progressUnits();
+    public double _huber_alpha = 0.9;
 
     // TODO: This field belongs in the front-end column-selection process and
     // NOT in the parameters - because this requires all model-builders to have
@@ -126,6 +139,8 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
     public String _weights_column;
     public String _offset_column;
     public String _fold_column;
+
+    public boolean _is_cv_model; //internal helper
 
     // Scoring a model on a dataset is not free; sometimes it is THE limiting
     // factor to model building.  By default, partially built models are only
@@ -329,6 +344,13 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
     /** Columns used in the model and are used to match up with scoring data
      *  columns.  The last name is the response column name (if any). */
     public String _names[];
+    public String _origNames[];
+
+    /** Categorical/factor mappings, per column.  Null for non-categorical cols.
+     *  Columns match the post-init cleanup columns.  The last column holds the
+     *  response col categoricals for SupervisedModels.  */
+    public String _domains[][];
+    public String _origDomains[][];
 
     /** List of Keys to cross-validation models (non-null iff _parms._nfolds > 1 or _parms._fold_column != null) **/
     public Key _cross_validation_models[];
@@ -358,35 +380,26 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
      *  (Key/Data leak management issues), and might throw IAE if there are too
      *  many classes. */
     public Output( ModelBuilder b ) {
-      _job = b._job;
-      if( b == null ) {
-        _hasOffset = false;
-        _hasWeights = false;
-        _hasFold = false;
-        return;
-      }
       _isSupervised = b.isSupervised();
       if( b.error_count() > 0 )
         throw new IllegalArgumentException(b.validationErrors());
       // Capture the data "shape" the model is valid on
       _names  = b._train.names  ();
       _domains= b._train.domains();
+      _origNames = b._origNames;
+      _origDomains = b._origDomains;
       _hasOffset = b.hasOffsetCol();
       _hasWeights = b.hasWeightCol();
       _hasFold = b.hasFoldCol();
       _distribution = b._distribution;
       _priorClassDist = b._priorClassDist;
+      assert(_job==null); //only set after job completion
     }
 
     /** Returns number of input features (OK for most supervised methods, need to override for unsupervised!) */
     public int nfeatures() {
       return _names.length - (_hasOffset?1:0)  - (_hasWeights?1:0) - (_hasFold?1:0) - (isSupervised()?1:0);
     }
-
-    /** Categorical/factor mappings, per column.  Null for non-categorical cols.
-     *  Columns match the post-init cleanup columns.  The last column holds the
-     *  response col categoricals for SupervisedModels.  */
-    public String _domains[][];
 
     /** List of all the associated ModelMetrics objects, so we can delete them
      *  when we delete this model. */
@@ -530,6 +543,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
 
   protected String[][] scoringDomains() {return _output._domains;}
   public O _output; // TODO: move things around so that this can be protected
+  public Distribution _dist;
 
   public ModelMetrics addMetrics(ModelMetrics mm) { return _output.addModelMetrics(mm); }
 
@@ -542,6 +556,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
     _output = output;  // Output won't be set if we're assert output != null;
     if (_output!=null)
       _output.startClock();
+    _dist = isSupervised() && _output.nclasses()==1 ? new Distribution(_parms) : null;
   }
 
   /**
@@ -552,7 +567,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
    * @return value of gradient
    */
   public double deviance(double w, double y, double f) {
-    return new Distribution(Distribution.Family.gaussian).deviance(w, y, f);
+    return _dist.deviance(w, y, f);
   }
 
   protected ScoringInfo[] scoringInfo;
@@ -585,6 +600,8 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
     switch (_parms._stopping_metric) {
       case MSE:
         return (float) mse();
+      case MAE:
+        return (float) mae();
       case logloss:
         return (float) logloss();
       case deviance:
@@ -621,6 +638,11 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
   public double mse() {
     if (scoringInfo == null) return Double.NaN;
     return last_scored().validation ? last_scored().scored_valid._mse : last_scored().scored_train._mse;
+  }
+
+  public double mae() {
+    if (scoringInfo == null) return Double.NaN;
+    return last_scored().validation ? last_scored().scored_valid._mae : last_scored().scored_train._mae;
   }
 
   public double auc() {
@@ -691,18 +713,29 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
    *  if any factor column has no levels in common.
    */
   public String[] adaptTestForTrain( Frame test, boolean expensive, boolean computeMetrics) {
-    return adaptTestForTrain(_output._names, _output.weightsName(), _output.offsetName(), _output.foldName(), _output.responseName(), _output._domains, test, _parms.missingColumnsType(), expensive, computeMetrics, _output.interactions());
+    return adaptTestForTrain(
+            test,
+            _output._origNames,
+            _output._origDomains,
+            _output._names,
+            _output._domains,
+            _parms, expensive, computeMetrics, _output.interactions(), getToEigenVec(), _toDelete);
   }
+
   /**
+   * @param test Frame to be adapted
+   * @param origNames Training column names before categorical column encoding - can be the same as names
+   * @param origDomains Training column levels before categorical column encoding - can be the same as domains
    * @param names Training column names
-   * @param weights  Name of column with observation weights, weights are NOT filled in if missing in test frame
-   * @param offset   Name of column with offset, if not null (i.e. trained with offset), offset MUST be present in test data as well, otherwise can not scorew and IAE is thrown.
-   * @param fold
-   * @param response Name of response column,  response is NOT filled in if missing in test frame
    * @param domains Training column levels
-   * @param missing Substitute for missing columns; usually NaN
-   * */
-  public static String[] adaptTestForTrain(String[] names, String weights, String offset, String fold, String response, String[][] domains, Frame test, double missing, boolean expensive, boolean computeMetrics, String[] interactions) throws IllegalArgumentException {
+   * @param parms Model parameters
+   * @param expensive Whether to actually do the hard work
+   * @param computeMetrics Whether metrics can be (and should be) computed
+   * @param interactions Column names to create pairwise interactions with
+   */
+  public static String[] adaptTestForTrain(Frame test, String[] origNames, String[][] origDomains, String[] names, String[][] domains,
+                                           Parameters parms, boolean expensive, boolean computeMetrics, String[] interactions, ToEigenVec tev,
+                                           IcedHashMap<Key, StackTraceElement[]> toDelete) throws IllegalArgumentException {
     if( test == null) return new String[0];
     // Fast path cutout: already compatible
     String[][] tdomains = test.domains();
@@ -711,6 +744,10 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
     // Fast path cutout: already compatible but needs work to test
     if( Arrays.equals(names,test._names) && Arrays.deepEquals(domains,tdomains) )
       return new String[0];
+    if( Arrays.equals(origNames,test._names) && Arrays.deepEquals(origDomains,tdomains) ) {
+      if (origNames != null) names = origNames;
+      if (origDomains != null) domains = origDomains;
+    }
 
     // create the interactions now and bolt them on to the front of the test Frame
     if( null!=interactions ) {
@@ -720,6 +757,12 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
       test.add(makeInteractions(test, false, InteractionPair.generatePairwiseInteractionsFromList(interactionIndexes), true, true, false));
     }
 
+    final String response = parms._response_column;
+    final String weights = parms._weights_column;
+    final String offset = parms._offset_column;
+    final String fold = parms._fold_column;
+    final double missing = parms.missingColumnsType();
+    final Parameters.CategoricalEncodingScheme catEncoding = parms._categorical_encoding;
 
     // Build the validation set to be compatible with the training set.
     // Toss out extra columns, complain about missing ones, remap categoricals
@@ -794,8 +837,18 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
       throw new IllegalArgumentException("Test/Validation dataset has no columns in common with the training set");
     if( good == names.length || (response != null && test.find(response) == -1 && good == names.length - 1) )  // Only update if got something for all columns
       test.restructure(names,vvecs,good);
+
+    if (expensive) {
+      Frame updated = categoricalEncoder(test, new String[]{weights, offset, fold, response}, catEncoding, tev);
+      if (updated!=test) {
+        if (toDelete!=null) toDelete.put(updated._key, Thread.currentThread().getStackTrace());
+        test.restructure(updated.names(), updated.vecs());
+      }
+    }
     return msgs.toArray(new String[msgs.size()]);
   }
+
+  public IcedHashMap<Key,StackTraceElement[]> _toDelete = new IcedHashMap<>();
 
   /**
    * Bulk score the frame, and auto-name the resulting predictions frame.
@@ -830,7 +883,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
   
   public Frame score(Frame fr, String destination_key, Job j) throws IllegalArgumentException {
     Frame adaptFr = new Frame(fr);
-    boolean computeMetrics = (!isSupervised() || adaptFr.find(_output.responseName()) != -1);
+    final boolean computeMetrics = (!isSupervised() || (adaptFr.vec(_output.responseName()) != null && !adaptFr.vec(_output.responseName()).isBad()));
     adaptTestForTrain(adaptFr,true, computeMetrics);   // Adapt
     Frame output = predictScoreImpl(fr, adaptFr, destination_key, j); // Predict & Score
     // Log modest confusion matrices
@@ -840,15 +893,17 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
     // Output is in the model's domain, but needs to be mapped to the scored
     // dataset's domain.
     if(_output.isClassifier() && computeMetrics) {
-//      assert(mdomain != null); // label must be categorical
-      ModelMetrics mm = ModelMetrics.getFromDKV(this,fr);
-      ConfusionMatrix cm = mm.cm();
-      if (cm != null && cm._domain != null) //don't print table for regression
-        if( cm._cm.length < _parms._max_confusion_matrix_size/*Print size limitation*/ ) {
-          Log.info(cm.table().toString(1));
+      if (false) {
+        assert(mdomain != null); // label must be categorical
+        ModelMetrics mm = ModelMetrics.getFromDKV(this,fr);
+        ConfusionMatrix cm = mm.cm();
+        if (cm != null && cm._domain != null) //don't print table for regression
+          if( cm._cm.length < _parms._max_confusion_matrix_size/*Print size limitation*/ ) {
+            Log.info(cm.table().toString(1));
+          }
+        if (mm.hr() != null) {
+          Log.info(getHitRatioTable(mm.hr()));
         }
-      if (mm.hr() != null) {
-        Log.info(getHitRatioTable(mm.hr()));
       }
       Vec actual = fr.vec(_output.responseName());
       if( actual != null ) {  // Predict does not have an actual, scoring does
@@ -857,7 +912,6 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
           output.replace(0, new CategoricalWrappedVec(actual.group().addVec(), actual._rowLayout, sdomain, predicted._key));
       }
     }
-
     cleanup_adapt(adaptFr, fr);
     return output;
   }
@@ -899,7 +953,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
    */
  
   protected Frame predictScoreImpl(Frame fr, Frame adaptFrm, String destination_key, Job j) {
-    final boolean computeMetrics = (!isSupervised() || adaptFrm.find(_output.responseName()) != -1);
+    final boolean computeMetrics = (!isSupervised() || (adaptFrm.vec(_output.responseName()) != null && !adaptFrm.vec(_output.responseName()).isBad()));
     // Build up the names & domains.
     String[] names = makeScoringNames();
     String[][] domains = new String[names.length][];
@@ -917,14 +971,13 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
    * @return MetricBuilder
    */
   protected ModelMetrics.MetricBuilder scoreMetrics(Frame adaptFrm) {
-    final boolean computeMetrics = (!isSupervised() || adaptFrm.find(_output.responseName()) != -1);
+    final boolean computeMetrics = (!isSupervised() || (adaptFrm.vec(_output.responseName()) != null && !adaptFrm.vec(_output.responseName()).isBad()));
     // Build up the names & domains.
     String [] domain = !computeMetrics ? _output._domains[_output._domains.length-1] : adaptFrm.lastVec().domain();
     // Score the dataset, building the class distribution & predictions
     BigScore bs = new BigScore(domain,0,adaptFrm.means(),_output.hasWeights() && adaptFrm.find(_output.weightsName()) >= 0,computeMetrics, false /*no preds*/, null).doAll(adaptFrm);
     return bs._mb;
   }
-
 
   private class BigScore extends MRTask<BigScore> {
     final String[] _domain; // Prediction domain; union of test and train classes
@@ -946,8 +999,8 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
 
     @Override public void map( Chunk chks[], NewChunk cpreds[] ) {
       if (isCancelled() || _j != null && _j.stop_requested()) return;
-      Chunk weightsChunk = _hasWeights && _computeMetrics ? chks[_output.weightsIdx()] : new C0DChunk(1, chks[0]._len);
-      Chunk offsetChunk = _output.hasOffset() ? chks[_output.offsetIdx()] : new C0DChunk(0, chks[0]._len);
+      Chunk weightsChunk = _hasWeights && _computeMetrics ? chks[_output.weightsIdx()] : null;
+      Chunk offsetChunk = _output.hasOffset() ? chks[_output.offsetIdx()] : null;
       Chunk responseChunk = null;
       double [] tmp = new double[_output.nfeatures()];
       float [] actual = null;
@@ -962,7 +1015,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
       double[] preds = _mb._work;  // Sized for the union of test and train classes
       int len = chks[0]._len;
       for (int row = 0; row < len; row++) {
-        double weight = weightsChunk.atd(row);
+        double weight = weightsChunk!=null?weightsChunk.atd(row):1;
         if (weight == 0) {
           if (_makePreds) {
             for (int c = 0; c < _npredcols; c++)  // Output predictions; sized for train only (excludes extra test classes)
@@ -970,7 +1023,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
           }
           continue;
         }
-        double offset = offsetChunk.atd(row);
+        double offset = offsetChunk!=null?offsetChunk.atd(row):0;
         double [] p = score0(chks, weight, offset, row, tmp, preds);
         if (_computeMetrics) {
           if(isSupervised()) {
@@ -1037,6 +1090,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
     if (_output._model_metrics != null)
       for( Key k : _output._model_metrics )
         k.remove(fs);
+    cleanUp(_toDelete);
     return super.remove_impl(fs);
   }
 
@@ -1264,7 +1318,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
   public boolean testJavaScoring( Frame data, Frame model_predictions, double rel_epsilon) {
     assert data.numRows()==model_predictions.numRows();
     final Frame fr = new Frame(data);
-    boolean computeMetrics = data.find(_output.responseName()) != -1;
+    boolean computeMetrics = data.vec(_output.responseName()) != null && !data.vec(_output.responseName()).isBad();
     try {
       String[] warns = adaptTestForTrain(fr,true, computeMetrics);
       if( warns.length > 0 )

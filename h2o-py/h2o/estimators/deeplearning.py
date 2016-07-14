@@ -210,18 +210,22 @@ class H2ODeepLearningEstimator(H2OEstimator):
         Loss function.
         Default: "Automatic"
 
-      distribution : "AUTO" | "bernoulli" | "multinomial" | "gaussian" | "poisson" | "gamma" | "tweedie" | "laplace" |
-                     "huber" | "quantile"
-        Distribution function.
+      distribution : "AUTO" | "bernoulli" | "modified_huber" | "multinomial" | "gaussian" | "poisson" | "gamma" |
+                     "tweedie" | "laplace" | "quantile" | "huber"
+        Distribution function
         Default: "AUTO"
 
       quantile_alpha : float
-        Desired quantile for quantile regression (from 0.0 to 1.0).
+        Desired quantile for Quantile regression, must be between 0 and 1.
         Default: 0.5
 
       tweedie_power : float
-        Tweedie power.
+        Tweedie power for Tweedie regression, must be between 1 and 2.
         Default: 1.5
+
+      huber_alpha : float
+        Desired quantile for Huber/M-regression (threshold between quadratic and linear loss, must be between 0 and 1).
+        Default: 0.9
 
       score_interval : float
         Shortest time interval (in seconds) between model scoring.
@@ -343,6 +347,10 @@ class H2ODeepLearningEstimator(H2OEstimator):
         Mini-batch size (smaller leads to better fit, larger can speed up and generalize better).
         Default: 1
 
+      categorical_encoding : "AUTO" | "Enum" | "OneHotInternal" | "OneHotExplicit" | "Binary" | "Eigen"
+        Encoding scheme for categorical features
+        Default: "AUTO"
+
       elastic_averaging : bool
         Elastic averaging between compute nodes can improve distributed model convergence. #Experimental
         Default: False
@@ -379,14 +387,14 @@ class H2ODeepLearningEstimator(H2OEstimator):
                      "epsilon", "rate", "rate_annealing", "rate_decay", "momentum_start", "momentum_ramp",
                      "momentum_stable", "nesterov_accelerated_gradient", "input_dropout_ratio", "hidden_dropout_ratios",
                      "l1", "l2", "max_w2", "initial_weight_distribution", "initial_weight_scale", "initial_weights",
-                     "initial_biases", "loss", "distribution", "quantile_alpha", "tweedie_power", "score_interval",
-                     "score_training_samples", "score_validation_samples", "score_duty_cycle", "classification_stop",
-                     "regression_stop", "stopping_rounds", "stopping_metric", "stopping_tolerance", "max_runtime_secs",
-                     "score_validation_sampling", "diagnostics", "fast_mode", "force_load_balance",
-                     "variable_importances", "replicate_training_data", "single_node_mode", "shuffle_training_data",
-                     "missing_values_handling", "quiet_mode", "autoencoder", "sparse", "col_major",
-                     "average_activation", "sparsity_beta", "max_categorical_features", "reproducible",
-                     "export_weights_and_biases", "mini_batch_size", "elastic_averaging",
+                     "initial_biases", "loss", "distribution", "quantile_alpha", "tweedie_power", "huber_alpha",
+                     "score_interval", "score_training_samples", "score_validation_samples", "score_duty_cycle",
+                     "classification_stop", "regression_stop", "stopping_rounds", "stopping_metric",
+                     "stopping_tolerance", "max_runtime_secs", "score_validation_sampling", "diagnostics", "fast_mode",
+                     "force_load_balance", "variable_importances", "replicate_training_data", "single_node_mode",
+                     "shuffle_training_data", "missing_values_handling", "quiet_mode", "autoencoder", "sparse",
+                     "col_major", "average_activation", "sparsity_beta", "max_categorical_features", "reproducible",
+                     "export_weights_and_biases", "mini_batch_size", "categorical_encoding", "elastic_averaging",
                      "elastic_averaging_moving_rate", "elastic_averaging_regularization"]:
             pname = name[:-1] if name[-1] == '_' else name
             self._parms[pname] = kwargs[name] if name in kwargs else None
@@ -809,6 +817,14 @@ class H2ODeepLearningEstimator(H2OEstimator):
         self._parms["tweedie_power"] = value
 
     @property
+    def huber_alpha(self):
+        return self._parms["huber_alpha"]
+
+    @huber_alpha.setter
+    def huber_alpha(self, value):
+        self._parms["huber_alpha"] = value
+
+    @property
     def score_interval(self):
         return self._parms["score_interval"]
 
@@ -1039,6 +1055,14 @@ class H2ODeepLearningEstimator(H2OEstimator):
     @mini_batch_size.setter
     def mini_batch_size(self, value):
         self._parms["mini_batch_size"] = value
+
+    @property
+    def categorical_encoding(self):
+        return self._parms["categorical_encoding"]
+
+    @categorical_encoding.setter
+    def categorical_encoding(self, value):
+        self._parms["categorical_encoding"] = value
 
     @property
     def elastic_averaging(self):

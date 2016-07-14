@@ -94,6 +94,10 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
         if (_offset.max() > 1)
           error("_offset_column", "Offset cannot be larger than 1 for Bernoulli distribution.");
       }
+      if (hasOffsetCol() && _parms._distribution == Distribution.Family.modified_huber) {
+        if (_offset.max() > 1)
+          error("_offset_column", "Offset cannot be larger than 1 for Modified Huber distribution.");
+      }
     }
 
     switch( _parms._distribution) {
@@ -101,8 +105,15 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
       if( _nclass != 2 /*&& !couldBeBool(_response)*/)
         error("_distribution", H2O.technote(2, "Binomial requires the response to be a 2-class categorical"));
       break;
+    case modified_huber:
+      if( _nclass != 2 /*&& !couldBeBool(_response)*/)
+        error("_distribution", H2O.technote(2, "Modified Huber requires the response to be a 2-class categorical."));
+      break;
     case multinomial:
       if (!isClassifier()) error("_distribution", H2O.technote(2, "Multinomial requires an categorical response."));
+      break;
+    case huber:
+      if (isClassifier()) error("_distribution", H2O.technote(2, "Huber requires the response to be numeric."));
       break;
     case poisson:
       if (isClassifier()) error("_distribution", H2O.technote(2, "Poisson requires the response to be numeric."));
@@ -148,10 +159,10 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
       if (!(1 <= _mtry && _mtry <= _ncols)) throw new IllegalArgumentException("Computed mtry should be in interval <1,"+_ncols+"> but it is " + _mtry);
 
       // for Bernoulli, we compute the initial value with Newton-Raphson iteration, otherwise it might be NaN here
-      _initialPrediction = _nclass > 2 || _parms._distribution == Distribution.Family.laplace || _parms._distribution == Distribution.Family.quantile ? 0 : getInitialValue();
+      _initialPrediction = _nclass > 2 || _parms._distribution == Distribution.Family.laplace || _parms._distribution == Distribution.Family.huber || _parms._distribution == Distribution.Family.quantile ? 0 : getInitialValue();
       if (_parms._distribution == Distribution.Family.bernoulli) {
         if (hasOffsetCol()) _initialPrediction = getInitialValueBernoulliOffset(_train);
-      } else if (_parms._distribution == Distribution.Family.laplace) {
+      } else if (_parms._distribution == Distribution.Family.laplace || _parms._distribution == Distribution.Family.huber) {
         _initialPrediction = getInitialValueQuantile(0.5);
       } else if (_parms._distribution == Distribution.Family.quantile) {
         _initialPrediction = getInitialValueQuantile(_parms._quantile_alpha);
@@ -171,7 +182,7 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
     }
 
     /**
-     * Helper to compute the initial value for Laplace (incl. optional offset and obs weights)
+     * Helper to compute the initial value for Laplace/Huber/Quantile (incl. optional offset and obs weights)
      * @return weighted median of response - offset
      */
     private double getInitialValueQuantile(double quantile) {
@@ -289,6 +300,7 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
           if (ys.isNA(row)) continue;
           double f = preds.atd(row) + offset.atd(row);
           double y = ys.atd(row);
+//          Log.info(f + " vs " + y); //expect that the model predicts very negative values for 0 and very positive values for 1
           if( _parms._distribution == Distribution.Family.multinomial ) {
             double sum = score1(chks, weight,0.0 /*offset not used for multiclass*/,fs,row);
             if( Double.isInfinite(sum) ) { // Overflow (happens for constant responses)
@@ -305,7 +317,7 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
               }
             }
           } else {
-            wk.set(row, (float) dist.gradient(y, f));
+            wk.set(row, (float) dist.negHalfGradient(y, f));
           }
         }
       }
@@ -412,9 +424,25 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
       // Define a "working set" of leaf splits, from here to tree._len
       int[] leaves = new int[_nclass];
 
-      // Compute predictions and resulting re
+      // Compute predictions and resulting residuals
       // ESL2, page 387, Steps 2a, 2b
-      new ComputePredAndRes().doAll(_train, _parms._build_tree_one_node); //fills "Work" columns for all rows (incl. OOB)
+      // fills "Work" columns for all rows (incl. OOB) with the residuals
+      double huberDelta = Double.NaN;
+      if (_parms._distribution== Distribution.Family.huber) {
+        // Jerome Friedman 1999: Greedy Function Approximation: A Gradient Boosting Machine
+        // https://statweb.stanford.edu/~jhf/ftp/trebst.pdf
+        // compute absolute diff |y-(f+o)| for all rows
+        Vec diff = new ComputeAbsDiff().doAll(1, (byte)3 /*numeric*/, _train).outputFrame().anyVec();
+        Distribution dist = new Distribution(_parms);
+        // compute weighted alpha-quantile of the absolute residual -> this is the delta for the huber loss
+        huberDelta = MathUtils.computeWeightedQuantile(_weights, diff, _parms._huber_alpha);
+        dist.setHuberDelta(huberDelta);
+        // now compute residuals using the gradient of the huber loss (with a globally adjusted delta)
+        new StoreResiduals(dist).doAll(_train, _parms._build_tree_one_node);
+      } else {
+        // compute predictions and residuals in one shot
+        new ComputePredAndRes().doAll(_train, _parms._build_tree_one_node);
+      }
       for (int k = 0; k < _nclass; k++) {
         if (DEV_DEBUG && ktrees[k]!=null) {
           System.out.println("Updated predictions in WORK col for class " + k + ":\n" + new Frame(new String[]{"WORK"},new Vec[]{vec_work(_train, k)}).toString());
@@ -435,11 +463,14 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
       // ----
       // ESL2, page 387.  Step 2b iii.  Compute the gammas (leaf node predictions === fit best constant), and store them back
       // into the tree leaves.  Includes learn_rate.
-      GammaPass gp = new GammaPass(ktrees, leaves, _parms._distribution).doAll(_train);
+      GammaPass gp = new GammaPass(ktrees, leaves, new Distribution(_parms));
+      gp.doAll(_train);
       if (_parms._distribution == Distribution.Family.laplace) {
         fitBestConstantsQuantile(ktrees, leaves[0], 0.5); //special case for Laplace: compute the median for each leaf node and store that as prediction
       } else if (_parms._distribution == Distribution.Family.quantile) {
         fitBestConstantsQuantile(ktrees, leaves[0], _parms._quantile_alpha); //compute the alpha-quantile for each leaf node and store that as prediction
+      } else if (_parms._distribution == Distribution.Family.huber) {
+        fitBestConstantsHuber(ktrees, leaves[0], huberDelta); //compute the alpha-quantile for each leaf node and store that as prediction
       } else {
         fitBestConstants(ktrees, leaves, gp);
       }
@@ -549,20 +580,44 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
       } // -- k-trees are done
     }
 
-    public class QuantilePrep extends MRTask<QuantilePrep> {
+    private class ComputeDiff extends MRTask<ComputeDiff> {
       @Override
       public void map(Chunk[] chks, NewChunk[] nc) {
-        final Chunk resp = chk_resp(chks);
-        final Chunk offset = hasOffsetCol() ? chk_offset(chks) : new C0DChunk(0, chks[0]._len); // Residuals for this tree/class
-        final Chunk preds = chk_tree(chks,0);
-        final Chunk nids  = chk_nids(chks,0);
-        final Chunk weights  = hasWeightCol() ? chk_weight(chks) : new C0DChunk(1, chks[0]._len);
-        for (int i=0; i<chks[0].len(); ++i) {
-          nc[0].addNum(resp.atd(i) - (preds.atd(i) + offset.atd(i))); //y - (f+o)
-          if (resp.isNA(i)) continue;
-          if (weights.atd(i)==0) continue;
-          assert(!nids.isNA(i));
-          int nid = (int)nids.at8(i);
+        final Chunk y = chk_resp(chks);
+        final Chunk o = hasOffsetCol() ? chk_offset(chks) : new C0DChunk(0, chks[0]._len);
+        final Chunk f = chk_tree(chks,0);
+        for (int i=0; i<chks[0].len(); ++i)
+          nc[0].addNum(y.atd(i) - (f.atd(i) + o.atd(i)));
+      }
+    }
+
+    private class ComputeAbsDiff extends MRTask<ComputeAbsDiff> {
+      @Override
+      public void map(Chunk[] chks, NewChunk[] nc) {
+        final Chunk y = chk_resp(chks);
+        final Chunk o = hasOffsetCol() ? chk_offset(chks) : new C0DChunk(0, chks[0]._len);
+        final Chunk f = chk_tree(chks,0);
+        for (int i=0; i<chks[0].len(); ++i)
+          nc[0].addNum(Math.abs(y.atd(i) - (f.atd(i) + o.atd(i))));
+      }
+    }
+
+    private class StoreResiduals extends MRTask<StoreResiduals> {
+      Distribution _dist;
+      StoreResiduals(Distribution dist) { _dist = dist; }
+      @Override public void map( Chunk chks[] ) {
+        Chunk ys = chk_resp(chks);
+        Chunk offset = hasOffsetCol() ? chk_offset(chks) : new C0DChunk(0, chks[0]._len);
+        Chunk preds = chk_tree(chks, 0); // Prior tree sums
+        Chunk wk = chk_work(chks, 0); // Place to store residuals
+        Chunk weights = hasWeightCol() ? chk_weight(chks) : new C0DChunk(1, chks[0]._len);
+        for( int row = 0; row < wk._len; row++) {
+          double weight = weights.atd(row);
+          if (weight == 0) continue;
+          if (ys.isNA(row)) continue;
+          double f = preds.atd(row) + offset.atd(row);
+          double y = ys.atd(row);
+          wk.set(row, (float) _dist.negHalfGradient(y, f));
         }
       }
     }
@@ -570,13 +625,12 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
     private void fitBestConstantsQuantile(DTree[] ktrees, int firstLeafIndex, double quantile) {
       if (firstLeafIndex == ktrees[0]._len) return; // no splits happened - nothing to do
       assert(_nclass==1);
-      QuantilePrep qp = new QuantilePrep();
-      Vec response = qp.doAll(1, (byte)3 /*numeric*/, _train).outputFrame().anyVec();
+      Vec diff = new ComputeDiff().doAll(1, (byte)3 /*numeric*/, _train).outputFrame().anyVec();
       Vec weights = hasWeightCol() ? _train.vecs()[idx_weight()] : null;
       Vec strata = vec_nids(_train,0);
 
       // compute quantile for all leaf nodes
-      Quantile.StratifiedQuantilesTask sqt = new Quantile.StratifiedQuantilesTask(null, quantile, response, weights, strata, QuantileModel.CombineMethod.INTERPOLATE);
+      Quantile.StratifiedQuantilesTask sqt = new Quantile.StratifiedQuantilesTask(null, quantile, diff, weights, strata, QuantileModel.CombineMethod.INTERPOLATE);
       H2O.submitTask(sqt);
       sqt.join();
 
@@ -592,12 +646,118 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
       }
     }
 
+    public class DiffMinusMedianDiff extends MRTask<DiffMinusMedianDiff> {
+      Vec _strata;
+      double[] _terminalMedians;
+      DiffMinusMedianDiff(Vec strata, double[] terminalMedians) {
+        _strata = strata;
+        _terminalMedians = terminalMedians;
+      }
+      @Override
+      public void map(Chunk[] chks) {
+        final Chunk strata = chks[0];
+        final Chunk diff = chks[1];
+        final int strataMin = (int)_strata.min();
+        for (int i=0; i<chks[0].len(); ++i) {
+          int nid = (int)strata.atd(i);
+          diff.set(i, diff.atd(i) - _terminalMedians[nid-strataMin]);
+        }
+      }
+    }
+
+    private final class HuberLeafMath extends MRTask<HuberLeafMath> {
+      // INPUT
+      final double _huberDelta;
+      final Vec _strata;
+      // OUTPUT
+      double[/*leaves*/] _huberGamma, _wcounts;
+      public HuberLeafMath(double huberDelta, Vec strata) {
+        _huberDelta = huberDelta;
+        _strata = strata;
+      }
+      @Override
+      public void map(Chunk cs[]) {
+        final int strataMin = (int)_strata.min();
+        final int strataMax = (int)_strata.max();
+        if (strataMin < 0 || strataMax < 0) {
+          Log.warn("No Huber math can be done since there's no strata.");
+          return;
+        }
+        final int nstrata = strataMax - strataMin + 1;
+        Log.info("Computing Huber math for (up to) " + nstrata + " different strata.");
+        _huberGamma = new double[nstrata];
+        _wcounts = new double[nstrata];
+        Chunk weights = hasWeightCol() ? chk_weight(cs) : new C0DChunk(1, cs[0]._len);
+        Chunk stratum = chk_nids(cs, 0 /*regression*/);
+        Chunk diffMinusMedianDiff = cs[cs.length-1];
+        for (int row=0;row<cs[0]._len;++row) {
+          int nidx = (int) stratum.at8(row) - strataMin; //get terminal node for this row
+          _huberGamma[nidx] += weights.atd(row) * Math.signum(diffMinusMedianDiff.atd(row)) * Math.min(Math.abs(diffMinusMedianDiff.atd(row)), _huberDelta);
+                  _wcounts[nidx] += weights.atd(row);
+        }
+      }
+      @Override
+      public void reduce(HuberLeafMath mrt) {
+        ArrayUtils.add(_huberGamma,mrt._huberGamma);
+        ArrayUtils.add(_wcounts,mrt._wcounts);
+      }
+
+      @Override
+      protected void postGlobal() {
+        for (int i = 0; i< _huberGamma.length; ++i)
+          _huberGamma[i]/=_wcounts[i];
+      }
+    }
+
+    // Jerome Friedman 1999: Greedy Function Approximation: A Gradient Boosting Machine
+    // https://statweb.stanford.edu/~jhf/ftp/trebst.pdf
+    private void fitBestConstantsHuber(DTree[] ktrees, int firstLeafIndex, double huberDelta) {
+      if (firstLeafIndex == ktrees[0]._len) return; // no splits happened - nothing to do
+      assert(_nclass==1);
+
+      // get diff y-(f+o) and weights and strata (node idx)
+      Vec diff = new ComputeDiff().doAll(1, (byte)3 /*numeric*/, _train).outputFrame().anyVec();
+      Vec weights = hasWeightCol() ? _train.vecs()[idx_weight()] : null;
+      Vec strata = vec_nids(_train,0);
+
+      // compute median diff for each leaf node
+      Quantile.StratifiedQuantilesTask sqt = new Quantile.StratifiedQuantilesTask(null, 0.5 /*median of weighted residuals*/, diff, weights, strata, QuantileModel.CombineMethod.INTERPOLATE);
+      H2O.submitTask(sqt);
+      sqt.join();
+
+      // subtract median(diff) from residuals for all observations of each leaf
+      DiffMinusMedianDiff hp = new DiffMinusMedianDiff(strata, sqt._quantiles /*median residuals per leaf*/);
+      Frame tmpFrame1 = new Frame(new String[]{"strata","diff"}, new Vec[]{strata,diff});
+      hp.doAll(tmpFrame1);
+      Vec diffMinusMedianDiff = diff;
+
+      // for each leaf, compute the mean of Math.signum(resMinusMedianRes) * Math.min(Math.abs(resMinusMedianRes), huberDelta),
+      // where huberDelta is the alpha-percentile of the residual across all observations
+      Frame tmpFrame2 = new Frame(_train.vecs());
+      tmpFrame2.add("resMinusMedianRes", diffMinusMedianDiff);
+      double[] huberGamma = new HuberLeafMath(huberDelta,strata).doAll(tmpFrame2)._huberGamma;
+
+      // now assign the median per leaf + the above _huberCorrection[i] to each leaf
+      final DTree tree = ktrees[0];
+      for (int i = 0; i < sqt._quantiles.length; i++) {
+        double huber = (sqt._quantiles[i] /*median*/ + huberGamma[i]);
+        if (Double.isNaN(sqt._quantiles[i])) continue; //no active rows for this NID
+        double val = effective_learning_rate() * huber;
+        assert !Double.isNaN(val) && !Double.isInfinite(val);
+        if (val > _parms._max_abs_leafnode_pred) val = _parms._max_abs_leafnode_pred;
+        if (val < -_parms._max_abs_leafnode_pred) val = -_parms._max_abs_leafnode_pred;
+        ((LeafNode) tree.node(sqt._nids[i]))._pred = (float) val;
+        if (DEV_DEBUG) { Log.info("Leaf " + sqt._nids[i] + " has huber value: " + huber); }
+      }
+      diffMinusMedianDiff.remove();
+    }
+
     private double effective_learning_rate() {
       return _parms._learn_rate * Math.pow(_parms._learn_rate_annealing, (_model._output._ntrees-1));
     }
 
     private void fitBestConstants(DTree[] ktrees, int[] leafs, GammaPass gp) {
-      double m1class = _nclass > 1 && _parms._distribution != Distribution.Family.bernoulli ? (double) (_nclass - 1) / _nclass : 1.0; // K-1/K for multinomial
+      double m1class = _nclass > 1 && _parms._distribution == Distribution.Family.multinomial ? (double) (_nclass - 1) / _nclass : 1.0; // K-1/K for multinomial
       for (int k = 0; k < _nclass; k++) {
         final DTree tree = ktrees[k];
         if (tree == null) continue;
@@ -632,7 +792,7 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
     private class GammaPass extends MRTask<GammaPass> {
       final DTree _trees[]; // Read-only, shared (except at the histograms in the Nodes)
       final int _leafs[];  // Starting index of leaves (per class-tree)
-      final Distribution.Family _dist;
+      final Distribution _dist;
       private double _num[/*tree/klass*/][/*tree-relative node-id*/];
       private double _denom[/*tree/klass*/][/*tree-relative node-id*/];
 
@@ -640,11 +800,11 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
         if (_denom[tree][nid] == 0) return 0;
         double g = _num[tree][nid]/ _denom[tree][nid];
         assert (!Double.isInfinite(g) && !Double.isNaN(g));
-        if (_dist == Distribution.Family.poisson
-                || _dist == Distribution.Family.gamma
-                || _dist == Distribution.Family.tweedie)
+        if (_dist.distribution == Distribution.Family.poisson
+                || _dist.distribution == Distribution.Family.gamma
+                || _dist.distribution == Distribution.Family.tweedie)
         {
-          return new Distribution(_parms).link(g);
+          return _dist.link(g);
         } else {
           return g;
         }
@@ -652,7 +812,7 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
 
       GammaPass(DTree trees[],
                 int leafs[],
-                Distribution.Family distribution
+                Distribution distribution
       ) {
         _leafs=leafs;
         _trees=trees;
@@ -714,7 +874,10 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
 
             // OOB rows get placed properly (above), but they don't affect the computed Gamma (below)
             // For Laplace/Quantile distribution, we need to compute the median of (y-offset-preds == y-f), will be done outside of here
-            if (wasOOBRow || _parms._distribution == Distribution.Family.laplace || _parms._distribution == Distribution.Family.quantile) continue;
+            if (wasOOBRow
+                    || _parms._distribution == Distribution.Family.laplace
+                    || _parms._distribution == Distribution.Family.huber
+                    || _parms._distribution == Distribution.Family.quantile) continue;
 
             double z = ress.atd(row); //residual
             double f = preds.atd(row) + offset.atd(row);
@@ -768,7 +931,7 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
   @Override protected double score1( Chunk chks[], double weight, double offset, double fs[/*nclass*/], int row ) {
     double f = chk_tree(chks,0).atd(row) + offset;
     double p = new Distribution(_parms).linkInv(f);
-    if( _parms._distribution == Distribution.Family.bernoulli ) {
+    if( _parms._distribution == Distribution.Family.modified_huber || _parms._distribution == Distribution.Family.bernoulli ) {
       fs[2] = p;
       fs[1] = 1.0-p;
       return 1;                 // f2 = 1.0 - f1; so f1+f2 = 1.0
@@ -781,6 +944,7 @@ public class GBM extends SharedTree<GBMModel,GBMModel.GBMParameters,GBMModel.GBM
         return fs[1] + fs[2];
       }
       // Multinomial loss function; sum(exp(data)).  Load tree data
+      assert(offset==0);
       fs[0+1] = f;
       for( int k=1; k<_nclass; k++ )
         fs[k+1]=chk_tree(chks,k).atd(row);

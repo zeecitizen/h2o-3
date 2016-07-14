@@ -35,7 +35,7 @@ public abstract class SharedTreeModel<M extends SharedTreeModel<M,P,O>, P extend
     public enum HistogramType { AUTO, UniformAdaptive, Random, QuantilesGlobal, RoundRobin }
     public HistogramType _histogram_type = HistogramType.AUTO; // What type of histogram to use for finding optimal split points
 
-    public double _r2_stopping = 0.999999; // Stop when the r^2 metric equals or exceeds this value
+    public double _r2_stopping = Double.MAX_VALUE; // Stop when the r^2 metric equals or exceeds this value
 
     public int _nbins_top_level = 1<<10; //hardcoded maximum top-level number of bins for real-valued columns
 
@@ -88,11 +88,6 @@ public abstract class SharedTreeModel<M extends SharedTreeModel<M,P,O>, P extend
         }
       }
     }
-  }
-
-  @Override
-  public double deviance(double w, double y, double f) {
-    return new Distribution(_parms).deviance(w, y, f);
   }
 
   @Override public ModelMetrics.MetricBuilder makeMetricBuilder(String[] domain) {

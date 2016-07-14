@@ -1,5 +1,6 @@
 package water.api.schemas3;
 
+import hex.Distribution;
 import hex.Model;
 import hex.ScoreKeeper;
 import water.*;
@@ -60,6 +61,22 @@ public class ModelParametersSchemaV3<P extends Model.Parameters, S extends Model
   @API(help="Allow parallel training of cross-validation models", direction=API.Direction.INOUT, level = API.Level.expert)
   public boolean parallelize_cross_validation;
 
+  @API(help = "Distribution function", values = { "AUTO", "bernoulli", "modified_huber", "multinomial", "gaussian", "poisson", "gamma", "tweedie", "laplace", "quantile", "huber" }, level = API.Level.secondary, gridable = true)
+  public Distribution.Family distribution;
+
+  @API(level = API.Level.secondary, direction = API.Direction.INPUT, gridable = true,
+          help = "Tweedie power for Tweedie regression, must be between 1 and 2.")
+  public double tweedie_power;
+
+  @API(level = API.Level.secondary, direction = API.Direction.INPUT, gridable = true,
+          help = "Desired quantile for Quantile regression, must be between 0 and 1.")
+  public double quantile_alpha;
+
+
+  @API(help = "Desired quantile for Huber/M-regression (threshold between quadratic and linear loss, must be between 0 and 1).",
+          level = API.Level.secondary, direction = API.Direction.INPUT, gridable = true)
+  public double huber_alpha;
+
   @API(level = API.Level.critical, direction = API.Direction.INOUT, gridable = true,
       is_member_of_frames = {"training_frame", "validation_frame"},
       is_mutually_exclusive_with = {"ignored_columns"},
@@ -91,6 +108,11 @@ public class ModelParametersSchemaV3<P extends Model.Parameters, S extends Model
       help = "Cross-validation fold assignment scheme, if fold_column is not specified. The 'Stratified' option will " +
           "stratify the folds based on the response variable, for classification problems.")
   public Model.Parameters.FoldAssignmentScheme fold_assignment;
+
+  @API(level = API.Level.secondary, direction = API.Direction.INOUT, gridable = true,
+          values = {"AUTO", "Enum", "OneHotInternal", "OneHotExplicit", "Binary", "Eigen"},
+          help = "Encoding scheme for categorical features")
+  public Model.Parameters.CategoricalEncodingScheme categorical_encoding;
 
   @API(level = API.Level.critical, direction = API.Direction.INOUT,
       is_member_of_frames = {"training_frame", "validation_frame"},

@@ -9,7 +9,6 @@ import org.junit.Test;
 import water.*;
 import water.exceptions.H2OModelBuilderIllegalArgumentException;
 import water.fvec.Chunk;
-import static water.fvec.FVecTest.makeByteVec;
 import water.fvec.Frame;
 import water.fvec.RebalanceDataSet;
 import water.fvec.Vec;
@@ -20,8 +19,12 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.TreeMap;
 
+import static hex.Distribution.Family.gaussian;
+import static hex.Distribution.Family.huber;
+import static hex.Distribution.Family.laplace;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static water.fvec.FVecTest.makeByteVec;
 
 public class GBMTest extends TestUtil {
 
@@ -38,7 +41,7 @@ public class GBMTest extends TestUtil {
       fr = parse_test_file("./smalldata/gbm_test/Mfgdata_gaussian_GBM_testing.csv");
       GBMModel.GBMParameters parms = new GBMModel.GBMParameters();
       parms._train = fr._key;
-      parms._distribution = Distribution.Family.gaussian;
+      parms._distribution = gaussian;
       parms._response_column = fr._names[1]; // Row in col 0, dependent in col 1, predictor in col 2
       parms._ntrees = 1;
       parms._max_depth = 1;
@@ -74,7 +77,7 @@ public class GBMTest extends TestUtil {
     // Regression tests
     basicGBM("./smalldata/junit/cars.csv",
             new PrepData() { int prep(Frame fr ) {fr.remove("name").remove(); return ~fr.find("economy (mpg)"); }},
-            false, Distribution.Family.gaussian);
+            false, gaussian);
 
     basicGBM("./smalldata/junit/cars.csv",
             new PrepData() { int prep(Frame fr ) {fr.remove("name").remove(); return ~fr.find("economy (mpg)"); }},
@@ -119,6 +122,11 @@ public class GBMTest extends TestUtil {
             },
             false, Distribution.Family.bernoulli);
 
+    basicGBM("./smalldata/gbm_test/alphabet_cattest.csv",
+            new PrepData() { int prep(Frame fr) { return fr.find("y"); }
+            },
+            false, Distribution.Family.modified_huber);
+
     basicGBM("./smalldata/airlines/allyears2k_headers.zip",
             new PrepData() { int prep(Frame fr) {
               for( String s : ignored_aircols ) fr.remove(s).remove();
@@ -159,7 +167,7 @@ public class GBMTest extends TestUtil {
       Scope.enter();
       fr = parse_test_file(fname);
       int idx = prep.prep(fr); // hack frame per-test
-      if (family == Distribution.Family.bernoulli || family == Distribution.Family.multinomial) {
+      if (family == Distribution.Family.bernoulli || family == Distribution.Family.multinomial || family == Distribution.Family.modified_huber) {
         if (!fr.vecs()[idx].isCategorical()) {
           Scope.track(fr.replace(idx, fr.vecs()[idx].toCategoricalVec()));
         }
@@ -373,8 +381,8 @@ public class GBMTest extends TestUtil {
 
   @Test public void testModelScoreKeeperEqualityOnProstateGaussian() {
     final PrepData prostatePrep = new PrepData() { @Override int prep(Frame fr) { fr.remove("ID").remove(); return ~fr.find("CAPSULE"); } };
-    ScoreKeeper[] scoredWithoutVal = basicGBM("./smalldata/logreg/prostate.csv", prostatePrep, false, Distribution.Family.gaussian)._scored_train;
-    ScoreKeeper[] scoredWithVal    = basicGBM("./smalldata/logreg/prostate.csv", prostatePrep, true , Distribution.Family.gaussian)._scored_valid;
+    ScoreKeeper[] scoredWithoutVal = basicGBM("./smalldata/logreg/prostate.csv", prostatePrep, false, gaussian)._scored_train;
+    ScoreKeeper[] scoredWithVal    = basicGBM("./smalldata/logreg/prostate.csv", prostatePrep, true , gaussian)._scored_valid;
     Assert.assertArrayEquals("GBM has to report same list of MSEs for run without/with validation dataset (which is equal to training data)", scoredWithoutVal, scoredWithVal);
   }
 
@@ -387,8 +395,8 @@ public class GBMTest extends TestUtil {
 
   @Test public void testModelScoreKeeperEqualityOnTitanicGaussian() {
     final PrepData titanicPrep = new PrepData() { @Override int prep(Frame fr) { return fr.find("age"); } };
-    ScoreKeeper[] scoredWithoutVal = basicGBM("./smalldata/junit/titanic_alt.csv", titanicPrep, false, Distribution.Family.gaussian)._scored_train;
-    ScoreKeeper[] scoredWithVal    = basicGBM("./smalldata/junit/titanic_alt.csv", titanicPrep, true , Distribution.Family.gaussian)._scored_valid;
+    ScoreKeeper[] scoredWithoutVal = basicGBM("./smalldata/junit/titanic_alt.csv", titanicPrep, false, gaussian)._scored_train;
+    ScoreKeeper[] scoredWithVal    = basicGBM("./smalldata/junit/titanic_alt.csv", titanicPrep, true , gaussian)._scored_valid;
     Assert.assertArrayEquals("GBM has to report same list of MSEs for run without/with validation dataset (which is equal to training data)", scoredWithoutVal, scoredWithVal);
   }
 
@@ -436,7 +444,7 @@ public class GBMTest extends TestUtil {
       parms._valid = vfr._key;
       parms._response_column = "TARGET_D";
       parms._ntrees = 3;
-      parms._distribution = Distribution.Family.gaussian;
+      parms._distribution = gaussian;
       // Build a first model; all remaining models should be equal
       GBM job1 = new GBM(parms);
       GBMModel gbm1 = job1.trainModel().get();
@@ -544,7 +552,7 @@ public class GBMTest extends TestUtil {
         parms._learn_rate = 0.1f;
         parms._min_rows = 10;
 //        parms._distribution = Family.multinomial;
-        parms._distribution = Distribution.Family.gaussian;
+        parms._distribution = gaussian;
 
         // Build a first model; all remaining models should be equal
         GBMModel gbm = new GBM(parms).trainModel().get();
@@ -1435,7 +1443,7 @@ public class GBMTest extends TestUtil {
 
     for (Distribution.Family dist : new Distribution.Family[]{
             Distribution.Family.AUTO,
-            Distribution.Family.gaussian,
+            gaussian,
             Distribution.Family.poisson,
             Distribution.Family.gamma,
             Distribution.Family.tweedie
@@ -1661,7 +1669,7 @@ public class GBMTest extends TestUtil {
       assertEquals(mse, mses[0], 1e-10);
   }
 
-  @Test public void testLaplace() {
+  @Test public void testLaplace2() {
     GBMModel gbm = null;
     GBMModel.GBMParameters parms = new GBMModel.GBMParameters();
     Frame pred=null, res=null;
@@ -1673,7 +1681,7 @@ public class GBMTest extends TestUtil {
       DKV.put(train);                    // Update frame after hacking it
       parms._train = train._key;
       parms._response_column = "DSDist"; // Train on the outcome
-      parms._distribution = Distribution.Family.laplace;
+      parms._distribution = laplace;
       parms._sample_rate = 0.6f;
       parms._col_sample_rate = 0.8f;
       parms._col_sample_rate_per_tree = 0.8f;
@@ -2368,6 +2376,271 @@ public class GBMTest extends TestUtil {
       if (tfr != null) tfr.remove();
     }
     Scope.exit();
+  }
+
+  @Test
+  public void testModifiedHuber() {
+    Frame tfr = null, vfr = null;
+    GBMModel gbm = null;
+
+    Scope.enter();
+    try {
+      tfr = parse_test_file("./smalldata/airlines/allyears2k_headers.zip");
+      for (String s : new String[]{
+              "DepTime", "ArrTime", "ActualElapsedTime",
+              "AirTime", "ArrDelay", "DepDelay", "Cancelled",
+              "CancellationCode", "CarrierDelay", "WeatherDelay",
+              "NASDelay", "SecurityDelay", "LateAircraftDelay", "IsArrDelayed"
+      }) {
+        tfr.remove(s).remove();
+      }
+      DKV.put(tfr);
+      GBMModel.GBMParameters parms = new GBMModel.GBMParameters();
+      parms._train = tfr._key;
+      parms._response_column = "IsDepDelayed";
+      parms._seed = 1234;
+      parms._distribution = Distribution.Family.modified_huber;
+      parms._min_rows = 1;
+      parms._learn_rate = .1;
+      parms._max_depth = 5;
+      parms._ntrees = 10;
+
+      // Build a first model; all remaining models should be equal
+      gbm = new GBM(parms).trainModel().get();
+
+      Frame train_preds = gbm.score(tfr);
+
+      // Build a POJO, validate same results
+      Assert.assertTrue(gbm.testJavaScoring(tfr, train_preds, 1e-15));
+      train_preds.remove();
+
+      ModelMetricsBinomial mm = (ModelMetricsBinomial)gbm._output._training_metrics;
+//      assertEquals(0.59998, mm.auc_obj()._auc, 1e-4); // 1 node
+//      assertEquals(0.31692, mm.mse(), 1e-4);
+//      assertEquals(0.79069, mm.logloss(), 1e-4);
+
+    } finally {
+      if (tfr != null) tfr.remove();
+      if (vfr != null) vfr.remove();
+      if (gbm != null) {
+        gbm.deleteCrossValidationModels();
+        gbm.delete();
+      }
+      Scope.exit();
+    }
+  }
+
+  @Test public void testModifiedHuberStability() {
+    String xy = "A,Y\nB,N\nA,N\nB,N\nA,Y\nA,Y";
+    Key tr = Key.make("train");
+    Frame df = ParseDataset.parse(tr, makeByteVec(Key.make("xy"), xy));
+
+    String test = "A,Y\nB,N\nA,N\nB,N\nA,Y\nA,Y";
+    Key te = Key.make("test");
+    Frame df2 = ParseDataset.parse(te, makeByteVec(Key.make("te"), test));
+
+    GBMModel.GBMParameters parms = new GBMModel.GBMParameters();
+    parms._train = tr;
+    parms._response_column = "C2";
+    parms._min_rows = 1;
+    parms._learn_rate = 1;
+    parms._distribution = Distribution.Family.modified_huber;
+    parms._ntrees = 1;
+    GBM job = new GBM(parms);
+    GBMModel gbm = job.trainModel().get();
+    Scope.enter(); //AdaptTestTrain leaks when it does inplace Vec adaptation, need a Scope to catch that stuff
+    Frame preds = gbm.score(df);
+    Frame preds2 = gbm.score(df2);
+    Log.info(df);
+    Log.info(preds);
+    Log.info(df2);
+    Log.info(preds2);
+    Assert.assertTrue(gbm.testJavaScoring(df, preds, 1e-15));
+    Assert.assertTrue(gbm.testJavaScoring(df2, preds2, 1e-15));
+//    Assert.assertTrue(Math.abs(preds.vec(0).at(0) - -2.5) < 1e-6);
+//    Assert.assertTrue(Math.abs(preds.vec(0).at(1) - 1) < 1e-6);
+//    Assert.assertTrue(Math.abs(preds.vec(0).at(2) - -2.5) < 1e-6);
+//    Assert.assertTrue(Math.abs(preds.vec(0).at(3) - 1) < 1e-6);
+//    Assert.assertTrue(Math.abs(preds.vec(0).at(4) - 0) < 1e-6);
+//    Assert.assertTrue(Math.abs(preds.vec(0).at(5) - 1) < 1e-6);
+    preds.remove();
+    preds2.remove();
+    gbm.remove();
+    df.remove();
+    df2.remove();
+    Scope.exit();
+  }
+
+  @Test public void testHuber2() {
+    GBMModel gbm = null;
+    GBMModel.GBMParameters parms = new GBMModel.GBMParameters();
+    Frame pred=null, res=null;
+    Scope.enter();
+    try {
+      Frame train = parse_test_file("smalldata/gbm_test/ecology_model.csv");
+      train.remove("Site").remove();     // Remove unique ID
+      train.remove("Method").remove();   // Remove categorical
+      DKV.put(train);                    // Update frame after hacking it
+      parms._train = train._key;
+      parms._response_column = "DSDist"; // Train on the outcome
+      parms._distribution = huber;
+      parms._huber_alpha = 0.5;
+      parms._sample_rate = 0.6f;
+      parms._col_sample_rate = 0.8f;
+      parms._col_sample_rate_per_tree = 0.8f;
+      parms._seed = 1234;
+
+      GBM job = new GBM(parms);
+      gbm = job.trainModel().get();
+
+      pred = parse_test_file("smalldata/gbm_test/ecology_eval.csv" );
+      res = gbm.score(pred);
+
+      // Build a POJO, validate same results
+      Assert.assertTrue(gbm.testJavaScoring(pred, res, 1e-15));
+      Assert.assertTrue(Math.abs(((ModelMetricsRegression)gbm._output._training_metrics)._MSE - 1485) < 1);
+      Assert.assertTrue(Math.abs(((ModelMetricsRegression)gbm._output._training_metrics)._mean_residual_deviance - 256.88) < 1);
+
+    } finally {
+      parms._train.remove();
+      if( gbm  != null ) gbm .delete();
+      if( pred != null ) pred.remove();
+      if( res  != null ) res .remove();
+      Scope.exit();
+    }
+  }
+
+  @Test
+  public void testLaplace() {
+    Frame tfr = null;
+    GBMModel gbm = null;
+
+    try {
+      tfr = parse_test_file("./smalldata/gbm_test/BostonHousing.csv");
+      GBMModel.GBMParameters parms = new GBMModel.GBMParameters();
+      parms._train = tfr._key;
+      parms._response_column = tfr.lastVecName();
+      parms._seed = 0xdecaf;
+      parms._distribution = laplace;
+
+      gbm = new GBM(parms).trainModel().get();
+
+      Assert.assertEquals(8.05716257,((ModelMetricsRegression)gbm._output._training_metrics)._MSE,1e-5);
+      Assert.assertEquals(1.42298/*MAE*/,((ModelMetricsRegression)gbm._output._training_metrics)._mean_residual_deviance,1e-5);
+
+    } finally {
+      if (tfr != null) tfr.delete();
+      if (gbm != null) gbm.deleteCrossValidationModels();
+      if (gbm != null) gbm.delete();
+    }
+  }
+
+  @Test
+  public void testGaussian() {
+    Frame tfr = null;
+    GBMModel gbm = null;
+
+    try {
+      tfr = parse_test_file("./smalldata/gbm_test/BostonHousing.csv");
+      GBMModel.GBMParameters parms = new GBMModel.GBMParameters();
+      parms._train = tfr._key;
+      parms._response_column = tfr.lastVecName();
+      parms._seed = 0xdecaf;
+      parms._distribution = gaussian;
+
+      gbm = new GBM(parms).trainModel().get();
+
+      Assert.assertEquals(2.9423857564,((ModelMetricsRegression) gbm._output._training_metrics)._MSE,1e-5);
+      Assert.assertEquals(2.9423857564,((ModelMetricsRegression) gbm._output._training_metrics)._mean_residual_deviance,1e-5);
+
+    } finally {
+      if (tfr != null) tfr.delete();
+      if (gbm != null) gbm.deleteCrossValidationModels();
+      if (gbm != null) gbm.delete();
+    }
+  }
+
+  @Test
+  public void testHuberDeltaLarge() {
+    Frame tfr = null;
+    GBMModel gbm = null;
+
+    try {
+      tfr = parse_test_file("./smalldata/gbm_test/BostonHousing.csv");
+      GBMModel.GBMParameters parms = new GBMModel.GBMParameters();
+      parms._train = tfr._key;
+      parms._response_column = tfr.lastVecName();
+      parms._seed = 0xdecaf;
+      parms._distribution = huber;
+      parms._huber_alpha = 1; // nothing is an outlier - same as gaussian
+
+      gbm = new GBM(parms).trainModel().get();
+
+      Assert.assertEquals(2.9423857564,((ModelMetricsRegression) gbm._output._training_metrics)._MSE,1e-2);
+      // huber loss with delta -> max(error) goes to MSE
+      Assert.assertEquals(2.9423857564,((ModelMetricsRegression) gbm._output._training_metrics)._mean_residual_deviance,1e-2);
+
+    } finally {
+      if (tfr != null) tfr.delete();
+      if (gbm != null) gbm.deleteCrossValidationModels();
+      if (gbm != null) gbm.delete();
+    }
+  }
+
+  @Test
+  public void testHuberDeltaTiny() {
+    Frame tfr = null;
+    GBMModel gbm = null;
+
+    try {
+      tfr = parse_test_file("./smalldata/gbm_test/BostonHousing.csv");
+      GBMModel.GBMParameters parms = new GBMModel.GBMParameters();
+      parms._train = tfr._key;
+      parms._response_column = tfr.lastVecName();
+      parms._seed = 0xdecaf;
+      parms._distribution = huber;
+      parms._huber_alpha = 1e-2; //everything is an outlier and we should get laplace loss
+
+      gbm = new GBM(parms).trainModel().get();
+
+      Assert.assertEquals(8.05716257,((ModelMetricsRegression)gbm._output._training_metrics)._MSE,0.3);
+
+      // Huber loss can be derived from MAE since no obs weights
+      double delta = 0.0047234; //hardcoded from output
+      double MAE = 1.42298; //see laplace above
+      Assert.assertEquals((2*MAE-delta)*delta,((ModelMetricsRegression)gbm._output._training_metrics)._mean_residual_deviance,2e-4);
+
+    } finally {
+      if (tfr != null) tfr.delete();
+      if (gbm != null) gbm.deleteCrossValidationModels();
+      if (gbm != null) gbm.delete();
+    }
+  }
+
+  @Test
+  public void testHuber() {
+    Frame tfr = null;
+    GBMModel gbm = null;
+
+    try {
+      tfr = parse_test_file("./smalldata/gbm_test/BostonHousing.csv");
+      GBMModel.GBMParameters parms = new GBMModel.GBMParameters();
+      parms._train = tfr._key;
+      parms._response_column = tfr.lastVecName();
+      parms._seed = 0xdecaf;
+      parms._distribution = huber;
+      parms._huber_alpha = 0.9; //that's the default
+
+      gbm = new GBM(parms).trainModel().get();
+
+      Assert.assertEquals(4.447062185,((ModelMetricsRegression)gbm._output._training_metrics)._MSE,1e-5);
+      Assert.assertEquals(1.962926332,((ModelMetricsRegression) gbm._output._training_metrics)._mean_residual_deviance,1e-4);
+
+    } finally {
+      if (tfr != null) tfr.delete();
+      if (gbm != null) gbm.deleteCrossValidationModels();
+      if (gbm != null) gbm.delete();
+    }
   }
 
 }
