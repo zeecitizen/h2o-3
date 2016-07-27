@@ -37,7 +37,7 @@ def metric_json_check():
     # remove newly added metrics, mae and RMSE
     reg_metric_diff.remove(u'mae')
     reg_metric_diff.remove('u_RMSE')
-    
+
     assert not reg_metric_diff, "There's a difference between the current ({0}) and the desired ({1}) regression " \
                                 "metric json. The difference is {2}".format(reg_metric_json_keys_have,
                                                                             reg_metric_json_keys_desired,
