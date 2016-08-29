@@ -392,6 +392,10 @@ class H2OBinomialModelMetrics(MetricsBase):
     if not isinstance(thresholds,list):
       raise ValueError("thresholds parameter must be a list (i.e. [0.01, 0.5, 0.99])")
     thresh2d = self._metric_json['thresholds_and_metric_scores']
+
+    if metric == 'absolute_MCC':
+      metric = 'absolute_mcc'     # absolute_MCC has been replaced with absolute_mcc now
+
     midx = thresh2d.col_header.index(metric)
     metrics = []
     for t in thresholds:
@@ -513,6 +517,9 @@ class H2OBinomialModelMetrics(MetricsBase):
     :param metric: A string in {"min_per_class_accuracy", "absolute_MCC", "precision", "recall", "specificity", "accuracy", "f0point5", "f2", "f1", "mean_per_class_accuracy"}
     :return: the threshold at which the given metric is maximum.
     """
+    if metric == 'absolute_MCC':
+      metric = 'absolute_mcc'     # absolute_MCC has been replaced with absolute_mcc now
+
     crit2d = self._metric_json['max_criteria_and_metric_scores']
 
     for e in crit2d.cell_values:
