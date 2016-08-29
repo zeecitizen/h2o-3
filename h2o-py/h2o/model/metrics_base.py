@@ -474,7 +474,7 @@ class H2OBinomialModelMetrics(MetricsBase):
     elif metrics is None:
       metrics_list = []
     else:
-      if metrics == 'absolute_MCC':   # replace element with correct metric name
+      if (metrics is not None) and (metrics == 'absolute_MCC'):   # replace element with correct metric name
         metrics = 'absolute_mcc'
       metrics_list = [metrics]
 
@@ -524,7 +524,7 @@ class H2OBinomialModelMetrics(MetricsBase):
     :param metric: A string in {"min_per_class_accuracy", "absolute_MCC", "precision", "recall", "specificity", "accuracy", "f0point5", "f2", "f1", "mean_per_class_accuracy"}
     :return: the threshold at which the given metric is maximum.
     """
-    if metric == 'absolute_MCC':
+    if (metric is not None) and (metric == 'absolute_MCC'):
       metric = 'absolute_mcc'     # absolute_MCC has been replaced with absolute_mcc now
 
     crit2d = self._metric_json['max_criteria_and_metric_scores']
