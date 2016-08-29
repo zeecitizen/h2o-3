@@ -1294,7 +1294,7 @@ h2o.mean_per_class_accuracy <- function(object, thresholds){
 #' @rdname h2o.metric
 #' @export
 h2o.mcc <- function(object, thresholds){
-  h2o.metric(object, thresholds, "absolute_MCC")
+  h2o.metric(object, thresholds, "absolute_mcc")
 }
 
 #' @rdname h2o.metric

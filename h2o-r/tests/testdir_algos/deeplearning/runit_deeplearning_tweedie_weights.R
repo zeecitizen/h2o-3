@@ -2,9 +2,6 @@ setwd(normalizePath(dirname(R.utils::commandArgs(asValues=TRUE)$"f")))
 source("../../../scripts/h2o-r-test-setup.R")
 ####### This tests weights in deeplearning for tweedie by comparing results with expected behaviour  ######
 
-
-
-
 test <- function() {
 
 	data = read.csv(file =locate("smalldata/glm_test/cancar_logIn.csv"),header = T)
@@ -39,10 +36,10 @@ test <- function() {
   print(mean(ph[,1]))
   print(min(ph[,1]))
   print(max(ph[,1]))
-	expect_equal(0.0013053, mean_deviance, tolerance=1e-5)
+	expect_equal(0.0013052, mean_deviance, tolerance=1e-5)
 	expect_equal(0.0443739, mean(ph[,1]), tolerance=1e-5 )
-	expect_equal(0.0252619, min(ph[,1]), tolerance=1e-5 )
-	expect_equal(0.0735932, max(ph[,1]), tolerance=1e-5 )
+	expect_equal(0.0252611, min(ph[,1]), tolerance=1e-5 )
+	expect_equal(0.0735923, max(ph[,1]), tolerance=1e-5 )
 
 	#With weights
 	#gg = gbm(formula = Loss~Class+Merit + C1M3 + C4M3, distribution = "tweedie",data = data,
@@ -62,12 +59,10 @@ test <- function() {
   print(mean(ph[,1]))
   print(min(ph[,1]))
   print(max(ph[,1]))
-	expect_equal(0.02544352, mean_deviance, tolerance=1e-5)
-	expect_equal(0.03661794, mean(ph[,1]), tolerance=1e-5 )
-	expect_equal(0.03460464, min(ph[,1]), tolerance=1e-5 )
-	expect_equal(0.04013461, max(ph[,1]), tolerance=1e-5 )
-		
-	
+	expect_equal(0.02544345, mean_deviance, tolerance=1e-5)
+	expect_equal(0.03661796, mean(ph[,1]), tolerance=1e-5 )
+	expect_equal(0.03460472, min(ph[,1]), tolerance=1e-5 )
+	expect_equal(0.04013454, max(ph[,1]), tolerance=1e-5 )
 }
 doTest("Deeplearning weight Test: deeplearning w/ weights for tweedie distribution", test)
 
