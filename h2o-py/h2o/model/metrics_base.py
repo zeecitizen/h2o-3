@@ -467,9 +467,16 @@ class H2OBinomialModelMetrics(MetricsBase):
     # make lists out of metrics and thresholds arguments
     if metrics is None and thresholds is None: metrics = ["f1"]
 
-    if isinstance(metrics, list): metrics_list = metrics
-    elif metrics is None: metrics_list = []
-    else: metrics_list = [metrics]
+    if isinstance(metrics, list):
+      if 'absolute_MCC' in metrics:   # metrics is a list
+        metrics[metrics.index('absolute_MCC')] = 'absolute_mcc'
+      metrics_list = metrics
+    elif metrics is None:
+      metrics_list = []
+    else:
+      if metrics == 'absolute_MCC':   # replace element with correct metric name
+        metrics = 'absolute_mcc'
+      metrics_list = [metrics]
 
     if isinstance(thresholds, list): thresholds_list = thresholds
     elif thresholds is None: thresholds_list = []
