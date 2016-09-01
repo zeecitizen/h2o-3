@@ -46,12 +46,8 @@ def grid_cars_GLM():
     grid_space.pop('family')
     print("Grid space: {0}".format(grid_space))
     print("Constructing the grid of glm models...")
-    try:
-        cars_glm_grid = H2OGridSearch(H2OGeneralizedLinearEstimator, hyper_params=grid_space)
-    except Exception as e:  # do not crash for empty model, just bad grid-search params combo.
-        print("Error exception is {0}".format(str(e)))
-        if "Gridsearch returns no model" in str(e):
-            pass
+
+    cars_glm_grid = H2OGridSearch(H2OGeneralizedLinearEstimator, hyper_params=grid_space)
 
     if validation_scheme == 1:
         cars_glm_grid.train(x=predictors,y=response_col,training_frame=train)
@@ -81,12 +77,7 @@ def grid_cars_GLM():
     print("The new search space: {0}".format(new_grid_space))
     print("Constructing the new grid of glm models...")
 
-    try:
-        cars_glm_grid2 = H2OGridSearch(H2OGeneralizedLinearEstimator, hyper_params=new_grid_space)
-    except Exception as e:
-        print("Error exception is {0}".format(str(e)))
-        if "Gridsearch returns no model" in str(e):
-            pass
+    cars_glm_grid2 = H2OGridSearch(H2OGeneralizedLinearEstimator, hyper_params=new_grid_space)
 
     if validation_scheme == 1:
         cars_glm_grid2.train(x=predictors,y=response_col,training_frame=train)
