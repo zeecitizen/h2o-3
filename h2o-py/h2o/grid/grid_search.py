@@ -206,8 +206,15 @@ class H2OGridSearch(object):
     else:                                grid_json = H2OConnection.get_json("Grids/"+grid.dest_key)
 
     self.models = [h2o.get_model(key['name']) for key in grid_json['model_ids']]
-    #get first model returned in list of models from grid search to get model class (binomial, multinomial, etc)
-    first_model_json = H2OConnection.get_json("Models/"+grid_json['model_ids'][0]['name'], _rest_version=kwargs['_rest_version'])['models'][0]
+
+    # get first model returned in list of models from grid search to get model class (binomial, multinomial, etc)
+    # sometimes no model is returned due to bad parameter values provided by the user.
+    if len(grid_json['model_ids']) > 0:
+      first_model_json = h2o.api("GET /%d/Models/%s" %
+                                 (rest_ver or 3, grid_json['model_ids'][0]['name']))['models'][0]
+      self._resolve_grid(grid.dest_key, grid_json, first_model_json)
+    else:
+      raise ValueError("Gridsearch returns no model due to bad parameter values or other reasons....")
 
     self._resolve_grid(grid.dest_key, grid_json, first_model_json)
 
