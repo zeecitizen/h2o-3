@@ -197,6 +197,7 @@ public abstract class AstRoot extends Iced<AstRoot> {
     // Advanced Math
     init(new AstCorrelation());
     init(new AstHist());
+    init(new AstISax());
     init(new AstImpute());
     init(new AstKFold());
     init(new AstMode());
