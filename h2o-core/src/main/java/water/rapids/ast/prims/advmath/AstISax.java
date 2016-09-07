@@ -23,24 +23,26 @@ public class AstISax extends AstPrimitive {
   public String[] args() { return new String[]{"ary", "numWords", "maxCardinality"}; }
 
   @Override
-  public int nargs() {
-    return 1 + 2;
-  } // (hist x breaks)
+  public int nargs() { return 1 + 3; } // (hist x breaks)
 
   @Override
   public String str() { return "isax"; }
 
   @Override
   public Val apply(Env env, Env.StackHelp stk, AstRoot asts[]) {
-    // stack is [ ..., ary, breaks]
+    // stack is [ ..., ary, numWords, maxCardinality]
     // handle the breaks
     Frame fr2;
     Frame f = stk.track(asts[1].exec(env)).getFrame();
-    if (f.numCols() != 1) throw new IllegalArgumentException("Hist only applies to single numeric columns.");
+
+    //delete me
     Vec vec = f.anyVec();
-    if (!vec.isNumeric()) throw new IllegalArgumentException("Hist only applies to single numeric columns.");
-    //TODO Add case when vec is a constant numeric
-    if(vec.isConst()) throw new IllegalArgumentException("Hist does not apply to constant numeric columns.");
+
+    int c = 0;
+    for (Vec v : f.vecs()) {
+      if (!v.isNumeric()) c++;
+    }
+    if (c > 0) throw new IllegalArgumentException("iSAX only applies to numeric columns");
 
     AstRoot a = asts[2];
     String algo = null;
