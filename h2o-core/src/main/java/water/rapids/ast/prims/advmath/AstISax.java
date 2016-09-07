@@ -44,15 +44,34 @@ public class AstISax extends AstPrimitive {
     }
     if (c > 0) throw new IllegalArgumentException("iSAX only applies to numeric columns");
 
+    // delete this block
     AstRoot a = asts[2];
     String algo = null;
     int numBreaks = -1;
     double[] breaks = null;
 
+    AstRoot n = asts[2];
+    AstRoot mc = asts[3];
+    int numWords = -1;
+    int maxCardinality = -1;
+
+    numWords = (int) n.exec(env).getNum();
+    maxCardinality = (int) mc.exec(env).getNum();
+
+    // delete this block
     if (a instanceof AstStr) algo = a.str().toLowerCase();
     else if (a instanceof AstNumList) breaks = ((AstNumList) a).expand();
     else if (a instanceof AstNum) numBreaks = (int) a.exec(env).getNum();
 
+    double globalMax = 0;
+    double globalMin = 0;
+
+    for (Vec v : f.vecs()) {
+      double vmax = v.max();
+      double vmin = v.min();
+      if (vmax > globalMax) globalMax = vmax;
+      if (vmin < globalMin) globalMin = vmin;
+    }
     AstISax.HistTask t;
     double h;
     double x1 = vec.max();
