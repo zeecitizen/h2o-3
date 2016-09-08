@@ -123,6 +123,7 @@ public class AstISax extends AstPrimitive {
           nc[icnt].addNum(chunkMean);
         }
         icnt++;
+        if (icnt == nw) break;
       }
       System.out.print("map ISAX");
     }
