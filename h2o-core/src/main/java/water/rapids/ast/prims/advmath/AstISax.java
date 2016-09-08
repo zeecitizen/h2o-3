@@ -1,5 +1,6 @@
 package water.rapids.ast.prims.advmath;
 
+import sun.awt.AWTAccessor;
 import sun.misc.Unsafe;
 import water.MRTask;
 import water.fvec.Chunk;
@@ -17,6 +18,9 @@ import water.rapids.ast.params.AstStr;
 import water.rapids.ast.prims.reducers.AstMad;
 import water.rapids.vals.ValFrame;
 import water.util.ArrayUtils;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class AstISax extends AstPrimitive {
   @Override
@@ -73,10 +77,16 @@ public class AstISax extends AstPrimitive {
       if (vmin < globalMin) globalMin = vmin;
     }
     AstISax.HistTask t;
+    AstISax.ISaxTask isaxt;
     double h;
     double x1 = vec.max();
     double x0 = vec.min();
-    if (breaks != null) t = new AstISax.HistTask(breaks, -1, -1/*ignored if _h==-1*/).doAll(vec);
+
+    fr2 = new AstISax.ISaxTask(numWords,maxCardinality,globalMax,globalMin)
+            .doAll(2,Vec.T_STR, f).outputFrame(null, new String[]{"name", "index"}, null);
+
+    /*
+    if (breaks != null) t = new AstISax.HistTask(breaks, -1, -1).doAll(vec);
     else if (algo != null) {
       switch (algo) {
         case "sturges":
@@ -118,7 +128,6 @@ public class AstISax extends AstPrimitive {
     final double[] mids_true = t._mids;
     final double[] mids = new double[t._breaks.length - 1];
     for (int i = 1; i < brks.length; ++i) mids[i - 1] = .5 * (t._breaks[i - 1] + t._breaks[i]);
-    Vec layoutVec = Vec.makeZero(brks.length);
     fr2 = new MRTask() {
       @Override
       public void map(Chunk[] c, NewChunk[] nc) {
@@ -137,7 +146,7 @@ public class AstISax extends AstPrimitive {
         }
       }
     }.doAll(4, Vec.T_NUM, new Frame(layoutVec)).outputFrame(null, new String[]{"breaks", "counts", "mids_true", "mids"}, null);
-    layoutVec.remove();
+    */
     return new ValFrame(fr2);
   }
 
@@ -274,6 +283,37 @@ public class AstISax extends AstPrimitive {
     for (int i = 0; i < numBreaks; ++i) res[i] = min + w * (i + 1);
     return res;
   }
+
+  public static class ISaxTask extends MRTask<AstISax.ISaxTask> {
+    public int nw;
+    public int mc;
+    public double gMax;
+    public double gMin;
+    ISaxTask(int numWords, int maxCardinality, double globalMax, double globalMin) {
+      nw = numWords;
+      mc = maxCardinality;
+      gMax = globalMax;
+      gMin = globalMin;
+    }
+    @Override
+    public void map(Chunk cs[],NewChunk[] nc) {
+      int step = cs.length/nw;
+      int chunkSize = cs[0].len();
+      for (int i = 0; i < cs.length; i+=step) {
+        Chunk subset[] = ArrayUtils.subarray(cs,i,i+step);
+        for (int j = 0; j < chunkSize; j++) {
+          double mySum = 0.0;
+          for (Chunk c : subset) {
+            mySum += c.atd(j);
+          }
+          double chunkMean = mySum / subset.length;
+          nc[1].addNum(chunkMean);
+        }
+      }
+      System.out.print("map ISAX");
+    }
+  }
+
 
   public static class HistTask extends MRTask<AstISax.HistTask> {
     final private double _h;      // bin width
