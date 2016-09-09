@@ -32,6 +32,11 @@ Glossary
 **Beta constraints**
 	A data.frame or H2OParsedData object with the columns [“names”, “lower_bounds”,”upper_bounds”, “beta_given”], where each row corresponds to a predictor in the GLM. “names” contains the predictor names, “lower_bounds” and “upper_bounds” are the lower and upper bounds of beta, and “beta_given” is some supplied starting values for beta.
 
+.. _bins:
+
+**Bins**
+	Bins are linear-sized from the observed min-to-max for the subset that is being split. Large bins are enforced for shallow tree depths. Based on the tree decisions, as the tree gets deeper, the bins are distributed symmetrically over the reduced range of each subset.
+
 **Binary**
 	A variable with only two possible outcomes. Refer to `binomial`_.
 
@@ -144,6 +149,11 @@ Glossary
 
 **HEX format**
 	Records made up of hexadecimal numbers representing machine language code or constant data. In H2O, data must be parsed into .hex format before you can perform operations on it. 
+
+.. _histogram:
+
+**Histogram**
+	A graphical diagram that estimates the probability distribution of a variable. The Y axis represents the variable frequency, and the X axis represents a class interval.
 
 **Hit ratio**
 	 (Multinomial only) The number of times the prediction was correct out of the total number of predictions. 

@@ -79,10 +79,10 @@ Defining a GBM Model
 -  **min\_rows**: Specify the minimum number of observations for a leaf
    (``nodesize`` in R).
 
--  **nbins**: (Numerical/real/int only) Specify the number of bins for
+-  `nbins <gbm-params/nbins.html>`__: (Numerical/real/int only) Specify the number of bins for
    the histogram to build, then split at the best point.
 
--  **nbins\_cats**: (Categorical/enums only) Specify the maximum number
+-  `nbins_cats <gbm-params/nbins_cats.html>`__: (Categorical/enums only) Specify the maximum number
    of bins for the histogram to build, then split at the best point.
    Higher values can lead to more overfitting. The levels are ordered
    alphabetically; if there are more levels than bins, adjacent levels

@@ -37,14 +37,14 @@ Supported File Formats
 H2O currently supports the following file types:
 
 - CSV (delimited) files
-- ORC*
+- ORC
 - SVMLite
 - ARFF
 - XLS
 - XLST
 - Avro (without multifile parsing or column type modification)
 
-*Note that ORC is available only if H2O is running as a Hadoop job. 
+Note that ORC is available only if H2O is running as a Hadoop job. 
 
 
 New Users
