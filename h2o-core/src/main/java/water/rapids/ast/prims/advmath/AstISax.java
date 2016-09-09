@@ -23,7 +23,7 @@ public class AstISax extends AstPrimitive {
   public String[] args() { return new String[]{"ary", "numWords", "maxCardinality"}; }
 
   @Override
-  public int nargs() { return 1 + 3; } // (hist x breaks)
+  public int nargs() { return 1 + 3; } // (isax x breaks)
 
   @Override
   public String str() { return "isax"; }
