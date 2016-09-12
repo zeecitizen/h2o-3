@@ -1,15 +1,11 @@
 package water.rapids.ast.prims.advmath;
 
 import org.apache.commons.math3.distribution.NormalDistribution;
-import org.apache.commons.math3.ode.nonstiff.DormandPrince54Integrator;
-import sun.awt.AWTAccessor;
-import sun.misc.Unsafe;
 import water.MRTask;
 import water.fvec.Chunk;
 import water.fvec.Frame;
 import water.fvec.NewChunk;
 import water.fvec.Vec;
-import water.nbhm.UtilUnsafe;
 import water.rapids.Env;
 import water.rapids.Val;
 import water.rapids.ast.AstPrimitive;
@@ -17,19 +13,18 @@ import water.rapids.ast.AstRoot;
 import water.rapids.ast.params.AstNum;
 import water.rapids.ast.params.AstNumList;
 import water.rapids.ast.params.AstStr;
-import water.rapids.ast.prims.reducers.AstMad;
 import water.rapids.vals.ValFrame;
 import water.util.ArrayUtils;
 
 import java.util.ArrayList;
-import java.util.List;
+
 
 public class AstISax extends AstPrimitive {
   @Override
   public String[] args() { return new String[]{"ary", "numWords", "maxCardinality"}; }
 
   @Override
-  public int nargs() { return 1 + 3; } // (hist x breaks)
+  public int nargs() { return 1 + 3; } // (isax x breaks)
 
   @Override
   public String str() { return "isax"; }
@@ -79,9 +74,9 @@ public class AstISax extends AstPrimitive {
       mc = maxCardinality;
       nd = new NormalDistribution();
       // come up with NormalDist boundaries
-      double step = 1.0 / nw;
+      double step = 1.0 / mc;
       probBoundaries = new ArrayList<Double>(); //cumulative dist function boundaries R{0-1}
-      for (int i = 0; i < nw; i++) {
+      for (int i = 0; i < mc; i++) {
         probBoundaries.add(nd.inverseCumulativeProbability(i*step));
       }
     }
@@ -127,7 +122,7 @@ public class AstISax extends AstPrimitive {
           int p_i = 0;
           while (probBoundaries.get(p_i + 1) < zscore) {
             p_i++;
-            if (p_i == nw - 1) break;
+            if (p_i == mc - 1) break;
           }
           nc[w].addNum(p_i);
         }

@@ -3238,8 +3238,10 @@ h2o.hist <- function(x, breaks="Sturges", plot=TRUE) {
     if( breaks=="Doane"   ) breaks <- "doane"
     if( breaks=="FD"      ) breaks <- "fd"
     if( breaks=="Scott"   ) breaks <- "scott"
+    h <- as.data.frame(.newExpr("hist", chk.H2OFrame(x), .quote(breaks)))
+  } else {
+    h <- as.data.frame(.newExpr("hist", chk.H2OFrame(x), breaks))
   }
-  h <- as.data.frame(.newExpr("hist", chk.H2OFrame(x), .quote(breaks)))
   counts <- stats::na.omit(h[,2])
   mids <- stats::na.omit(h[,4])
   histo <- list()
@@ -3253,6 +3255,20 @@ h2o.hist <- function(x, breaks="Sturges", plot=TRUE) {
     plot(histo)
     invisible(histo)
   } else histo
+}
+
+#'
+#' iSax
+#'
+#' Compute the iSAX http://www.cs.ucr.edu/~eamonn/iSAX_2.0.pdf index for
+#' a DataFrame which is assumed to be numeric time series data
+#'
+#' @param num_words Number of iSAX words for the timeseries. ie granularity along the time series
+#' @param max_cardinality Maximum cardinality of the iSAX word. Each word can have less than the max
+#' @return An H2OFrame with the name of time series, string representation of iSAX word, followed by binary representation
+#' @export
+h2o.isax <- function(x, num_words, max_cardinality){
+  .newExpr("isax", x, num_words, max_cardinality)
 }
 
 #'
