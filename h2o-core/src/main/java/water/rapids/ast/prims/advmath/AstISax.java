@@ -93,7 +93,7 @@ public class AstISax extends AstPrimitive {
       double[] seriesSums = new double[chunkSize];
       double[] seriesCounts = new double[chunkSize];
       double[] seriesSSE = new double[chunkSize];
-      double[] chunkMeans = new double[nw];
+      double[][] chunkMeans = new double[chunkSize][nw];
       // Loop by words in the time series
       for (int i = 0; i < cs.length; i+=step) {
         Chunk subset[] = ArrayUtils.subarray(cs,i,i+step);
@@ -113,7 +113,7 @@ public class AstISax extends AstPrimitive {
               seriesSSE[j] += (c.atd(j) - oldMean) * (c.atd(j) - mySum/myCount);
             }
           }
-          chunkMeans[w_i] = mySum / myCount;
+          chunkMeans[j][w_i] = mySum / myCount;
         }
         w_i++;
         if (w_i>= nw) break;
@@ -123,10 +123,11 @@ public class AstISax extends AstPrimitive {
         for (int i = 0; i < chunkSize; i++) {
           double seriesMean = seriesSums[i] / seriesCounts[i];
           double seriesStd = Math.sqrt(seriesSSE[i] / (seriesCounts[i] - 1));
-          double zscore = (chunkMeans[i] - seriesMean) / seriesStd;
+          double zscore = (chunkMeans[i][w] - seriesMean) / seriesStd;
           int p_i = 0;
-          while (zscore < probBoundaries.get(p_i)) {
+          while (probBoundaries.get(p_i + 1) < zscore) {
             p_i++;
+            if (p_i == nw - 1) break;
           }
           nc[w].addNum(p_i);
         }
