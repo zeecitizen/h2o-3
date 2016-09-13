@@ -34,6 +34,7 @@ public class AstISax extends AstPrimitive {
     // stack is [ ..., ary, numWords, maxCardinality]
     // handle the breaks
     Frame fr2;
+    Frame fr3;
     Frame f = stk.track(asts[1].exec(env)).getFrame();
 
     int c = 0;
@@ -59,20 +60,43 @@ public class AstISax extends AstPrimitive {
     fr2 = new AstISax.ISaxTask(numWords, maxCardinality)
             .doAll(numWords, Vec.T_NUM, f).outputFrame(null, columns.toArray(new String[numWords]), null);
 
-    return new ValFrame(fr2);
+
+    fr3 = new AstISax.ISaxStringTask(maxCardinality).doAll(1,Vec.T_STR,fr2).outputFrame(null,new String[]{"isax_index"},null);
+
+    fr3.add(fr2);
+    return new ValFrame(fr3);
   }
 
+  public static class ISaxStringTask extends MRTask<AstISax.ISaxStringTask> {
+    String mc;
+    ISaxStringTask(int maxCardinality) {
+      mc = String.valueOf(maxCardinality);
+    }
+
+    @Override
+    public void map(Chunk cs[], NewChunk nc[]) {
+      int csize = cs[0].len();
+      for (int c_i = 0; c_i < csize; c_i++) {
+        StringBuffer sb = new StringBuffer("");
+        for (int cs_i = 0; cs_i < cs.length; cs_i++) {
+          sb.append(cs[cs_i].at8(c_i) + "^" + mc + "_");
+        }
+        nc[0].addStr(sb.toString().substring(0,sb.length()-1));
+      }
+
+    }
+
+  }
 
   public static class ISaxTask extends MRTask<AstISax.ISaxTask> {
-    public int nw;
-    public int mc;
-    static NormalDistribution nd;
-    static ArrayList<Double> probBoundaries; // for tokenizing iSAX
+    private int nw;
+    private int mc;
+    private static NormalDistribution nd = new NormalDistribution();
+    private ArrayList<Double> probBoundaries; // for tokenizing iSAX
 
     ISaxTask(int numWords, int maxCardinality) {
       nw = numWords;
       mc = maxCardinality;
-      nd = new NormalDistribution();
       // come up with NormalDist boundaries
       double step = 1.0 / mc;
       probBoundaries = new ArrayList<Double>(); //cumulative dist function boundaries R{0-1}
@@ -91,13 +115,12 @@ public class AstISax extends AstPrimitive {
       double[][] chunkMeans = new double[chunkSize][nw];
       // Loop by words in the time series
       for (int i = 0; i < cs.length; i+=step) {
-        Chunk subset[] = ArrayUtils.subarray(cs,i,i+step);
         // Loop by each series in the chunk
         for (int j = 0; j < chunkSize; j++) {
           double mySum = 0.0;
           double myCount = 0.0;
           // Loop through all the data in the chunk for the given series in the given subset (word)
-          for (Chunk c : subset) {
+          for (Chunk c : ArrayUtils.subarray(cs,i,i+step)) {
             if (c != null) {
               // Calculate mean and sigma in one pass
               double oldMean = myCount < 1 ? 0.0 : mySum/myCount;
@@ -124,7 +147,7 @@ public class AstISax extends AstPrimitive {
             p_i++;
             if (p_i == mc - 1) break;
           }
-          nc[w].addNum(p_i);
+          nc[w].addNum(p_i,0);
         }
       }
     }
