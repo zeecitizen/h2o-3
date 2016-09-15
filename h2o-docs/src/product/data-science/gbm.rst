@@ -72,7 +72,7 @@ Defining a GBM Model
    training columns, since no information can be gained from them. This
    option is enabled by default.
 
--  **ntrees**: Specify the number of trees to build.
+-  `ntrees <gbm-params/ntrees.html>`__: Specify the number of trees to build.
 
 -  **max\_depth**: Specify the maximum tree depth.
 
@@ -179,12 +179,12 @@ Defining a GBM Model
    
     **Note**: Weights are per-row observation weights and do not increase the size of the data frame. This is typically the number of times a row is repeated, but non-integer values are supported as well. During training, rows with higher weights matter more, due to the larger loss function pre-factor.
 
--  **balance\_classes**: Specify whether to oversample the minority classes to balance the class distribution. This option is not enabled by default and can increase the data frame size. This option is only applicable for classification. Majority classes can be undersampled to satisfy the **Max\_after\_balance\_size** parameter.
+-  **balance\_classes**: Specify whether to oversample the minority classes to balance the class distribution. This option is not enabled by default and can increase the data frame size. This option is only applicable for classification. Majority classes can be undersampled to satisfy the **max\_after\_balance\_size** parameter.
 
 -  **max\_confusion\_matrix\_size**: Specify the maximum size (in number
    of classes) for confusion matrices to be printed in the Logs.
 
--  **max\_hit\_ratio\_k**: Specify the maximum number (top K) of
+-  `max_hit_ratio_k <gbm-params/max_hit_ratio_k.html>`__: Specify the maximum number (top K) of
    predictions to use for hit ratio computation. Applicable to
    multi-class only. To disable, enter 0.
 
@@ -257,7 +257,7 @@ Defining a GBM Model
    the training data after balancing class counts (**balance\_classes**
    must be enabled). The value can be less than 1.0.
 
--  **nbins\_top\_level**: (For numerical/real/int columns only) Specify
+-  `nbins_top_level <gbm-params/nbins_top_level.html>`__: (For numerical/real/int columns only) Specify
    the minimum number of bins at the root level to use to build the
    histogram. This number will then be decreased by a factor of two per
    level.
