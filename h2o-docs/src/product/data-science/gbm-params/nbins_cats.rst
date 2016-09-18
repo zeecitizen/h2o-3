@@ -21,5 +21,142 @@ To make a model more general, decrease ``nbins_top_level`` and ``nbins_cats``. T
 Example
 ~~~~~~~
 
+.. example-code::
+   .. code-block:: r
+	
+	library(h2o)
+	h2o.init()
+	# import the airlines dataset
+	airlines.hex <-  h2o.importFile("http://s3.amazonaws.com/h2o-public-test-data/smalldata/airlines/allyears2k_headers.zip")
 
+	# convert columns to factors
+	airlines.hex["Year"] <- as.factor(airlines.hex["Year"])
+	airlines.hex["Month"] <- as.factor(airlines.hex["Month"])
+	airlines.hex["DayOfWeek"] <- as.factor(airlines.hex["DayOfWeek"])
+	airlines.hex["Cancelled"] <- as.factor(airlines.hex["Cancelled"])
+	airlines.hex['FlightNum'] <- airlines.hex['FlightNum'].asfactor()
 
+	# set the predictor names and the response column name
+	predictors <- c("Origin", "Dest", "Year", "UniqueCarrier", "DayOfWeek", "Month", "Distance", "FlightNum")
+	response <- "IsDepDelayed"
+
+	# split into train, validation, and test sets 
+	# the validation set is used for cross-validation
+	# the test set is used to check model performance
+	airlines.splits <- h2o.splitFrame(data =  airlines.hex, ratios = c(.7, .15), seed = 1234)
+	train <- airlines.splits[[1]]
+	valid <- airlines.splits[[2]]
+	test <- airlines.splits[[3]]
+
+	# number of factor levels range from 2 to 2439
+	# ('FlightNum', [2439])
+	# ('Origin', [132])
+	# ('Dest', [134])
+	# ('Year', [22])
+	# ('UniqueCarrier', [10])
+	# ('DayOfWeek', [7])
+	# ('Month', [2])
+
+	# try a range of nbins_cats: 1024 the default, 132 which matches the number of factors for 'Origin',
+	# 22 which matches the number of factors for 'Year', and 2439 which matches 'FlightNum'
+	# note: if you plot variable importance you will see that 'Origin' is the most important variable
+	# while 'Year' is the second most important
+	bin_num <- c(1024,134, 22, 2439)
+	label <- c("1024","134", "22", "2439")
+	for (num in seq_along(bin_num)) {
+	  airlines.gbm <- h2o.gbm(x = predictors, y = response, training_frame = train, validation_frame = valid,
+	                            nbins_cats = names(bin_num)[num], nfolds = 5, seed = 1234)
+	  # print the label AUC score for train, valid, and test
+	  print(paste(label[num], 'training score',  h2o.auc(airlines.gbm, train = TRUE)))
+	  print(paste(label[num], 'validation score',  h2o.auc(airlines.gbm, valid = TRUE)))
+	  print(paste(label[num], 'performance on test set', h2o.auc(h2o.performance(airlines.gbm, newdata = test))))
+	}
+
+	# Example of values to grid over for `nbins_cats`
+	hyper_params <- list( nbins_cats = c(10, 20, 50, 100, 200, 500, 1000, 2000) )
+
+	# use early stopping once the validation AUC doesn't improve by at least 0.01% for 
+	# 5 consecutive scoring events
+	grid <- h2o.grid(x = predictors, y = response, training_frame = train, validation_frame = valid,
+	                 algorithm = "gbm", grid_id = "air_grid", hyper_params = hyper_params,
+	                 stopping_rounds = 5, stopping_tolerance = 1e-4, stopping_metric = "AUC",
+	                 search_criteria = list(strategy = "Cartesian"), seed = 1234)  
+
+	## Sort the grid models by AUC
+	sortedGrid <- h2o.getGrid("air_grid", sort_by = "auc", decreasing = TRUE)    
+	sortedGrid
+
+	  
+   .. code-block:: python
+
+	import h2o
+	from h2o.estimators.gbm import H2OGradientBoostingEstimator
+	h2o.init()
+	h2o.cluster().show_status()
+
+	# import the airlines dataset
+	airlines= h2o.import_file("http://s3.amazonaws.com/h2o-public-test-data/smalldata/airlines/allyears2k_headers.zip")
+
+	# convert columns to factors
+	airlines["Year"]= airlines["Year"].asfactor()
+	airlines["Month"]= airlines["Month"].asfactor()
+	airlines["DayOfWeek"] = airlines["DayOfWeek"].asfactor()
+	airlines["Cancelled"] = airlines["Cancelled"].asfactor()
+	airlines['FlightNum'] = airlines['FlightNum'].asfactor()
+
+	# set the predictor names and the response column name
+	predictors = ["Origin", "Dest", "Year", "UniqueCarrier", "DayOfWeek", "Month", "Distance", "FlightNum"]
+	response = "IsDepDelayed"
+
+	# split into train, validation, and test sets 
+	# the validation set is used for cross-validation
+	# the test set is used to check model performance
+	train, valid, test = airlines.split_frame([.7, .15], seed = 1234)
+
+	# number of factor levels range from 2 to 2439
+	# ('FlightNum', [2439])
+	# ('Origin', [132])
+	# ('Dest', [134])
+	# ('Year', [22])
+	# ('UniqueCarrier', [10])
+	# ('DayOfWeek', [7])
+	# ('Month', [2])
+
+	# try a range of nbins_cats: 1024 the default, 132 which matches the number of factors for 'Origin',
+	# 22 which matches the number of factors for 'Year', and 2439 which matches 'FlightNum'
+	# note: if you plot variable importance you will see that 'Origin' is the most important variable
+	# while 'Year' is the second most important
+	bin_num = [1024,132, 22, 2439]
+	label = ["1024","134", "22", "2439"]
+	for key, num in enumerate(bin_num):
+	    # initialize the GBM estimator and set a seed for reproducibility
+	    airlines_gbm = H2OGradientBoostingEstimator(nbins_cats = num, seed =1234)
+	    airlines_gbm.train(x = predictors, y = response, training_frame = train, validation_frame = valid)
+	    # print the label AUC score for train, valid, and test
+	    print(label[key], 'training score', airlines_gbm.auc(train = True))
+	    print(label[key], 'validation score', airlines_gbm.auc(valid = True))
+	    print(label[key], 'performance on test set', airlines_gbm.model_performance(test).auc())
+
+	# Example of values to grid over for `nbins_cats`
+	# import Grid Search
+	from h2o.grid.grid_search import H2OGridSearch
+
+	# select the values for nbins_cats to grid over
+	hyper_params = {'nbins_cats': [10, 20, 50, 100, 200, 500, 1000, 2000]}
+
+	# initialize GBM estimator
+	# use early stopping once the validation AUC doesn't improve by at least 0.01% for 
+	# 5 consecutive scoring events
+	airlines_gbm_2 = H2OGradientBoostingEstimator(seed = 1234, stopping_rounds = 5,
+	                     stopping_metric = "AUC", stopping_tolerance = 1e-4)
+
+	# build grid search with previously made GBM and hyper parameters
+	grid = H2OGridSearch(model = airlines_gbm_2, hyper_params = hyper_params,
+	                     search_criteria = {'strategy': "Cartesian"})
+
+	# train using the grid
+	grid.train(x = predictors, y = response, training_frame = train, validation_frame = valid, seed = 1234)
+
+	# sort the grid models by decreasing AUC
+	sorted_grid = grid.get_grid(sort_by = 'auc', decreasing = True)
+	print(sorted_grid)
