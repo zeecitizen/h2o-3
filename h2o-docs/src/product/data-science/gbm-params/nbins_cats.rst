@@ -27,21 +27,21 @@ Example
 	library(h2o)
 	h2o.init()
 	# import the airlines dataset, original data can be found at http://www.transtats.bts.gov/
-	airlines.hex <-  h2o.importFile("http://s3.amazonaws.com/h2o-public-test-data/smalldata/airlines/allyears2k_headers.zip")
+	airlines <-  h2o.importFile("http://s3.amazonaws.com/h2o-public-test-data/smalldata/airlines/allyears2k_headers.zip")
 
 	# convert columns to factors
-	airlines.hex["Year"] <- as.factor(airlines.hex["Year"])
-	airlines.hex["Month"] <- as.factor(airlines.hex["Month"])
-	airlines.hex["DayOfWeek"] <- as.factor(airlines.hex["DayOfWeek"])
-	airlines.hex["Cancelled"] <- as.factor(airlines.hex["Cancelled"])
-	airlines.hex['FlightNum'] <- airlines.hex['FlightNum'].asfactor()
+	airlines["Year"] <- as.factor(airlines["Year"])
+	airlines["Month"] <- as.factor(airlines["Month"])
+	airlines["DayOfWeek"] <- as.factor(airlines["DayOfWeek"])
+	airlines["Cancelled"] <- as.factor(airlines["Cancelled"])
+	airlines['FlightNum'] <- airlines['FlightNum'].asfactor()
 
 	# set the predictor names and the response column name
 	predictors <- c("Origin", "Dest", "Year", "UniqueCarrier", "DayOfWeek", "Month", "Distance", "FlightNum")
 	response <- "IsDepDelayed"
 
 	# split into train and validation
-	airlines.splits <- h2o.splitFrame(data =  airlines.hex, ratios = .8, seed = 1234)
+	airlines.splits <- h2o.splitFrame(data =  airlines, ratios = .8, seed = 1234)
 	train <- airlines.splits[[1]]
 	valid <- airlines.splits[[2]]
 
