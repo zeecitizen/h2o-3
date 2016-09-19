@@ -26,7 +26,7 @@ Example
 	
 	library(h2o)
 	h2o.init()
-	# import the airlines dataset
+	# import the airlines dataset, original data can be found at http://www.transtats.bts.gov/
 	airlines.hex <-  h2o.importFile("http://s3.amazonaws.com/h2o-public-test-data/smalldata/airlines/allyears2k_headers.zip")
 
 	# convert columns to factors
@@ -40,13 +40,10 @@ Example
 	predictors <- c("Origin", "Dest", "Year", "UniqueCarrier", "DayOfWeek", "Month", "Distance", "FlightNum")
 	response <- "IsDepDelayed"
 
-	# split into train, validation, and test sets 
-	# the validation set is used for cross-validation
-	# the test set is used to check model performance
-	airlines.splits <- h2o.splitFrame(data =  airlines.hex, ratios = c(.7, .15), seed = 1234)
+	# split into train and validation
+	airlines.splits <- h2o.splitFrame(data =  airlines.hex, ratios = .8, seed = 1234)
 	train <- airlines.splits[[1]]
 	valid <- airlines.splits[[2]]
-	test <- airlines.splits[[3]]
 
 	# number of factor levels range from 2 to 2439
 	# ('FlightNum', [2439])
@@ -57,25 +54,25 @@ Example
 	# ('DayOfWeek', [7])
 	# ('Month', [2])
 
-	# try a range of nbins_cats: 1024 the default, 132 which matches the number of factors for 'Origin',
-	# 22 which matches the number of factors for 'Year', and 2439 which matches 'FlightNum'
-	# note: if you plot variable importance you will see that 'Origin' is the most important variable
-	# while 'Year' is the second most important
-	bin_num <- c(1024,134, 22, 2439)
-	label <- c("1024","134", "22", "2439")
-	for (num in seq_along(bin_num)) {
+	# try a range of nbins_cats: 
+	bin_num = c(8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096)
+	label = c("8", "16" ,"32", "64", "128", "256", "512", "1024", "2048", "4096")
+	lapply(seq_along(1:length(bin_num)),function(num) {
 	  airlines.gbm <- h2o.gbm(x = predictors, y = response, training_frame = train, validation_frame = valid,
-	                            nbins_cats = names(bin_num)[num], nfolds = 5, seed = 1234)
+	                          nbins_cats = bin_num[num], nfolds = 5, seed = 1234)
 	  # print the label AUC score for train, valid, and test
 	  print(paste(label[num], 'training score',  h2o.auc(airlines.gbm, train = TRUE)))
 	  print(paste(label[num], 'validation score',  h2o.auc(airlines.gbm, valid = TRUE)))
-	  print(paste(label[num], 'performance on test set', h2o.auc(h2o.performance(airlines.gbm, newdata = test))))
-	}
+	})
+
 
 	# Example of values to grid over for `nbins_cats`
-	hyper_params <- list( nbins_cats = c(10, 20, 50, 100, 200, 500, 1000, 2000) )
+	hyper_params <- list( nbins_cats = c(8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096) )
 
-	# use early stopping once the validation AUC doesn't improve by at least 0.01% for 
+	# this example uses cartesian grid search because the search space is small
+	# and we want to see the performance of all models. For a larger search space use
+	# random grid search instead: list(strategy = "RandomDiscrete")
+	# this gbm uses early stopping once the validation AUC doesn't improve by at least 0.01% for 
 	# 5 consecutive scoring events
 	grid <- h2o.grid(x = predictors, y = response, training_frame = train, validation_frame = valid,
 	                 algorithm = "gbm", grid_id = "air_grid", hyper_params = hyper_params,
@@ -91,11 +88,11 @@ Example
 
 	import h2o
 	from h2o.estimators.gbm import H2OGradientBoostingEstimator
-	h2o.init()
+	h2o.init(strict_version_check=False)
 	h2o.cluster().show_status()
 
-	# import the airlines dataset
-	airlines= h2o.import_file("http://s3.amazonaws.com/h2o-public-test-data/smalldata/airlines/allyears2k_headers.zip")
+	# import the airlines dataset, original data can be found at http://www.transtats.bts.gov/
+	airlines= h2o.import_file("https://s3.amazonaws.com/h2o-public-test-data/smalldata/airlines/allyears2k_headers.zip")
 
 	# convert columns to factors
 	airlines["Year"]= airlines["Year"].asfactor()
@@ -108,10 +105,8 @@ Example
 	predictors = ["Origin", "Dest", "Year", "UniqueCarrier", "DayOfWeek", "Month", "Distance", "FlightNum"]
 	response = "IsDepDelayed"
 
-	# split into train, validation, and test sets 
-	# the validation set is used for cross-validation
-	# the test set is used to check model performance
-	train, valid, test = airlines.split_frame([.7, .15], seed = 1234)
+	# split into train and validation sets 
+	train, valid= airlines.split_frame(ratios = [.8], seed = 1234)
 
 	# number of factor levels range from 2 to 2439
 	# ('FlightNum', [2439])
@@ -122,12 +117,9 @@ Example
 	# ('DayOfWeek', [7])
 	# ('Month', [2])
 
-	# try a range of nbins_cats: 1024 the default, 132 which matches the number of factors for 'Origin',
-	# 22 which matches the number of factors for 'Year', and 2439 which matches 'FlightNum'
-	# note: if you plot variable importance you will see that 'Origin' is the most important variable
-	# while 'Year' is the second most important
-	bin_num = [1024,132, 22, 2439]
-	label = ["1024","134", "22", "2439"]
+	# try a range of nbins_cats: 
+	bin_num = [8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
+	label = ["8", "16", "32", "64", "128", "256", "512", "1024", "2048", "4096"]
 	for key, num in enumerate(bin_num):
 	    # initialize the GBM estimator and set a seed for reproducibility
 	    airlines_gbm = H2OGradientBoostingEstimator(nbins_cats = num, seed =1234)
@@ -135,16 +127,19 @@ Example
 	    # print the label AUC score for train, valid, and test
 	    print(label[key], 'training score', airlines_gbm.auc(train = True))
 	    print(label[key], 'validation score', airlines_gbm.auc(valid = True))
-	    print(label[key], 'performance on test set', airlines_gbm.model_performance(test).auc())
+
 
 	# Example of values to grid over for `nbins_cats`
 	# import Grid Search
 	from h2o.grid.grid_search import H2OGridSearch
 
 	# select the values for nbins_cats to grid over
-	hyper_params = {'nbins_cats': [10, 20, 50, 100, 200, 500, 1000, 2000]}
+	hyper_params = {'nbins_cats': [8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]}
 
-	# initialize GBM estimator
+	# this example uses cartesian grid search because the search space is small
+	# and we want to see the performance of all models. For a larger search space use
+	# random grid search instead: {'strategy': "RandomDiscrete"}
+	# initialize the GBM estimator
 	# use early stopping once the validation AUC doesn't improve by at least 0.01% for 
 	# 5 consecutive scoring events
 	airlines_gbm_2 = H2OGradientBoostingEstimator(seed = 1234, stopping_rounds = 5,
