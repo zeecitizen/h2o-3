@@ -17,7 +17,7 @@ Example
 .. example-code::
    .. code-block:: r
 
-   library(h2o)
+	library(h2o)
 	h2o.init()
 	# import the EEG dataset: 
 	# All data is from one continuous EEG measurement with the Emotiv EEG Neuroheadset. 
@@ -31,7 +31,6 @@ Example
 	# convert response column to a factor
 	eeg['eyeDetection'] <- as.factor(eeg['eyeDetection'])
 
-
 	# set the predictor names and the response column name
 	predictors <- colnames(eeg)[1:(length(eeg)-1)]
 	response <- "eyeDetection"
@@ -40,7 +39,6 @@ Example
 	eeg.splits <- h2o.splitFrame(data =  eeg, ratios = .8, seed = 1234)
 	train <- eeg.splits[[1]]
 	valid <- eeg.splits[[2]]
-
 
 	# try a range of nbins_top_level: 
 	bin_num = c(32, 64, 128, 256, 512, 1024, 2048, 4096)
@@ -72,7 +70,7 @@ Example
 	sortedGrid
 
 
-.. code-block:: python
+   .. code-block:: python
 
 	import h2o
 	from h2o.estimators.gbm import H2OGradientBoostingEstimator
