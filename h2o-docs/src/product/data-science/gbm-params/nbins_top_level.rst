@@ -46,7 +46,7 @@ Example
 	lapply(seq_along(1:length(bin_num)),function(num) {
 	  eeg.gbm <- h2o.gbm(x = predictors, y = response, training_frame = train, validation_frame = valid,
 	                          nbins_top_level = bin_num[num], nfolds = 5, seed = 1234)
-	  # print the label AUC score for train, valid, and test
+	  # print the value used and AUC score for train and valid
 	  print(paste(label[num], 'training score',  h2o.auc(eeg.gbm, train = TRUE)))
 	  print(paste(label[num], 'validation score',  h2o.auc(eeg.gbm, valid = TRUE)))
 	})
@@ -58,7 +58,7 @@ Example
 	# this example uses cartesian grid search because the search space is small
 	# and we want to see the performance of all models. For a larger search space use
 	# random grid search instead: list(strategy = "RandomDiscrete")
-	# this gbm uses early stopping once the validation AUC doesn't improve by at least 0.01% for 
+	# this GBM uses early stopping once the validation AUC doesn't improve by at least 0.01% for 
 	# 5 consecutive scoring events
 	grid <- h2o.grid(x = predictors, y = response, training_frame = train, validation_frame = valid,
 	                 algorithm = "gbm", grid_id = "eeg_grid", hyper_params = hyper_params,
@@ -74,7 +74,7 @@ Example
 
 	import h2o
 	from h2o.estimators.gbm import H2OGradientBoostingEstimator
-	h2o.init(strict_version_check=False)
+	h2o.init()
 	h2o.cluster().show_status()
 
 	# import the EEG dataset: 
@@ -105,7 +105,7 @@ Example
 	    # initialize the GBM estimator and set a seed for reproducibility
 	    eeg_gbm = H2OGradientBoostingEstimator(nbins_top_level = num, seed = 1234)
 	    eeg_gbm.train(x = predictors, y = response, training_frame = train, validation_frame = valid)
-	    # print the label AUC score for train and validation sets
+	    # print the value used and AUC score for train and validation sets
 	    print(label[key], 'training score', eeg_gbm.auc(train = True))
 	    print(label[key], 'validation score', eeg_gbm.auc(valid = True))
 

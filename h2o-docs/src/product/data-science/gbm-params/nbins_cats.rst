@@ -26,7 +26,9 @@ Example
 	
 	library(h2o)
 	h2o.init()
-	# import the airlines dataset, original data can be found at http://www.transtats.bts.gov/
+	# import the airlines dataset:
+	# This dataset is used to classify whether a flight will be delayed 'YES' or not "NO"
+	# original data can be found at http://www.transtats.bts.gov/
 	airlines <-  h2o.importFile("http://s3.amazonaws.com/h2o-public-test-data/smalldata/airlines/allyears2k_headers.zip")
 
 	# convert columns to factors
@@ -60,7 +62,7 @@ Example
 	lapply(seq_along(1:length(bin_num)),function(num) {
 	  airlines.gbm <- h2o.gbm(x = predictors, y = response, training_frame = train, validation_frame = valid,
 	                          nbins_cats = bin_num[num], nfolds = 5, seed = 1234)
-	  # print the label AUC score for train, valid, and test
+	  # print the value used and AUC score for train and valid
 	  print(paste(label[num], 'training score',  h2o.auc(airlines.gbm, train = TRUE)))
 	  print(paste(label[num], 'validation score',  h2o.auc(airlines.gbm, valid = TRUE)))
 	})
@@ -72,7 +74,7 @@ Example
 	# this example uses cartesian grid search because the search space is small
 	# and we want to see the performance of all models. For a larger search space use
 	# random grid search instead: list(strategy = "RandomDiscrete")
-	# this gbm uses early stopping once the validation AUC doesn't improve by at least 0.01% for 
+	# this GBM uses early stopping once the validation AUC doesn't improve by at least 0.01% for 
 	# 5 consecutive scoring events
 	grid <- h2o.grid(x = predictors, y = response, training_frame = train, validation_frame = valid,
 	                 algorithm = "gbm", grid_id = "air_grid", hyper_params = hyper_params,
@@ -88,10 +90,12 @@ Example
 
 	import h2o
 	from h2o.estimators.gbm import H2OGradientBoostingEstimator
-	h2o.init(strict_version_check=False)
+	h2o.init()
 	h2o.cluster().show_status()
 
-	# import the airlines dataset, original data can be found at http://www.transtats.bts.gov/
+	# import the airlines dataset:
+	# This dataset is used to classify whether a flight will be delayed 'YES' or not "NO"
+	# original data can be found at http://www.transtats.bts.gov/
 	airlines= h2o.import_file("https://s3.amazonaws.com/h2o-public-test-data/smalldata/airlines/allyears2k_headers.zip")
 
 	# convert columns to factors
@@ -124,7 +128,7 @@ Example
 	    # initialize the GBM estimator and set a seed for reproducibility
 	    airlines_gbm = H2OGradientBoostingEstimator(nbins_cats = num, seed =1234)
 	    airlines_gbm.train(x = predictors, y = response, training_frame = train, validation_frame = valid)
-	    # print the label AUC score for train, valid, and test
+	    # print the value used and AUC score for train and valid
 	    print(label[key], 'training score', airlines_gbm.auc(train = True))
 	    print(label[key], 'validation score', airlines_gbm.auc(valid = True))
 
