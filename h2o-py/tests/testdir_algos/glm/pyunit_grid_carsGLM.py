@@ -43,11 +43,12 @@ def grid_cars_GLM():
             valid[response_col] = valid[response_col].asfactor()
 
     #grid_space.update({"lambda":[0.1,0.05,0.01]})
-    grid_space.pop('family')
+    family_type = grid_space.pop('family')[0]  # family is not specified over grid space
     print("Grid space: {0}".format(grid_space))
     print("Constructing the grid of glm models...")
 
-    cars_glm_grid = H2OGridSearch(H2OGeneralizedLinearEstimator, hyper_params=grid_space)
+
+    cars_glm_grid = H2OGridSearch(H2OGeneralizedLinearEstimator(family = family_type), hyper_params=grid_space)
 
     if validation_scheme == 1:
         cars_glm_grid.train(x=predictors,y=response_col,training_frame=train)
@@ -77,7 +78,7 @@ def grid_cars_GLM():
     print("The new search space: {0}".format(new_grid_space))
     print("Constructing the new grid of glm models...")
 
-    cars_glm_grid2 = H2OGridSearch(H2OGeneralizedLinearEstimator, hyper_params=new_grid_space)
+    cars_glm_grid2 = H2OGridSearch(H2OGeneralizedLinearEstimator(family = family_type), hyper_params=new_grid_space)
 
     if validation_scheme == 1:
         cars_glm_grid2.train(x=predictors,y=response_col,training_frame=train)
