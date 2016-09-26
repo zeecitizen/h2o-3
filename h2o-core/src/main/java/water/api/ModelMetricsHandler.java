@@ -16,6 +16,8 @@ class ModelMetricsHandler extends Handler {
     public Frame _frame;
     public ModelMetrics[] _model_metrics;
     public String _predictions_name;
+    public String _deviances_name;
+    public boolean _deviances;
     public boolean _reconstruction_error;
     public boolean _reconstruction_error_per_feature;
     public int _deep_features_hidden_layer = -1;
@@ -88,6 +90,9 @@ class ModelMetricsHandler extends Handler {
     @API(help = "Key of predictions frame, if predictions are requested (optional)", direction = API.Direction.INOUT)
     public KeyV3.FrameKeyV3 predictions_frame;
 
+    @API(help = "Key for the frame containing per-observation deviances (optional)", direction = API.Direction.INOUT)
+    public KeyV3.FrameKeyV3 deviances_frame;
+
     @API(help = "Compute reconstruction error (optional, only for Deep Learning AutoEncoder models)", json = false)
     public boolean reconstruction_error;
 
@@ -112,6 +117,9 @@ class ModelMetricsHandler extends Handler {
     @API(help = "Retrieve all members for a given exemplar (optional, only for Aggregator models)", json = false)
     public int exemplar_index;
 
+    @API(help = "Compute the deviances per row (optional, only for classification or regression models)", json = false)
+    public boolean deviances;
+
     // Output fields
     @API(help = "ModelMetrics", direction = API.Direction.OUTPUT)
     public ModelMetricsBaseV3[] model_metrics;
@@ -129,6 +137,7 @@ class ModelMetricsHandler extends Handler {
       mml._reverse_transform = this.reverse_transform;
       mml._leaf_node_assignment = this.leaf_node_assignment;
       mml._exemplar_index = this.exemplar_index;
+      mml._deviances = this.deviances;
 
       if (null != model_metrics) {
         mml._model_metrics = new ModelMetrics[model_metrics.length];
@@ -146,6 +155,7 @@ class ModelMetricsHandler extends Handler {
       this.model = (mml._model == null ? null : new KeyV3.ModelKeyV3(mml._model._key));
       this.frame = (mml._frame == null ? null : new KeyV3.FrameKeyV3(mml._frame._key));
       this.predictions_frame = (mml._predictions_name == null ? null : new KeyV3.FrameKeyV3(Key.<Frame>make(mml._predictions_name)));
+      this.deviances_frame = (mml._deviances_name == null ? null : new KeyV3.FrameKeyV3(Key.<Frame>make(mml._deviances_name)));
       this.reconstruction_error = mml._reconstruction_error;
       this.reconstruction_error_per_feature = mml._reconstruction_error_per_feature;
       this.deep_features_hidden_layer = mml._deep_features_hidden_layer;
@@ -154,6 +164,7 @@ class ModelMetricsHandler extends Handler {
       this.reverse_transform = mml._reverse_transform;
       this.leaf_node_assignment = mml._leaf_node_assignment;
       this.exemplar_index = mml._exemplar_index;
+      this.deviances = mml._deviances;
 
       if (null != mml._model_metrics) {
         this.model_metrics = new ModelMetricsBaseV3[mml._model_metrics.length];
@@ -305,6 +316,8 @@ class ModelMetricsHandler extends Handler {
     if (null == s.frame) throw new H2OIllegalArgumentException("frame", "predict", s.frame);
     if (null == DKV.get(s.frame.name)) throw new H2OKeyNotFoundArgumentException("frame", "predict", s.frame.name);
 
+    if (s.deviances || null != s.deviances_frame) throw new H2OIllegalArgumentException("deviances", "not supported for async", s.deviances_frame);
+
     final ModelMetricsList parms = s.createAndFillImpl();
 
     //predict2 does not return modelmetrics, so cannot handle deeplearning: reconstruction_error (anomaly) or GLRM: reconstruct and archetypes
@@ -332,7 +345,7 @@ class ModelMetricsHandler extends Handler {
           parms._model.score(parms._frame, parms._predictions_name, j);
         } else {
           Frame predictions = ((Model.DeepFeatures) parms._model).scoreDeepFeatures(parms._frame, s.deep_features_hidden_layer, j);
-          predictions = new Frame(Key.make(parms._predictions_name), predictions.names(), predictions.vecs());
+          predictions = new Frame(Key.<Frame>make(parms._predictions_name), predictions.names(), predictions.vecs());
           DKV.put(predictions._key, predictions);
         }
         tryComplete();
@@ -360,12 +373,22 @@ class ModelMetricsHandler extends Handler {
     ModelMetricsList parms = s.createAndFillImpl();
 
     Frame predictions;
+    Frame deviances = null;
     if (!s.reconstruction_error && !s.reconstruction_error_per_feature && s.deep_features_hidden_layer < 0 &&
         !s.project_archetypes && !s.reconstruct_train && !s.leaf_node_assignment && s.exemplar_index < 0) {
       if (null == parms._predictions_name)
         parms._predictions_name = "predictions" + Key.make().toString().substring(0,5) + "_" + parms._model._key.toString() + "_on_" + parms._frame._key.toString();
       predictions = parms._model.score(parms._frame, parms._predictions_name);
+      if (s.deviances) {
+        if (!parms._model.isSupervised())
+          throw new H2OIllegalArgumentException("Deviances can only be computed for supervised models.");
+        if (null == parms._deviances_name)
+          parms._deviances_name = "deviances" + Key.make().toString().substring(0, 5) + "_" + parms._model._key.toString() + "_on_" + parms._frame._key.toString();
+        deviances = parms._model.computeDeviances(parms._frame, predictions, parms._deviances_name);
+      }
     } else {
+      if (s.deviances)
+        throw new H2OIllegalArgumentException("Cannot compute deviances in combination with other special predictions.");
       if (Model.DeepFeatures.class.isAssignableFrom(parms._model.getClass())) {
         if (s.reconstruction_error || s.reconstruction_error_per_feature) {
           if (s.deep_features_hidden_layer >= 0)
@@ -380,29 +403,29 @@ class ModelMetricsHandler extends Handler {
             parms._predictions_name = "deep_features" + Key.make().toString().substring(0,5) + "_" + parms._model._key.toString() + "_on_" + parms._frame._key.toString();
           predictions = ((Model.DeepFeatures) parms._model).scoreDeepFeatures(parms._frame, s.deep_features_hidden_layer);
         }
-        predictions = new Frame(Key.make(parms._predictions_name), predictions.names(), predictions.vecs());
+        predictions = new Frame(Key.<Frame>make(parms._predictions_name), predictions.names(), predictions.vecs());
         DKV.put(predictions._key, predictions);
       } else if(Model.GLRMArchetypes.class.isAssignableFrom(parms._model.getClass())) {
         if(s.project_archetypes) {
           if (null == parms._predictions_name)
             parms._predictions_name = "reconstructed_archetypes_" + Key.make().toString().substring(0, 5) + "_" + parms._model._key.toString() + "_of_" + parms._frame._key.toString();
-          predictions = ((Model.GLRMArchetypes) parms._model).scoreArchetypes(parms._frame, Key.make(parms._predictions_name), s.reverse_transform);
+          predictions = ((Model.GLRMArchetypes) parms._model).scoreArchetypes(parms._frame, Key.<Frame>make(parms._predictions_name), s.reverse_transform);
         } else {
           assert s.reconstruct_train;
           if (null == parms._predictions_name)
             parms._predictions_name = "reconstruction_" + Key.make().toString().substring(0, 5) + "_" + parms._model._key.toString() + "_of_" + parms._frame._key.toString();
-          predictions = ((Model.GLRMArchetypes) parms._model).scoreReconstruction(parms._frame, Key.make(parms._predictions_name), s.reverse_transform);
+          predictions = ((Model.GLRMArchetypes) parms._model).scoreReconstruction(parms._frame, Key.<Frame>make(parms._predictions_name), s.reverse_transform);
         }
       } else if(s.leaf_node_assignment) {
         assert(Model.LeafNodeAssignment.class.isAssignableFrom(parms._model.getClass()));
         if (null == parms._predictions_name)
           parms._predictions_name = "leaf_node_assignment" + Key.make().toString().substring(0, 5) + "_" + parms._model._key.toString() + "_on_" + parms._frame._key.toString();
-        predictions = ((Model.LeafNodeAssignment) parms._model).scoreLeafNodeAssignment(parms._frame, Key.make(parms._predictions_name));
+        predictions = ((Model.LeafNodeAssignment) parms._model).scoreLeafNodeAssignment(parms._frame, Key.<Frame>make(parms._predictions_name));
       } else if(s.exemplar_index >= 0) {
         assert(Model.ExemplarMembers.class.isAssignableFrom(parms._model.getClass()));
         if (null == parms._predictions_name)
           parms._predictions_name = "members_" + parms._model._key.toString() + "_for_exemplar_" + parms._exemplar_index;
-        predictions = ((Model.ExemplarMembers) parms._model).scoreExemplarMembers(Key.make(parms._predictions_name), parms._exemplar_index);
+        predictions = ((Model.ExemplarMembers) parms._model).scoreExemplarMembers(Key.<Frame>make(parms._predictions_name), parms._exemplar_index);
       }
       else throw new H2OIllegalArgumentException("Requires a Deep Learning, GLRM, DRF or GBM model.", "Model must implement specific methods.");
     }
@@ -417,6 +440,8 @@ class ModelMetricsHandler extends Handler {
     mm.predictions_frame = new KeyV3.FrameKeyV3(predictions._key);
     if (parms._leaf_node_assignment) //don't show metrics in leaf node assignments are made
       mm.model_metrics = null;
+    if (deviances !=null)
+      mm.deviances_frame = new KeyV3.FrameKeyV3(deviances._key);
 
     if (null == mm.model_metrics || 0 == mm.model_metrics.length) {
       // There was no response in the test set -> cannot make a model_metrics object

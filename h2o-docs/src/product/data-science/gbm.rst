@@ -3,12 +3,7 @@ GBM
 Introduction
 ~~~~~~~~~~~~
 
-Gradient Boosted Regression and Gradient Boosted Classification are
-forward learning ensemble methods. The guiding heuristic is that good
-predictive results can be obtained through increasingly refined
-approximations. H2O's GBM sequentially builds regression trees on all
-the features of the dataset in a fully distributed way - each tree is
-built in parallel.
+Gradient Boosting Machine (for Regression and Classification) is a forward learning ensemble method. The guiding heuristic is that good predictive results can be obtained through increasingly refined approximations. H2O's GBM sequentially builds regression trees on all the features of the dataset in a fully distributed way - each tree is built in parallel.
 
 The current version of GBM is fundamentally the same as in previous
 versions of H2O (same algorithmic steps, same histogramming techniques),
@@ -98,7 +93,9 @@ Defining a GBM Model
 
 -  **learn\_rate**: Specify the learning rate. The range is 0.0 to 1.0.
 
--  **distribution**: Specify the distribution (i.e., the loss function). The options are AUTO, bernoulli, multinomial, gaussian, poisson, gamma, laplace, quantile, or tweedie.
+-  **learn\_rate\_annealing**:  Specifies to reduce the **learn_rate** by this factor after every tree. So for *N* trees, GBM starts with **learn_rate** and ends with **learn_rate** * **learn\_rate\_annealing**^*N*. For example, instead of using **learn_rate=0.01**, you can now try **learn_rate=0.05** and **learn\_rate\_annealing=0.99**. This method would converge much faster with almost the same accuracy. Use caution not to overfit. 
+
+-  **distribution**: Specify the distribution (i.e., the loss function). The options are AUTO, bernoulli, multinomial, gaussian, poisson, gamma, laplace, quantile, huber, or tweedie.
 
        -  If the distribution is **multinomial**, the response column
           must be categorical.
@@ -110,8 +107,10 @@ Defining a GBM Model
           be numeric.
        -  If the distribution is **gaussian**, the response column must
           be numeric.
-       -  If the distribution is **laplace**, the response column must
+       -  If the distribution is **huber**, the response column must
           be numeric.
+       -  If the distribution is **gamma**, the response column must be
+          numeric.
        -  If the distribution is **quantile**, the response column must
           be numeric.
           
@@ -121,6 +120,8 @@ Defining a GBM Model
    accuracy improves when either columns or rows are sampled. For
    details, refer to "Stochastic Gradient Boosting" (`Friedman,
    1999 <https://statweb.stanford.edu/~jhf/ftp/stobst.pdf>`__).
+
+-  **sample\_rate\_per\_class**: When building models from imbalanced datasets, this option specifies that each tree in the ensemble should sample from the full training dataset using a per-class-specific sampling rate rather than a global sample factor (as with `sample_rate`). The range for this option is 0.0 to 1.0. If this option is specified along with **sample_rate**, then only the first option that GBM encounters will be used.
 
 -  **col\_sample\_rate**: Specify the column sampling rate (y-axis). The
    range is 0.0 to 1.0. Higher values may improve training accuracy.
@@ -140,7 +141,13 @@ Defining a GBM Model
 	
 	  etc. 
 
--  **min\_split_improvement**: The value of this option specifies the minimum relative improvement in squared error reduction in order for a split to happen. When properly tuned, this option can help reduce overfitting. Optimal values would be in the 1e-10...1e-3 range.  
+-  **max\_abs\_leafnode\_pred**: When building a GBM classification model, this option reduces overfitting by limiting the maximum absolute value of a leaf node prediction. This option defaults to Double.MAX_VALUE.
+
+-  **pred\_noise\_bandwidth**: The bandwidth (sigma) of Gaussian multiplicative noise ~N(1,sigma) for tree node predictions. If this parameter is specified with a value greater than 0, then every leaf node prediction is randomly scaled by a number drawn from a Normal distribution centered around 1 with a bandwidth given by this parameter. The default is 0 (disabled). 
+
+-  **min\_split\_improvement**: The value of this option specifies the minimum relative improvement in squared error reduction in order for a split to happen. When properly tuned, this option can help reduce overfitting. Optimal values would be in the 1e-10...1e-3 range.  
+
+-  **random\_split_points**: By default GBM bins from min...max in steps of (max-min)/N. When this option is enabled, GBM will instead sample N-1 points from min...max and use the sorted list of those for split finding.
 
 -  **histogram_type**: By default (AUTO) GBM bins from min...max in steps of (max-min)/N. Random split points or quantile-based split points can be selected as well. RoundRobin can be specified to cycle through all histogram types (one per tree). Use this option to specify the type of histogram to use for finding optimal split points:
 
@@ -241,12 +248,16 @@ Defining a GBM Model
    than 2. For more information, refer to `Tweedie
    distribution <https://en.wikipedia.org/wiki/Tweedie_distribution>`__.
 
+-  **huber\_alpha**: Specify the desired quantile for Huber/M-regression (the threshold between quadratic and linear loss). This value must be between 0 and 1.
+
 -  **checkpoint**: Enter a model key associated with a
    previously-trained model. Use this option to build a new model as a
    continuation of a previously-generated model.
 
 -  **keep\_cross\_validation\_predictions**: Enable this option to keep the
    cross-validation predictions.
+
+-  **keep\_cross\_validation\_fold\_assignment**: Enable this option to preserve the cross-validation fold assignment. 
 
 -  **class\_sampling\_factors**: Specify the per-class (in
    lexicographical order) over/under-sampling ratios. By default, these
@@ -339,7 +350,7 @@ FAQ
 
 -  **How deterministic is GBM?**
 
-  The ``nfolds`` and ``balance_classes`` parameters use the seed directly. Otherwise, GBM is deterministic up to floating point rounding errors (out-of-order atomic addition of multiple threads during histogram building). Any observed variations in the AUC curve should be the same up to at least three to four significant digits.
+  As long as you set the seed, GBM is deterministic up to floating point rounding errors (out-of-order atomic addition of multiple threads during histogram building). This means that if you set a seed, your results will be reproducible even if, for example, you change the number of nodes in your cluster, change the way you ingest data, or change the number of files your data lives in, among many other examples.
 
 -  **When fitting a random number between 0 and 1 as a single feature,
    the training ROC curve is consistent with ``random`` for low tree
@@ -406,7 +417,7 @@ potentially shrunk to the discrete integer range, which affects the
 split points.
 
 For more information about the GBM algorithm, refer to the `Gradient
-Boosted Machines booklet <http://h2o.ai/resources>`__.
+Boosting Machine booklet <http://h2o.ai/resources>`__.
 
 Binning In GBM
 ~~~~~~~~~~~~~~
@@ -431,7 +442,7 @@ Next layer in the tree for the left-split has value from 1 to 100 (not
 1000!) and so re-bins in units of 5: {1,1,2,4},{8},{},{16},{lots of
 empty bins}{100} (the RH split has the single value 1000).
 
-And so on: important dense ranges with split essentially logrithmeticaly
+And so on: important dense ranges with split essentially logarithmically
 at each layer.
 
 **What should I do if my variables are long skewed in the tail and might

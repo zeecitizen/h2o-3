@@ -18,22 +18,24 @@
  */
 package org.apache.parquet.hadoop;
 
+import java.io.ByteArrayInputStream;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 
-import org.apache.avro.generic.GenericRecord;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 
-import org.apache.parquet.avro.AvroReadSupport;
 import org.apache.parquet.format.converter.ParquetMetadataConverter;
+
 import static org.apache.parquet.format.converter.ParquetMetadataConverter.MetadataFilter;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
 import org.apache.parquet.hadoop.metadata.ParquetMetadata;
 import org.apache.parquet.schema.MessageType;
 import water.fvec.Vec;
+import water.parser.ParseWriter;
+import water.parser.parquet.ChunkReadSupport;
 import water.parser.parquet.VecDataInputStream;
 import water.parser.parquet.VecFileSystem;
 import water.util.Log;
@@ -55,19 +57,23 @@ public class VecParquetReader implements Closeable {
 
   private final Vec vec;
   private final ParquetMetadata metadata;
+  private final ParseWriter writer;
+  private final byte[] chunkSchema;
 
-  private InternalParquetRecordReader<GenericRecord> reader;
+  private InternalParquetRecordReader<Integer> reader;
 
-  public VecParquetReader(Vec vec, ParquetMetadata metadata) {
+  public VecParquetReader(Vec vec, ParquetMetadata metadata, ParseWriter writer, byte[] chunkSchema) {
     this.vec = vec;
     this.metadata = metadata;
+    this.writer = writer;
+    this.chunkSchema = chunkSchema;
   }
 
   /**
-   * @return the next record or null if finished
+   * @return the index of added Chunk record or null if finished
    * @throws IOException
    */
-  public GenericRecord read() throws IOException {
+  public Integer read() throws IOException {
     try {
       if (reader == null) {
         initReader();
@@ -87,7 +93,7 @@ public class VecParquetReader implements Closeable {
     assert reader == null;
     List<BlockMetaData> blocks = metadata.getBlocks();
     MessageType fileSchema = metadata.getFileMetaData().getSchema();
-    reader = new InternalParquetRecordReader<>(new AvroReadSupport<GenericRecord>());
+    reader = new InternalParquetRecordReader<>(new ChunkReadSupport(writer, chunkSchema));
     Configuration conf = VecFileSystem.makeConfiguration(vec);
     reader.initialize(fileSchema, metadata.getFileMetaData().getKeyValueMetaData(), VecFileSystem.VEC_PATH, blocks, conf);
   }
@@ -99,7 +105,7 @@ public class VecParquetReader implements Closeable {
     }
   }
 
-  public static ParquetMetadata readFooter(Vec vec, MetadataFilter filter) {
+  public static byte[] readFooterAsBytes(Vec vec) {
     FSDataInputStream f = null;
     try {
       f = new FSDataInputStream(new VecDataInputStream(vec));
@@ -121,7 +127,9 @@ public class VecParquetReader implements Closeable {
         throw new RuntimeException("corrupted file: the footer index is not within the Vec");
       }
       f.seek(footerIndex);
-      return converter.readParquetMetadata(f, filter);
+      byte[] metadataBytes = new byte[footerLength];
+      f.readFully(metadataBytes);
+      return metadataBytes;
     } catch (IOException e) {
       throw new RuntimeException("Failed to read Parquet metadata", e);
     } finally {
@@ -130,6 +138,15 @@ public class VecParquetReader implements Closeable {
       } catch (Exception e) {
         Log.warn("Failed to close Vec data input stream", e);
       }
+    }
+  }
+
+  public static ParquetMetadata readFooter(byte[] metadataBytes, MetadataFilter filter) {
+    try {
+      ByteArrayInputStream bis = new ByteArrayInputStream(metadataBytes);
+      return converter.readParquetMetadata(bis, filter);
+    } catch (IOException e) {
+      throw new RuntimeException("Failed to read Parquet metadata", e);
     }
   }
 

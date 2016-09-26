@@ -52,16 +52,16 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
   }
 
   public interface GLRMArchetypes {
-    Frame scoreReconstruction(Frame frame, Key destination_key, boolean reverse_transform);
-    Frame scoreArchetypes(Frame frame, Key destination_key, boolean reverse_transform);
+    Frame scoreReconstruction(Frame frame, Key<Frame> destination_key, boolean reverse_transform);
+    Frame scoreArchetypes(Frame frame, Key<Frame> destination_key, boolean reverse_transform);
   }
 
   public interface LeafNodeAssignment {
-    Frame scoreLeafNodeAssignment(Frame frame, Key destination_key);
+    Frame scoreLeafNodeAssignment(Frame frame, Key<Frame> destination_key);
   }
 
   public interface ExemplarMembers {
-    Frame scoreExemplarMembers(Key destination_key, int exemplarIdx);
+    Frame scoreExemplarMembers(Key<Frame> destination_key, int exemplarIdx);
   }
 
   /**
@@ -339,6 +339,39 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
     }
   }
 
+  static private class Replacer extends TAtomic<Model> {
+    final Key _k;
+    public Key[] _res;
+    Replacer(Key k) { _k=k; }
+    @Override
+    protected Model atomic(Model old) {
+      if (old==null) return null;
+      incrementModelMetrics(old._output, _k);
+      _res = old._output._model_metrics;
+      return old;
+    }
+  }
+
+  public synchronized ModelMetrics addModelMetrics(final ModelMetrics mm) {
+    DKV.put(mm);
+    final Key k = mm._key;
+    Replacer r = new Replacer(k);
+    r.invoke(_key);
+    Key[] res = r._res;
+    if (res==null)
+      incrementModelMetrics(_output, k);
+    else
+      _output._model_metrics = res;
+    return mm;
+  }
+
+  static void incrementModelMetrics(Output out, Key k) {
+    for (Key key : out._model_metrics)
+      if (k.equals(key)) return;
+    out._model_metrics = Arrays.copyOf(out._model_metrics, out._model_metrics.length + 1);
+    out._model_metrics[out._model_metrics.length - 1] = k;
+  }
+
   public void addWarning(String s){
     _warnings = Arrays.copyOf(_warnings,_warnings.length+1);
     _warnings[_warnings.length-1] = s;
@@ -514,14 +547,6 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
     }
     public boolean isAutoencoder() { return false; } // Override in DeepLearning and so on.
 
-    public synchronized ModelMetrics addModelMetrics(ModelMetrics mm) {
-      DKV.put(mm);
-      for( Key key : _model_metrics ) // Dup removal
-        if( key==mm._key ) return mm;
-      _model_metrics = Arrays.copyOf(_model_metrics, _model_metrics.length + 1);
-      _model_metrics[_model_metrics.length - 1] = mm._key;
-      return mm;                // Flow coding
-    }
     public synchronized void clearModelMetrics() { _model_metrics = new Key[0]; }
 
     protected long checksum_impl() {
@@ -557,7 +582,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
 
   protected String[][] scoringDomains() { return _output._domains; }
 
-  public ModelMetrics addMetrics(ModelMetrics mm) { return _output.addModelMetrics(mm); }
+  public ModelMetrics addMetrics(ModelMetrics mm) { return addModelMetrics(mm); }
 
   public abstract ModelMetrics.MetricBuilder makeMetricBuilder(String[] domain);
 
@@ -939,6 +964,56 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
     return output;
   }
 
+  /**
+   * Compute the deviances for each observation
+   * @param valid Validation Frame (must contain the response)
+   * @param predictions Predictions made by the model
+   * @param outputName Name of the output frame
+   * @return Frame containing 1 column with the per-row deviances
+   */
+  public Frame computeDeviances(Frame valid, Frame predictions, String outputName) {
+    assert (_parms._response_column!=null) : "response column can't be null";
+    assert valid.find(_parms._response_column)>=0 : "validation frame must contain a response column";
+    predictions.add(_parms._response_column, valid.vec(_parms._response_column));
+    if (valid.find(_parms._weights_column)>=0)
+      predictions.add(_parms._weights_column, valid.vec(_parms._weights_column));
+    final int respIdx=predictions.find(_parms._response_column);
+    final int weightIdx=predictions.find(_parms._weights_column);
+
+    final Distribution myDist = _dist == null ? null : IcedUtils.deepCopy(_dist);
+    if (myDist != null && myDist.distribution == DistributionFamily.huber) {
+      myDist.setHuberDelta(hex.ModelMetricsRegression.computeHuberDelta(
+              valid.vec(_parms._response_column), //actual
+              predictions.vec(0), //predictions
+              valid.vec(_parms._weights_column), //weight
+              _parms._huber_alpha));
+    }
+    return new MRTask() {
+      @Override
+      public void map(Chunk[] cs, NewChunk[] nc) {
+        Chunk weight = weightIdx>=0 ? cs[weightIdx] : new C0DChunk(1, cs[0]._len);
+        Chunk response = cs[respIdx];
+        for (int i=0;i<cs[0]._len;++i) {
+          double w=weight.atd(i);
+          double y=response.atd(i);
+          if (_output.nclasses()==1) { //regression - deviance
+            double f=cs[0].atd(i);
+            if (myDist!=null && myDist.distribution == DistributionFamily.huber) {
+              nc[0].addNum(myDist.deviance(w, y, f)); //use above custom huber delta for this dataset
+            }
+            else {
+              nc[0].addNum(deviance(w, y, f));
+            }
+          } else {
+            int iact=(int)y;
+            double err = iact < _output.nclasses() ? 1-cs[1+iact].atd(i) : 1;
+            nc[0].addNum(w*MathUtils.logloss(err));
+          }
+        }
+      }
+    }.doAll(Vec.T_NUM, predictions).outputFrame(Key.<Frame>make(outputName), new String[]{"deviance"}, null);
+  }
+
   // Remove temp keys.  TODO: Really should use Scope but Scope does not
   // currently allow nested-key-keepers.
   static protected void cleanup_adapt( Frame adaptFr, Frame fr ) {
@@ -985,7 +1060,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
     BigScore bs = new BigScore(domains[0],names.length,adaptFrm.means(),_output.hasWeights() && adaptFrm.find(_output.weightsName()) >= 0,computeMetrics, true /*make preds*/, j).doAll(names.length, Vec.T_NUM, adaptFrm);
     if (computeMetrics)
       bs._mb.makeModelMetrics(this, fr, adaptFrm, bs.outputFrame());
-    return bs.outputFrame((null == destination_key ? Key.make() : Key.make(destination_key)), names, domains);
+    return bs.outputFrame(Key.<Frame>make(destination_key), names, domains);
   }
 
 
@@ -1135,6 +1210,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
     return _parms.checksum_impl() * _output.checksum_impl();
   }
 
+
   //====================================================================================================================
   /**
    * Serialize the model into a zipped file containing multiple raw data files. The structure of the zip will be
@@ -1174,7 +1250,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
    * The [info] section lists general model information; [columns] contains the list of all column names; and [domains]
    *
    */
-  public class RawDataStreamWriter extends StreamWriter {
+  public class MojoStreamWriter extends StreamWriter {
     private StringBuilder tmpfile;
     private String tmpname;
     private ZipOutputStream zos;
@@ -1213,6 +1289,7 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
       writeExtraModelInfo();
       writeln("timestamp = " + new DateTime().toString());
       writeln("h2o_version = " + H2O.ABV.projectVersion());
+      writeln("mojo_version = 1.0");
       writeln("license = Apache License Version 2.0");
       writeln("");
       writeln("[columns]");
@@ -1277,8 +1354,8 @@ public abstract class Model<M extends Model<M,P,O>, P extends Model.Parameters, 
     }
   }
 
-  public RawDataStreamWriter getRawDataStream() {
-    return new RawDataStreamWriter();
+  public MojoStreamWriter getMojoStream() {
+    return new MojoStreamWriter();
   }
 
 

@@ -166,9 +166,9 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
   public DeepLearningModel(final Key destKey, final DeepLearningParameters parms, final DeepLearningModel cp, final boolean store_best_model, final DataInfo dataInfo) {
     super(destKey, parms == null ? (DeepLearningParameters)cp._parms.clone() : parms, (DeepLearningModelOutput)cp._output.clone());
     assert(_parms != cp._parms); //make sure we have a clone
-    model_info = cp.model_info.deep_clone(); //don't want to interfere with model being built, just make a deep copy and store that
+    model_info = IcedUtils.deepCopy(cp.model_info); //don't want to interfere with model being built, just make a deep copy and store that
     if (store_best_model) {
-      model_info.data_info = dataInfo.deep_clone(); //replace previous data_info with updated version that's passed in (contains enum for classification)
+      model_info.data_info = IcedUtils.deepCopy(dataInfo); //replace previous data_info with updated version that's passed in (contains enum for classification)
     } else {
       model_info.data_info = dataInfo; //shallow clone is ok
       if (parms != null) {
@@ -195,7 +195,7 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
     // deep clone scoring history
     scoringInfo = cp.scoringInfo.clone();
     for (int i=0; i< scoringInfo.length;++i)
-      scoringInfo[i] = cp.scoringInfo[i].deep_clone();
+      scoringInfo[i] = IcedUtils.deepCopy(cp.scoringInfo[i]);
     _output.errors = last_scored();
     makeWeightsBiases(destKey);
     _output._scoring_history = DeepLearningScoringInfo.createScoringHistoryTable(scoringInfo, (null != get_params()._valid), false, _output.getModelCategory(), _output.isAutoencoder());
@@ -579,7 +579,7 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
         }
       }.doAll(len, Vec.T_NUM, adaptedFr).outputFrame();
 
-      Frame of = new Frame((null == destination_key ? Key.make() : Key.make(destination_key)), names, f.vecs());
+      Frame of = new Frame(Key.<Frame>make(destination_key), names, f.vecs());
       DKV.put(of);
       makeMetricBuilder(null).makeModelMetrics(this, orig, null, null);
       return of;
@@ -768,7 +768,7 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
 
     Frame res = new Frame(destination_key, names, mse.vecs());
     DKV.put(res);
-    _output.addModelMetrics(new ModelMetricsAutoEncoder(this, frame, res.numRows(), res.vecs()[0].mean() /*mean MSE*/));
+    addModelMetrics(new ModelMetricsAutoEncoder(this, frame, res.numRows(), res.vecs()[0].mean() /*mean MSE*/));
     return res;
   }
 
@@ -890,7 +890,7 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
    * @return Threshold in MSE value for a point to be above the quantile
    */
   public double calcOutlierThreshold(Vec mse, double quantile) {
-    Frame mse_frame = new Frame(Key.make(), new String[]{"Reconstruction.MSE"}, new Vec[]{mse});
+    Frame mse_frame = new Frame(Key.<Frame>make(), new String[]{"Reconstruction.MSE"}, new Vec[]{mse});
     DKV.put(mse_frame._key, mse_frame);
 
     QuantileModel.QuantileParameters parms = new QuantileModel.QuantileParameters();
@@ -907,7 +907,7 @@ public class DeepLearningModel extends Model<DeepLearningModel,DeepLearningModel
 
   // helper to push this model to another key (for keeping good models)
   private void putMeAsBestModel(Key bestModelKey) {
-    DeepLearningModel bestModel = new AutoBuffer().put(this).flipForReading().get();
+    DeepLearningModel bestModel = IcedUtils.deepCopy(this);
     DKV.put(bestModelKey, bestModel);
     if (model_info().get_params()._elastic_averaging) {
       DeepLearningModelInfo eamodel = DKV.getGet(model_info.elasticAverageModelInfoKey());
