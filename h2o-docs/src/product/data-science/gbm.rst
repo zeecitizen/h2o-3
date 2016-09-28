@@ -69,7 +69,7 @@ Defining a GBM Model
 
 -  `ntrees <gbm-params/ntrees.html>`__: Specify the number of trees to build.
 
--  **max\_depth**: Specify the maximum tree depth.
+-  `max_depth <gbm-params/max_depth.html>`__: Specify the maximum tree depth.
 
 -  **min\_rows**: Specify the minimum number of observations for a leaf
    (``nodesize`` in R).
@@ -186,7 +186,7 @@ Defining a GBM Model
    
     **Note**: Weights are per-row observation weights and do not increase the size of the data frame. This is typically the number of times a row is repeated, but non-integer values are supported as well. During training, rows with higher weights matter more, due to the larger loss function pre-factor.
 
--  **balance\_classes**: Specify whether to oversample the minority classes to balance the class distribution. This option is not enabled by default and can increase the data frame size. This option is only applicable for classification. Majority classes can be undersampled to satisfy the **max\_after\_balance\_size** parameter.
+-  `balance_classes <gbm-params/balance_classes.html>`__: Specify whether to oversample the minority classes to balance the class distribution. This option is not enabled by default and can increase the data frame size. This option is only applicable for classification. Majority classes can be undersampled to satisfy the **max\_after\_balance\_size** parameter.
 
 -  **max\_confusion\_matrix\_size**: Specify the maximum size (in number
    of classes) for confusion matrices to be printed in the Logs.
@@ -259,12 +259,12 @@ Defining a GBM Model
 
 -  **keep\_cross\_validation\_fold\_assignment**: Enable this option to preserve the cross-validation fold assignment. 
 
--  **class\_sampling\_factors**: Specify the per-class (in
+-  `class_sampling_factors <gbm-params/class_sampling_factors.html>`__: Specify the per-class (in
    lexicographical order) over/under-sampling ratios. By default, these
    ratios are automatically computed during training to obtain the class
    balance.
 
--  **max\_after\_balance\_size**: Specify the maximum relative size of
+-  `max_after_balance_size <gbm-params/max_after_balance_size.html>`__: Specify the maximum relative size of
    the training data after balancing class counts (**balance\_classes**
    must be enabled). The value can be less than 1.0.
 

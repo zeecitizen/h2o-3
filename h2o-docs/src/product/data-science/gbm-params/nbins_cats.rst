@@ -7,7 +7,7 @@
 Description
 ~~~~~~~~~~~
 
-When training models with categorical columns (factors), the ``nbins_cats`` option specifies the number of `bins <../../glossary.html#bins>`__  to be included in the `histogram <../../glossary.html#histogram>`__ and then split at the best point. Because H2O does not perform `one-hot <https://en.wikipedia.org/wiki/One-hot>`__ encoding in the tree algorithms, we look at all the factor levels of a categorical predictor up to the resolution of the histogram, and then decide for each histogram bucket whether it goes left or right during splitting.
+When training models with categorical columns (factors), the ``nbins_cats`` option specifies the number of bins to be included in the histogram and then split at the best point. Because H2O does not perform `one-hot <https://en.wikipedia.org/wiki/One-hot>`__ encoding in the tree algorithms, we look at all the factor levels of a categorical predictor up to the resolution of the histogram, and then decide for each histogram bucket whether it goes left or right during splitting.
 
 When the training data contains columns with categorical levels (factors), these factors are split by assigning an integer to each distinct categorical level, then binning the ordered integers according to the user-specified number of bins (which defaults to 1024 bins), and then picking the optimal split point among the bins. For example, if you have levels A,B,C,D,E,F,G at a certain node to be split, and you specify ``nbins_cats=4``, then the buckets {A,B},{C,D},{E,F},{G} define the grouping during the first split. Only during the next split of {A,B} (down the tree) will GBM separate {A} and {B}.
 

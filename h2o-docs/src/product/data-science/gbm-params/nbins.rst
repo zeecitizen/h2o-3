@@ -7,7 +7,7 @@
 Description
 ~~~~~~~~~~~
 
-The ``nbins`` option specifies the number of bins to be included in the `histogram <../../glossary.html#histogram>`__ and then split at the best point. These split points are evaluated at the boundaries of each of these bins. 
+The ``nbins`` option specifies the number of bins to be included in the histogram and then split at the best point. These split points are evaluated at the boundaries of each of these bins. 
 
 Bins are linear sized from the observed min-to-max for the subset being split again (with an enforced large-nbins for shallow tree depths).  As the tree gets deeper, each subset (enforced by the tree decisions) covers a smaller range, and the bins are uniformly spread over this smaller range. Bin range decisions are thus made at each node level, not at the feature level.
 
