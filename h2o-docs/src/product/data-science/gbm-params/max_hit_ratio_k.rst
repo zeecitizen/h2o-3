@@ -10,6 +10,3 @@ Hit ratios can be used to evaluate the performance of a model. The hit ratio is 
 
 Note that this option is available for multiclass problems only and is set to 0 (disabled) by default.
 
-Example
-~~~~~~~
-

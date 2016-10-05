@@ -11,11 +11,6 @@ When your datasest includes imbalanced data, you may find it necessary to balanc
 
 By default, sampling factors will be automatically computed to obtain class balance during training. You can change this behavior using the ``class_sampling_factors`` option. This option sets an over/under-sampling ratio for each class (in lexicographic order).
 
-Example
-~~~~~~~
-
-
-
 Related Parameters
 ~~~~~~~~~~~~~~~~~~
 

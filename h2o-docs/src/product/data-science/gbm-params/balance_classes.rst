@@ -17,10 +17,6 @@ The ``balance_classes`` option can be used to balance the class distribution. Wh
 - This option only applies to classification problems. 
 - Enabling this option can increase the size of the data frame.
 
-Example
-~~~~~~~
-
-
 Related Parameters
 ~~~~~~~~~~~~~~~~~~
 
