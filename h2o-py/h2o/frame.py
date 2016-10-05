@@ -152,8 +152,11 @@ class H2OFrame(object):
         # create a new csv writer object thingy
         csv_writer = csv.writer(tmp_file, dialect="excel", quoting=csv.QUOTE_NONNUMERIC)
         csv_writer.writerow(column_names)
-        for row in data_to_write:
-            csv_writer.writerow([row.get(k, None) for k in col_header])
+        if data_to_write and isinstance(data_to_write[0], dict):
+            for row in data_to_write:
+                csv_writer.writerow([row.get(k, None) for k in col_header])
+        else:
+            csv_writer.writerows(data_to_write)
         tmp_file.close()  # close the streams
         self._upload_parse(tmp_path, destination_frame, 1, separator, column_names, column_types, na_strings)
         os.remove(tmp_path)  # delete the tmp file
@@ -305,6 +308,27 @@ class H2OFrame(object):
           If all columns are filtered, None is returned.
         """
         return ExprNode("filterNACols", self, frac)._eager_scalar()
+
+    def columns_by_type(self, coltype="numeric"):
+        """ Obtain a list of columns that are specified by `coltype`
+
+        Parameters
+        ----------
+        coltype : str
+            A character string indicating which column type to filter by. This must be one of the following:
+                "numeric"      - Numeric, but not categorical or time
+                "categorical"  - Integer, with a categorical/factor String mapping
+                "string"       - String column
+                "time"         - Long msec since the Unix Epoch - with a variety of display/parse options
+                "uuid"         - UUID
+                "bad"          - No none-NA rows (triple negative! all NAs or zero rows)
+        Returns
+        -------
+          A list of column indices that correspond to `coltype`
+        """
+        assert_is_type(coltype, "numeric", "categorical", "string", "time", "uuid", "bad")
+        assert_is_type(self,H2OFrame)
+        return ExprNode("columnsByType", self, coltype)._eager_scalar()
 
     def __iter__(self):
         return (self[i] for i in range(self.ncol))

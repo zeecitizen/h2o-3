@@ -8,10 +8,7 @@ import water.exceptions.H2OIllegalArgumentException;
 import water.parser.BufferedString;
 import water.rapids.Merge;
 import water.persist.Persist;
-import water.util.FrameUtils;
-import water.util.Log;
-import water.util.PrettyPrint;
-import water.util.TwoDimTable;
+import water.util.*;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -316,6 +313,7 @@ public class Frame extends Lockable<Frame> {
   public int find( String name ) {
     if( name == null ) return -1;
     assert _names != null;
+    // TODO: add a hashtable: O(n) is just stupid.
     for( int i=0; i<_names.length; i++ )
       if( name.equals(_names[i]) )
         return i;
@@ -582,9 +580,11 @@ public class Frame extends Lockable<Frame> {
     _names2[0] = name;
     _vecs2 [0] = vec;
     _keys2 [0] = vec._key;
-    System.arraycopy(_names, 0, _names2, 1, len);
-    System.arraycopy(_vecs,  0, _vecs2,  1, len);
-    System.arraycopy(_keys,  0, _keys2,  1, len);
+    if (_names != null) {
+      System.arraycopy(_names, 0, _names2, 1, len);
+      System.arraycopy(_vecs,  0, _vecs2,  1, len);
+      System.arraycopy(_keys,  0, _keys2,  1, len);
+    }
     _names = _names2;
     _vecs  = _vecs2;
     _keys  = _keys2;
@@ -817,16 +817,10 @@ public class Frame extends Lockable<Frame> {
     int len = _names.length;
     if( idx < 0 || idx >= len ) return null;
     Vec v = vecs()[idx];
-    String[] names = Arrays.copyOf(_names, len);
-    Vec[] vecs = Arrays.copyOf(_vecs, len);
-    Key<Vec>[] keys = Arrays.copyOf(_keys, len);
-    System.arraycopy(names,idx+1,names,idx,len-idx-1);
-    System.arraycopy(vecs ,idx+1,vecs ,idx,len-idx-1);
-    System.arraycopy(keys ,idx+1,keys ,idx,len-idx-1);
-    _names = Arrays.copyOf(names,len-1);
-    _vecs  = Arrays.copyOf(vecs ,len-1);
-    _keys  = Arrays.copyOf(keys ,len-1);
     if( v == _col0 ) _col0 = null;
+    _vecs = ArrayUtils.remove(_vecs, idx);
+    _names = ArrayUtils.remove(_names, idx);
+    _keys = ArrayUtils.remove(_keys, idx);
     return v;
   }
 
@@ -1293,7 +1287,7 @@ public class Frame extends Lockable<Frame> {
     @Override public void map(Chunk[] cs) {
       int i=0;
       for(Chunk c: cs) {
-        Chunk c2 = (Chunk)c.clone();
+        Chunk c2 = c.clone();
         c2._vec=null;
         c2._start=-1;
         c2._cidx=-1;
@@ -1413,29 +1407,19 @@ public class Frame extends Lockable<Frame> {
 
   public static Job export(Frame fr, String path, String frameName, boolean overwrite, int nParts) {
     boolean forceSingle = nParts == 1;
-    boolean fileExists = H2O.getPM().exists(path);
     // Validate input
     if (forceSingle) {
+      boolean fileExists = H2O.getPM().exists(path);
       if (overwrite && fileExists) {
         Log.warn("File " + path + " exists, but will be overwritten!");
       } else if (!overwrite && fileExists) {
         throw new H2OIllegalArgumentException(path, "exportFrame", "File " + path + " already exists!");
       }
-    } else if (fileExists) {
-      boolean isDirectory = H2O.getPM().isDirectory(path);
-      if (! isDirectory) {
-        throw new H2OIllegalArgumentException(path, "exportFrame", "Cannot use regular existing file " + path +
-                " to store part files! Empty directory is expected.");
+    } else {
+      if (! H2O.getPM().isEmptyDirectoryAllNodes(path)) {
+        throw new H2OIllegalArgumentException(path, "exportFrame", "Cannot use path " + path +
+                " to store part files! The target needs to be either an existing empty directory or not exist yet.");
       }
-      Persist.PersistEntry[] dirContent = H2O.getPM().list(path);
-      if (dirContent.length != 0) {
-        throw new H2OIllegalArgumentException(path, "exportFrame", "Target directory " + path + " is non-empty. " +
-                "Empty directory is expected.");
-      }
-    }
-    // Make directory for part files
-    if ((! forceSingle) && (! fileExists)) {
-      H2O.getPM().mkdirs(path);
     }
     Job job =  new Job<>(fr._key, "water.fvec.Frame", "Export dataset");
     FrameUtils.ExportTaskDriver t = new FrameUtils.ExportTaskDriver(fr, path, frameName, overwrite, job, nParts);
