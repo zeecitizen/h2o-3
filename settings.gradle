@@ -30,6 +30,7 @@ scalaCrossCompile {
   include 'h2o-scala'
 }
 
+
 // Make structure flat and avoid annoying dummy modules
 rootProject.children.each { project ->
   if (project.name.startsWith("h2o-") && project.name.endsWith("-parser")) {
@@ -41,24 +42,30 @@ rootProject.children.each { project ->
 //
 // Include Hadoop builds only if requested
 //
-if (System.getProperty("user.name").equals("jenkins")
-        || System.getenv("BUILD_HADOOP") != null
-        || System.getenv("H2O_TARGET") != null) {
+if(System.getProperty("user.name") == "jenkins" ||
+        (isGradlePropSet("H2O_TARGET") && getGradleProp("H2O_TARGET") != "false") ||
+        isGradlePropSet("H2O_TARGET")){
 
-  // Default hadoop build targets
-  def allTargets = [
-          "cdh5.2", "cdh5.3", "cdh5.4", "cdh5.5", "cdh5.6", "cdh5.7", "cdh5.8",
-          "hdp2.1", "hdp2.2", "hdp2.3", "hdp2.4",
-          "mapr3.1", "mapr4.0", "mapr5.0", "mapr5.1"
-  ]
-  // Compute targets
-  def targets = System.getenv("H2O_TARGET") != null ? System.getenv("H2O_TARGET").split(",").collect { it.trim() } : allTargets
-  // Include selected/all Hadoop targets
-  if (System.getenv("BUILD_HADOOP") != "false") {
+    // Default hadoop build targets
+    def allTargets = [
+            "cdh5.2", "cdh5.3", "cdh5.4", "cdh5.5", "cdh5.6", "cdh5.7", "cdh5.8",
+            "hdp2.1", "hdp2.2", "hdp2.3", "hdp2.4",
+            "mapr3.1", "mapr4.0", "mapr5.0", "mapr5.1"
+    ]
+
+    // Compute targets
+    def targets = isGradlePropSet("H2O_TARGET") ? getGradleProp("H2O_TARGET").split(",").collect { it.trim() } : allTargets
+
     targets.each { name ->
-      include "h2o-hadoop:h2o-${name}"
-      include "h2o-hadoop:h2o-${name}-assembly"
-
+        include "h2o-hadoop:h2o-${name}"
+        include "h2o-hadoop:h2o-${name}-assembly"
     }
-  }
+}
+
+def isGradlePropSet(String propName){
+  return startParameter.projectProperties.containsKey(propName) && startParameter.projectProperties.get(propName, null) != null
+}
+
+def getGradleProp(String propName){
+  startParameter.projectProperties.get(propName)
 }
