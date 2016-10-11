@@ -9,8 +9,10 @@ import org.junit.Test;
 
 import java.io.*;
 import java.util.Date;
+import static water.util.Functions.*;
+import static water.util.Closures.*;
 
-class SampleCode implements Function<Integer, String> {
+class SampleCode implements Function1<Integer, String> {
   public String apply(Integer x) {
     return "X=" + x;
   }
@@ -86,16 +88,16 @@ public class ClosureTest {
   public void testDeserializationAndEval() throws Exception {
     byte[] bytes = new MoveableCode(SampleCode.class).code_bytes_for_testing();
 
-    Function<Integer, String> f = new MoveableCode<Function<Integer, String>>(SampleCode.class.getCanonicalName(), bytes).instantiate();
+    Function1<Integer, String> f = (Function1<Integer, String>)(new MoveableCode(SampleCode.class.getCanonicalName(), bytes).instantiate());
     assertEquals("X=42", f.apply(42));
     assertEquals("X=12345", f.apply(12345));
   }
 
   @Test
   public void testClosure() throws Exception {
-    Function<Integer, String> f = new SampleCode();
+    Function1<Integer, String> f = new SampleCode();
 
-    Closure<Integer, String> c = Closure.enclose(f);
+    Closure1<Integer, String> c = Closures.enclose(f);
 
     assertEquals("X=42", c.apply(42));
     assertEquals("X=12345", c.apply(12345));

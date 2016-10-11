@@ -28,7 +28,7 @@ public class FunVec extends Vec {
     DKV.put(this);
   }
 
-  public FunVec(Vec.Function<?,?> fun, Vec... dependencies) throws IOException {
+  public FunVec(Function<?,?> fun, Vec... dependencies) throws IOException {
     this(dependencies[0].group().addVec(), dependencies[0]._rowLayout, fun, dependencies);
   }
 
@@ -65,17 +65,25 @@ public class FunVec extends Vec {
       this.fun=fun;
     }
 
-    private Double[] getArguments(int idx) {
-      Double[] values = new Double[dependencies.length];
-      for (int i = 0; i < dependencies.length; i++) values[i] = dependencies[i].atd(idx);
+    private Object[] getArguments(int idx) {
+      Object[] values = new Object[dependencies.length];
+      for (int i = 0; i < dependencies.length; i++) values[i] = dependencies[i].get(idx);
       return values;
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override public Object get(int idx) {
+      Object[] args = getArguments(idx);
+      Object result =
+          (Double) ((args.length == 1) ? (Double) fun.apply(args[0]) : fun.apply(args));
+      return result == null ? Double.NaN : result;
     }
 
     // TODO(vlad): implement other methods, take care of type safety
     // applies the function to a row of doubles
     @SuppressWarnings("unchecked")
     @Override public double atd_impl(int idx) {
-      Double[] args = getArguments(idx);
+      Object[] args = getArguments(idx);
       Double neat = (Double) ((args.length == 1) ? (Double) fun.apply(args[0]) : fun.apply(args));
       return neat == null ? Double.NaN : neat;
     }

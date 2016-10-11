@@ -6,12 +6,11 @@ import java.io.StringWriter;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
-import java.util.Arrays;
 
 /**
  * Encapsulates a class inside, so we can pass around functions.
  */
-public class MoveableCode<T> extends ClassLoader implements Serializable {
+public class MoveableCode extends ClassLoader implements Serializable {
 
   public Class loadClass() { return code.loadClass(); }
 
@@ -53,8 +52,7 @@ public class MoveableCode<T> extends ClassLoader implements Serializable {
     code = new Code(c);
   }
 
-  // TODO(vlad): make sure this is not called with an array
-  public MoveableCode(T instance) throws IOException {
+  public MoveableCode(Object instance) throws IOException {
     this(instance.getClass());
   }
 
@@ -70,9 +68,9 @@ public class MoveableCode<T> extends ClassLoader implements Serializable {
     this.code = new Code(className, bytes, outer);
   }
 
-  protected T instance = null;
+  private Object instance = null;
 
-  synchronized protected T instance() {
+  synchronized protected Object instance() {
     if (instance == null) instance = instantiate();
     return instance;
   }
@@ -86,14 +84,13 @@ public class MoveableCode<T> extends ClassLoader implements Serializable {
   }
 
   @SuppressWarnings("unchecked")
-  T instantiate() throws UnsupportedOperationException {
+  Object instantiate() throws UnsupportedOperationException {
     Class c = code.loadClass();
     try {
       Constructor con = findCheapConstructor(c);
       con.setAccessible(true);
       Object[] nulls = new Object[con.getParameterCount()];
-      Object instance = con.newInstance(nulls);
-      return (T) instance;
+      return con.newInstance(nulls);
     } catch (ClassCastException e) {
       throw new UnsupportedOperationException("Could not cast to required type: " + c, e);
     } catch (InstantiationException e) {

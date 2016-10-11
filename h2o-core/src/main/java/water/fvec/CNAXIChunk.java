@@ -25,14 +25,6 @@ public class CNAXIChunk extends CXIChunk {
       return getId(off + ridsz() + valsz());
     return _len;
   }
-  /** Fills in a provided (recycled/reused) temp array of the NNAs indices, and
-   *  returns the count of them.  Array must be large enough. */
-  @Override public final int nonnas(int [] arr){
-    int off = _OFF;
-    final int inc = valsz() + ridsz();
-    for(int i = 0; i < _sparseLen; ++i, off += inc) arr[i] = getId(off);
-    return _sparseLen;
-  }
 
   @Override protected long at8_impl(int idx) {
     int off = findOffset(idx);

@@ -620,13 +620,22 @@ public class Vec extends Keyed<Vec> {
     return randVec;
   }
 
-
-  interface Function<X,Y> extends Serializable {
-    public Y apply(X x);
+  public static <T> Vec makeFromFunction(long len, final Function<Long, T> f0) throws IOException {
+    final Closure<Long, T> f = Closure.enclose(f0);
+    return new MRTask() {
+      @Override public void map(Chunk[] cs) {
+        for (Chunk c : cs) {
+          for (int r = 0; r < c._len; r++) {
+            long i = r + c._start;
+            c.set(r, f.apply(i));
+          }
+        }
+      }
+    }.doAll(makeZero(len))._fr.vecs()[0];
   }
 
-  public static Vec makeFromFunction(long len, final Function<Long, Double> f) throws IOException {
-//    final Closure<Long, Double> f = Closure.enclose(f0);
+  public static Vec makeFromFunction(long len, final Functions.Function1<Long, Double> f0) throws IOException {
+    final Closures.Closure1<Long, Double> f = Closures.enclose(f0);
     return new MRTask() {
       @Override public void map(Chunk[] cs) {
         for (Chunk c : cs) {

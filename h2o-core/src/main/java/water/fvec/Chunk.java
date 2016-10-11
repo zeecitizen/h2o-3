@@ -3,6 +3,8 @@ package water.fvec;
 import water.*;
 import water.parser.BufferedString;
 
+import java.util.Date;
+
 /** A compression scheme, over a chunk of data - a single array of bytes.
  *  Chunks are mapped many-to-1 to a {@link Vec}.  The <em>actual</em> vector
  *  header info is in the Vec - which contains info to find all the bytes of
@@ -111,11 +113,9 @@ public void map( Chunk[] chks ) {                  // Map over a set of same-num
 public abstract class Chunk extends Iced<Chunk> {
 
   public Chunk() {}
-  private Chunk(byte [] bytes) {_mem = bytes;initFromBytes();}
 
   /**
    * Sparse bulk interface, stream through the compressed values and extract them into dense double array.
-   * @param vals holds extracted values, length must be >= this.sparseLen()
    * @param vals holds extracted chunk-relative row ids, length must be >= this.sparseLen()
    * @return number of extracted (non-zero) elements, equal to sparseLen()
    */
@@ -130,9 +130,9 @@ public abstract class Chunk extends Iced<Chunk> {
 
   /**
    * Dense bulk interface, fetch values from the given range
-   * @param vals
-   * @param from
-   * @param to
+   * @param vals array for output values
+   * @param from index of the first value to be extracted
+   * @param to upper index limit of values to be extracted (to-1 is the last)
    */
   public double [] getDoubles(double[] vals, int from, int to){ return getDoubles(vals,from,to, Double.NaN);}
   public double [] getDoubles(double [] vals, int from, int to, double NA){
@@ -160,8 +160,8 @@ public abstract class Chunk extends Iced<Chunk> {
 
   /**
    * Dense bulk interface, fetch values from the given ids
-   * @param vals
-   * @param ids
+   * @param vals array for output values
+   * @param ids array of indexes of values to be extracted
    */
   public double[] getDoubles(double [] vals, int [] ids){
     int j = 0;
@@ -336,6 +336,24 @@ public abstract class Chunk extends Iced<Chunk> {
    *  @return String value or null if missing. */
   public final BufferedString atStr(BufferedString bStr, int i) { return _chk2 == null ? atStr_impl(bStr, i) : _chk2.atStr_impl(bStr, i); }
 
+  private String getString(int i) {
+    BufferedString bs = new BufferedString();
+    return atStr(bs, i).toString();
+  }
+
+  private Date getTimestamp(int i) {
+    return new Date(at8(i));
+  }
+
+  public Object get(int i) {
+    switch(_vec.get_type()) {
+      case Vec.T_NUM: return atd(i);
+      case Vec.T_STR: return getString(i);
+      case Vec.T_TIME: return getTimestamp(i);
+      case Vec.T_CAT: return at8(i);
+      default: throw H2O.unimpl();
+    }
+  }
 
   /** Write a {@code long} using absolute row numbers.  There is no way to
    *  write a missing value with this call.  Under rare circumstances this can
@@ -430,7 +448,7 @@ public abstract class Chunk extends Iced<Chunk> {
   }
 
   public Chunk deepCopy() {
-    Chunk c2 = (Chunk)clone();
+    Chunk c2 = clone();
     c2._vec=null;
     c2._start=-1;
     c2._cidx=-1;
@@ -477,6 +495,16 @@ public abstract class Chunk extends Iced<Chunk> {
     setWrite(new NewChunk(this,d));
     return d;
   }
+
+  public final <T> void set(int idx, T x) {
+    if (x == null) setNA(idx);
+    else if (x instanceof Double) set(idx, ((Double) x).doubleValue());
+    else if (x instanceof Long) set(idx, ((Long) x).longValue());
+    else if (x instanceof Float) set(idx, ((Float)x).floatValue());
+    else if (x instanceof String) set(idx, (String) x);
+    else throw new IllegalArgumentException("No idea how to write " + x + " to a Vec");
+  }
+
   /** Write a {@code double} with check-relative indexing.  NaN will be treated
    *  as a missing value.
    *
@@ -624,15 +652,6 @@ public abstract class Chunk extends Iced<Chunk> {
 
   // Next non-NA. Analogous to nextNZ()
   public int nextNNA(int rid){ return rid + 1;}
-  
-  /** Get chunk-relative indices of values (nonnas for nasparse, all for dense)
-   *  stored in this chunk.  For dense chunks, this will contain indices of all
-   *  the rows in this chunk.
-   *  @return array of chunk-relative indices of values stored in this chunk. */
-  public int nonnas(int [] res) {
-    for( int i = 0; i < _len; ++i) res[i] = i;
-    return _len;
-  }
   
   /** Report the Chunk min-value (excluding NAs), or NaN if unknown.  Actual
    *  min can be higher than reported.  Used to short-cut RollupStats for
