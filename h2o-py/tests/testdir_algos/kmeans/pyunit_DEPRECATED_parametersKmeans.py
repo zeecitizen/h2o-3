@@ -28,6 +28,8 @@ def parametersKmeans():
     del param_dict['validation_frame']
     del param_dict['user_points']
     del param_dict["model_id"]
+    del param_dict['categorical_encoding']
+    del param_dict['estimate_k']
 
     iris_km_again = h2o.kmeans(x=iris[0:4], **param_dict)
 
