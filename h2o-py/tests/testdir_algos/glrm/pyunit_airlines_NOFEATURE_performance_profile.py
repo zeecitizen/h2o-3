@@ -22,16 +22,19 @@ def glrm_subset():
   objective = []
   num_runs = 10         # number of times to repeat experiments
 
-
-  acs_model = H2OGeneralizedLowRankEstimator(k = 10,
-                                            transform = 'STANDARDIZE',
-                                            loss = 'Quadratic',
-                                            regularization_x = 'Quadratic',
-                                            regularization_y = 'L1',
-                                            gamma_x = 0.25,
-                                            gamma_y = 0.5,
-                                            max_iterations = 1000)
   for ind in range(num_runs):
+    acs_model = H2OGeneralizedLowRankEstimator(k = 10,
+                                                 transform = 'STANDARDIZE',
+                                                 loss = 'Quadratic',
+                                                 multi_loss="Categorical",
+                                                 model_id="clients_core_glrm",
+                                                 regularization_x="L2",
+                                                 regularization_y="L1",
+                                                 gamma_x=0.2,
+                                                 gamma_y=0.5,
+                                                 init="SVD",
+                                                 max_iterations = 1000,
+                                                 seed=seeds[ind % len(seeds)])
     acs_model.train(x = acs_orig.names, training_frame= acs_orig, seed=seeds[ind % len(seeds)])
     run_time_ms.append(acs_model._model_json['output']['end_time'] - acs_model._model_json['output']['start_time'])
     iterations.append(acs_model._model_json['output']['iterations'])
