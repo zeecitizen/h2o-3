@@ -624,8 +624,8 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
         // 0) Initialize Y and X matrices
         // Jam A and X into a single frame for distributed computation
         // [A,X,W] A is read-only training data, X is matrix from prior iteration, W is working copy of X this iteration
-        //       fr = new Frame(_train);
-        fr = _train.deepCopy(String.valueOf(System.currentTimeMillis()));
+        fr = new Frame(_train);
+       // fr = _train.deepCopy(String.valueOf(System.currentTimeMillis()));
         Vec anyvec = fr.anyVec();
         assert anyvec != null;
         for (int i = 0; i < _ncolX; i++) fr.add("xcol_" + i, anyvec.makeZero());
