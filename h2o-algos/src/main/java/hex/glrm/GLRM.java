@@ -1273,38 +1273,6 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
       }
     }
 
-
-    /* Perfomred same function as in  ArrayUtils.multVecArr() but faster.  Reduced/Removed the memory
-     * allocation calls.
-      * */
-    private double[] multVecArrFast(double[] xnew, Archetypes yt, int j) {
-      double[] xy = new double[yt._numLevels[j]];
-      if (yt._transposed) {
-        for (int level = 0; level < yt._numLevels[j]; level++) {
-          int cidx = yt.getCatCidx(j, level);
-          double[] yArchetypes = yt._archetypes[cidx];
-          for (int k = 0; k < _ncolX; k++) {
-//            double archValue = 0.0;
-//            archValue = yt._archetypes[cidx][k];
-//            xy[level] += xnew[k] * archValue;
-            xy[level] += xnew[k] * yArchetypes[k];
-          }
-        }
-      } else {
-        for (int level = 0; level < yt._numLevels[j]; level++) {
-          int cidx = yt.getCatCidx(j, level);
-          for (int k = 0; k < _ncolX; k++) {
-//            double archValue = 0.0;
-//            archValue = yt._archetypes[k][cidx];
-//            xy[level] += xnew[k] * archValue;
-            xy[level] += xnew[k] * yt._archetypes[k][cidx];
-          }
-        }
-      }
-
-      return xy;
-    }
-
     @Override public void reduce(UpdateX other) {
       _loss += other._loss;
       _xreg += other._xreg;
