@@ -20,7 +20,7 @@ def glrm_subset():
   run_time_ms = []
   iterations = []
   objective = []
-  num_runs = 10         # number of times to repeat experiments
+  num_runs = 1         # number of times to repeat experiments
 
   for ind in range(num_runs):
     acs_model = H2OGeneralizedLowRankEstimator(k = 10,
@@ -33,7 +33,7 @@ def glrm_subset():
                                                  gamma_x=0.2,
                                                  gamma_y=0.5,
                                                  init="SVD",
-                                                 max_iterations = 1000,
+                                                 max_iterations = 200,
                                                  seed=seeds[ind % len(seeds)])
     acs_model.train(x = acs_orig.names, training_frame= acs_orig, seed=seeds[ind % len(seeds)])
     run_time_ms.append(acs_model._model_json['output']['end_time'] - acs_model._model_json['output']['start_time'])
