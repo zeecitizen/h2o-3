@@ -20,10 +20,6 @@ def hdfs_orc_parser():
     hadoop_namenode_is_accessible = pyunit_utils.hadoop_namenode_is_accessible()
 
     if hadoop_namenode_is_accessible:
-        numElements2Compare = 10
-        tol_time = 200
-        tol_numeric = 1e-5
-
         hdfs_name_node = pyunit_utils.hadoop_namenode()
         hdfs_csv_file = "/datasets/air_csv_part"
 
@@ -56,7 +52,7 @@ def hdfs_orc_parser():
                                                gamma_x=0.2,
                                                gamma_y=0.5,
                                                init="SVD",
-                                               max_iterations = 10,
+                                               max_iterations = 1,
                                                seed=seeds[ind % len(seeds)])
             acs_model.train(x = acs_orig.names, training_frame= acs_orig, seed=seeds[ind % len(seeds)])
             run_time_ms.append(acs_model._model_json['output']['end_time'] - acs_model._model_json['output']['start_time'])
