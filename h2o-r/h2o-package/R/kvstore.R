@@ -3,6 +3,9 @@
 #-----------------------------------------------------------------------------------------------------------------------
 
 .key.validate <- function(key) {
+  if(key %in% h2o.ls()$key){
+    stop(paste0("The key(destination_frame) '", key , "' already exists in the H2O Cluster. Please choose another key."))
+  }
   if (!missing(key) && !is.null(key)) {
     stopifnot( is.character(key) && length(key) == 1L && !is.na(key) )
     if( nzchar(key) && regexpr("^[a-zA-Z_][a-zA-Z0-9_.-]*$", key)[1L] == -1L )
