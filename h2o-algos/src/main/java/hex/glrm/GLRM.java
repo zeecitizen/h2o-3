@@ -1135,8 +1135,11 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
       Random rand = RandomUtils.getRNG(0);
       _loss = _xreg = 0;
       double[] xy = null;
-      if (_yt._numLevels[0] > 0)
+      double[] prod = null;
+      if (_yt._numLevels[0] > 0) {
         xy = new double[_yt._numLevels[0]];
+        prod = new double[_yt._numLevels[0]];
+      }
 
       for (int row = 0; row < cs[0]._len; row++) {
         rand.setSeed(_parms._seed + cs[0].start() + row); //global row ID determines the seed
@@ -1250,8 +1253,8 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
 //          double[] xy = ArrayUtils.multVecArr(xnew, _yt.getCatBlock(j));
 //          _loss +=  _lossFunc[j].mloss(xy, (int) a[j]);
 
-          double[] txy = multVecArrFast(xnew, _yt, j);
-          _loss +=  _lossFunc[j].mloss(txy, (int) a[j]);
+          double[] txy = multVecArrFast(xnew, prod, _yt, j);
+          _loss +=  _lossFunc[j].mloss(txy, (int) a[j], _yt._numLevels[j]);
 
           // check to see if xy and txy are the same, comment it out, do not delete yet.
 /*          double diff = 0.0;
@@ -1273,8 +1276,8 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
 
 
     /* same as ArrayUtils.multVecArr() but faster I hope. */
-    private double[] multVecArrFast(double[] xnew, Archetypes yt, int j) {
-      double[] xy = new double[yt._numLevels[j]];
+    private double[] multVecArrFast(double[] xnew, double[] xy, Archetypes yt, int j) {
+      Arrays.fill(xy, 0.0);
       if (yt._transposed) {
         for (int level = 0; level < yt._numLevels[j]; level++) {
           int cidx = yt.getCatCidx(j, level);
@@ -1351,11 +1354,14 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
       assert (_ncolA + 2*_ncolX) == cs.length;
       _ytnew = new double[_ytold.nfeatures()][_ncolX];
       Chunk chkweight = _weightId >= 0 ? cs[_weightId]:new C0DChunk(1,cs[0]._len);
+      double[] xy = null;
+      if (_ytold._numLevels[0] > 0)
+        xy = new double[_ytold._numLevels[0]];
 
       // Categorical columns
       for (int j = 0; j < _ncats; j++) {
         // Compute gradient of objective at column
-        double[] xy = new double[_ytold._numLevels[j]];
+//        double[] xy = new double[_ytold._numLevels[j]];
         for (int row = 0; row < cs[0]._len; row++) {
           double a = cs[j].atd(row);
           if (Double.isNaN(a)) continue;   // Skip missing observations in column
@@ -1366,15 +1372,15 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
           // double[] xy = new double[_dinfo._catLvls[j].length];
 //          double[] xy = new double[_ytold._numLevels[j]];
           Arrays.fill(xy, 0.0);
-          for (int level = 0; level < xy.length; level++) {
+          for (int level = 0; level < _ytold._numLevels[j]; level++) {
             for (int k = 0; k < _ncolX; k++) {
               xy[level] += chk_xnew(cs, k).atd(row) * _ytold.getCat(j,level,k);
             }
           }
 
           // Gradient for level p is x_i weighted by \grad_p L_{i,j}(x_i * Y_j, A_{i,j})
-          double[] weight = _lossFunc[j].mlgrad(xy, (int)a);
-          for (int level = 0; level < xy.length; level++) {
+          double[] weight = _lossFunc[j].mlgrad(xy, (int)a, _ytold._numLevels[j]);
+          for (int level = 0; level < _ytold._numLevels[j]; level++) {
             for (int k = 0; k < _ncolX; k++)
               _ytnew[_ytold.getCatCidx(j, level)][k] += cweight * weight[level] * chk_xnew(cs, k).atd(row);
           }
@@ -1396,12 +1402,12 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
           assert !Double.isNaN(cweight) : "User-specified weight cannot be NaN";
 
           // Inner product x_i * y_j
-          double xy = 0;
+          double txy = 0;
           for (int k = 0; k < _ncolX; k++)
-            xy += chk_xnew(cs, k).atd(row) * _ytold.getNum(js,k);
+            txy += chk_xnew(cs, k).atd(row) * _ytold.getNum(js,k);
 
           // Sum over x_i weighted by gradient of loss \grad L_{i,j}(x_i * y_j, A_{i,j})
-          double weight = cweight * _lossFunc[j].lgrad(xy, (a - _normSub[js]) * _normMul[js]);
+          double weight = cweight * _lossFunc[j].lgrad(txy, (a - _normSub[js]) * _normMul[js]);
           for (int k = 0; k < _ncolX; k++)
             _ytnew[yidx][k] += weight * chk_xnew(cs, k).atd(row);
         }
