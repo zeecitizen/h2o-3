@@ -17,6 +17,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static water.H2O.OptArgs.SYSTEM_PROP_PREFIX;
+
 /**
  * One true persistence manager which hides the implementations from H2O.
  * In particular, HDFS support or S3 support may or may not exist depending
@@ -24,6 +26,9 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class PersistManager {
   final static public int MAX_BACKENDS = 8;
+
+  /** Property which enable HDFS as default fallback persistent layer */
+  final static String USE_HDFS_AS_DEFAULT_FALLBACK_PROP = SYSTEM_PROP_PREFIX + "persist.default.fallback.hdfs";
 
   /** Persistence schemes; used as file prefixes eg "hdfs://some_hdfs_path/some_file" */
   public static class Schemes {
@@ -57,8 +62,11 @@ public class PersistManager {
 
   public static boolean isHdfsPath(String path) {
     String s = path.toLowerCase();
-    if (s.startsWith("hdfs:") || s.startsWith("s3:") || s.startsWith("s3n:")
-                          || s.startsWith("s3a:") || s.startsWith("maprfs:")) {
+    if (s.startsWith("hdfs:")
+        || s.startsWith("s3:")
+        || s.startsWith("s3n:")
+        || s.startsWith("s3a:")
+        || s.startsWith("maprfs:")) {
       return true;
     }
     return false;
@@ -177,6 +185,8 @@ public class PersistManager {
       ikey = I[Value.HDFS].uriToKey(uri);
     } else if ("file".equals(scheme) || scheme == null) {
       ikey = I[Value.NFS].uriToKey(uri);
+    } else if (useHdfsAsFallback() && I[Value.HDFS].canHandle(uri.toString())) {
+        ikey = I[Value.HDFS].uriToKey(uri);
     } else {
       throw new H2OIllegalArgumentException("Unsupported schema '" + scheme + "' for given uri " + uri);
     }
@@ -215,8 +225,11 @@ public class PersistManager {
       }
     } else if(s.startsWith("s3://")) {
       return I[Value.S3].calcTypeaheadMatches(filter, limit);
-    } else if (s.startsWith("hdfs:") || s.startsWith("s3:") || s.startsWith("s3n:") ||
-             s.startsWith("s3a:") || s.startsWith("maprfs:")) {
+    } else if (s.startsWith("hdfs:")
+               || s.startsWith("s3n:")
+               || s.startsWith("s3a:")
+               || s.startsWith("maprfs:")
+               || useHdfsAsFallback() && I[Value.HDFS] != null && I[Value.HDFS].canHandle(s)) {
       if (I[Value.HDFS] == null) {
         throw new H2OIllegalArgumentException("HDFS, S3, S3N, and S3A support is not configured");
       }
@@ -269,7 +282,8 @@ public class PersistManager {
     if( s.startsWith("hdfs:") ||
         s.startsWith("s3n:") || 
         s.startsWith("s3a:") || 
-        s.startsWith("maprfs:")) {
+        s.startsWith("maprfs:") ||
+        (useHdfsAsFallback() && I[Value.HDFS] != null && I[Value.HDFS].canHandle(s))) {
       if (I[Value.HDFS] == null) throw new H2OIllegalArgumentException("HDFS, S3N, and S3A support is not configured");
       I[Value.HDFS].importFiles(path, files, keys, fails, dels);
       return;
@@ -490,10 +504,22 @@ public class PersistManager {
         case Schemes.S3:
           return I[Value.S3];
         default:
-          throw new IllegalArgumentException("Cannot find persist manager for scheme " + scheme);
+          if (useHdfsAsFallback() && I[Value.HDFS].canHandle(uri.toString())) {
+            return I[Value.HDFS];
+          } else {
+            throw new IllegalArgumentException("Cannot find persist manager for scheme " + scheme);
+          }
       }
     } else {
       return I[Value.ICE];
     }
+  }
+
+  /** Should HDFS persist layer be used as default persist layer
+   * for unknown URL schema.
+    * @return  true if HDFS should handle unknown URL schema.
+   */
+  static boolean useHdfsAsFallback() {
+    return System.getProperty(USE_HDFS_AS_DEFAULT_FALLBACK_PROP, "false").equals("true");
   }
 }
