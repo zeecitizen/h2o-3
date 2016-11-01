@@ -164,6 +164,18 @@ public enum GlrmLoss {
       sum += Math.max(1 - u[a], 0) - Math.max(1 + u[a], 0);
       return sum;
     }
+    // this function performs the same function as the one above but it is memory optimized for the original
+    // GLRM.java code.  See GLRM.java for details
+    @Override public double mloss(double[] u, int a, int u_len) {
+      if (!(a >= 0 && a < u_len))
+        throw new IndexOutOfBoundsException("a must be between 0 and " + (u_len - 1));
+      double sum = 0;
+//      for (double ui : u)
+      for (int ind=0; ind < u_len; ind++)
+        sum += Math.max(1 + u[ind], 0);
+      sum += Math.max(1 - u[a], 0) - Math.max(1 + u[a], 0);
+      return sum;
+    }
     @Override public double[] mlgrad(double[] u, int a) {
       if (!(a >= 0 && a < u.length)) throw new IndexOutOfBoundsException("a must be between 0 and " + (u.length - 1));
       double[] grad = new double[u.length];
@@ -231,6 +243,9 @@ public enum GlrmLoss {
 
   /** Loss function for categorical variables */
   public double mloss(double[] u, int a) { throw new UnsupportedOperationException(); }
+
+  /** Loss function for categorical variables performing same function as mloss above but with more arguments */
+  public double mloss(double[] u, int a, int u_len) { throw new UnsupportedOperationException(); }
 
   /** \grad_u L(u,a): Gradient of multidimensional loss function with respect to u */
   public double[] mlgrad(double[] u, int a) { throw new UnsupportedOperationException(); }

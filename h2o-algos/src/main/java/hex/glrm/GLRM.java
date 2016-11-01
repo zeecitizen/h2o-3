@@ -1414,12 +1414,9 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
       // Compute new y_j values using proximal gradient
       for (int j = 0; j < _ytnew.length; j++) {
         double[] u = new double[_ytnew[0].length];  // Do not touch this memory allocation.  Needed for proper function.
-        for (int k = 0; k < _ytnew[0].length; k++) {
-          // double u = _ytold[j][k] - _alpha * _ytnew[j][k];
-          // _ytnew[j][k] = _parms.rproxgrad_y(u, _alpha);
-          // _yreg += _parms.regularize_y(_ytnew[j][k]);
+        for (int k = 0; k < _ytnew[0].length; k++)
           u[k] = _ytold._archetypes[j][k] - _alpha * _ytnew[j][k];
-        }
+
         _ytnew[j] = _parms._regularization_y.rproxgrad(u, _alpha*_parms._gamma_y, rand);
         _yreg += _parms._regularization_y.regularize(_ytnew[j]);
       }
@@ -1475,6 +1472,10 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
       Chunk chkweight = _weightId >= 0 ? cs[_weightId]:new C0DChunk(1,cs[0]._len);
       _loss = _xold_reg = 0;
       double[] xrow = null;
+      double[] xy = null;
+
+      if (_yt._numLevels[0] > 0)  // only allocate xy when there are categorical columns
+        xy = new double[_yt._numLevels[0]];    // maximum level is always the first one
 
       if (_regX)  // allocation memory only if necessary
          xrow = new double[_ncolX];
@@ -1491,13 +1492,14 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
 
           // Calculate x_i * Y_j where Y_j is sub-matrix corresponding to categorical col j
           // double[] xy = new double[_dinfo._catLvls[j].length];
-          double[] xy = new double[_yt._numLevels[j]];
+//          double[] xy = new double[_yt._numLevels[j]];
+          Arrays.fill(xy, 0.0);
           for (int level = 0; level < xy.length; level++) {
             for (int k = 0; k < _ncolX; k++) {
               xy[level] += chk_xnew(cs, k).atd(row) * _yt.getCat(j, level, k);
             }
           }
-          _loss += _lossFunc[j].mloss(xy, (int)a);
+          _loss += _lossFunc[j].mloss(xy, (int)a, _yt._numLevels[j]);
         }
 
         // Numeric columns
@@ -1506,11 +1508,11 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
           if (Double.isNaN(a)) continue;   // Skip missing observations in row
 
           // Inner product x_i * y_j
-          double xy = 0;
+          double txy = 0;
           int js = j - _ncats;
           for (int k = 0; k < _ncolX; k++)
-            xy += chk_xnew(cs, k).atd(row) * _yt.getNum(js, k);
-          _loss += _lossFunc[j].loss(xy, (a - _normSub[js]) * _normMul[js]);
+            txy += chk_xnew(cs, k).atd(row) * _yt.getNum(js, k);
+          _loss += _lossFunc[j].loss(txy, (a - _normSub[js]) * _normMul[js]);
         }
         _loss *= cweight;
 
