@@ -571,6 +571,7 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
       DataInfo dinfo = null, xinfo = null, tinfo = null;
       Frame fr = null;
       boolean overwriteX = false;
+      Log.info("*******  Inside wendy Jenkins *********");
 
       try {
         init(true);   // Initialize + Validate parameters
