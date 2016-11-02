@@ -1170,9 +1170,9 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
           }
 
           // Gradient wrt x_i is matrix product \grad L_{i,j}(x_i * Y_j, A_{i,j}) * Y_j'
-          double[] weight = _lossFunc[j].mlgrad(xy, (int) a[j], _yt._numLevels[j]);
+          double[] weight = _lossFunc[j].mlgrad(xy, (int) a[j], prod,_yt._numLevels[j]);
           if (_yt._transposed) {
-            for (int c = 0; c < weight.length; c++) {
+            for (int c = 0; c < _yt._numLevels[j]; c++) {
               int cidx = _yt.getCatCidx(j, c);
               double weights = cweight * weight[c];
               double[] yArchetypes = _yt._archetypes[cidx];
@@ -1181,7 +1181,7 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
 
             }
           } else {
-            for (int c = 0; c < weight.length; c++) {
+            for (int c = 0; c < _yt._numLevels[j]; c++) {
               int cidx = _yt.getCatCidx(j, c);
               double weights = cweight * weight[c];
 
@@ -1309,8 +1309,11 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
       _ytnew = new double[_ytold.nfeatures()][_ncolX];
       Chunk chkweight = _weightId >= 0 ? cs[_weightId]:new C0DChunk(1,cs[0]._len);
       double[] xy = null;
-      if (_ytold._numLevels[0] > 0)
+      double[] grad = null;
+      if (_ytold._numLevels[0] > 0) {
         xy = new double[_ytold._numLevels[0]];
+        grad = new double[_ytold._numLevels[0]];
+      }
 
       // Categorical columns
       for (int j = 0; j < _ncats; j++) {
@@ -1330,7 +1333,7 @@ public class GLRM extends ModelBuilder<GLRMModel, GLRMModel.GLRMParameters, GLRM
           }
 
           // Gradient for level p is x_i weighted by \grad_p L_{i,j}(x_i * Y_j, A_{i,j})
-          double[] weight = _lossFunc[j].mlgrad(xy, (int)a, _ytold._numLevels[j]);
+          double[] weight = _lossFunc[j].mlgrad(xy, (int)a, grad, _ytold._numLevels[j]);
           for (int level = 0; level < _ytold._numLevels[j]; level++) {
             for (int k = 0; k < _ncolX; k++)
               _ytnew[_ytold.getCatCidx(j, level)][k] += cweight * weight[level] * chk_xnew(cs, k).atd(row);
