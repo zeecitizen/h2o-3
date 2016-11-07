@@ -142,6 +142,7 @@ public abstract class Paxos {
   }
   static private void lockCloud_impl(Object reason) {
     // Any fast-path cutouts must happen en route to here.
+    // TODO(vlad): remove .toString(), it's not necessary here, and may cause an NPE
     Log.info("Locking cloud to new members, because "+reason.toString());
     synchronized(Paxos.class) {
       while( !_commonKnowledge )

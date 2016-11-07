@@ -29,11 +29,6 @@ import static org.junit.Assert.assertTrue;
 
 @Ignore("Support for tests, but no actual tests here")
 public class TestUtil extends Iced {
-  {
-    ClassLoader loader = getClass().getClassLoader();
-    loader.setDefaultAssertionStatus(true);
-  }
-
   public final static boolean JACOCO_ENABLED = Boolean.parseBoolean(System.getProperty("test.jacocoEnabled", "false"));
   private static boolean _stall_called_before = false;
   private static String[] ignoreTestsNames;
@@ -80,6 +75,13 @@ public class TestUtil extends Iced {
     _initial_keycnt = H2O.store_size();
   }
 
+  static class LeakedKeysChecker extends MRTask {
+      @Override public void setupLocal() {  
+        H2O.raw_clear();  
+        water.fvec.Vec.ESPC.clear(); 
+      }
+  } 
+  
   @AfterClass
   public static void checkLeakedKeys() {
     int leaked_keys = H2O.store_size() - _initial_keycnt;
@@ -102,9 +104,7 @@ public class TestUtil extends Iced {
     }
     assertTrue("Keys leaked: " + leaked_keys + ", cnt = " + cnt, leaked_keys <= 0 || cnt == 0);
     // Bulk brainless key removal.  Completely wipes all Keys without regard.
-    new MRTask(){
-      @Override public void setupLocal() {  H2O.raw_clear();  water.fvec.Vec.ESPC.clear(); }
-    }.doAllNodes();
+    new LeakedKeysChecker().doAllNodes();
     _initial_keycnt = H2O.store_size();
   }
 
@@ -260,7 +260,7 @@ public class TestUtil extends Iced {
 
     // create new parseSetup in order to store our na_string
     ParseSetup p = ParseSetup.guessSetup(res, new ParseSetup(DefaultParserProviders.GUESS_INFO,(byte) ',',true,
-        check_header,0,null,null,null,null,null));
+            check_header,0,null,null,null,null,null));
 
     // add the na_strings into p.
     if (na_string != null) {
@@ -321,7 +321,7 @@ public class TestUtil extends Iced {
 
     // create new parseSetup in order to store our na_string
     ParseSetup p = ParseSetup.guessSetup(res, new ParseSetup(DefaultParserProviders.GUESS_INFO,(byte) ',',true,
-        check_header,0,null,null,null,null,null));
+            check_header,0,null,null,null,null,null));
 
     // add the na_strings into p.
     if (na_string != null) {
@@ -471,7 +471,7 @@ public class TestUtil extends Iced {
     return r;
   }
 
-  // Java7+  @SafeVarargs
+// Java7+  @SafeVarargs
   public static <T> T[] aro(T ...a) { return a ;}
 
   // ==== Comparing Results ====
