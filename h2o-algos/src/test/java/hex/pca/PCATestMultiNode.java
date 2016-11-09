@@ -1,11 +1,9 @@
 package hex.pca;
 
-import hex.SplitFrame;
 import hex.pca.PCAModel.PCAParameters;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import water.DKV;
 import water.Key;
 import water.TestUtil;
 import water.fvec.Frame;
@@ -17,38 +15,28 @@ public class PCATestMultiNode extends TestUtil {
   @BeforeClass public static void setup() { stall_till_cloudsize(1); }
 
 
-  @Test public void testMultiNodePCA() throws InterruptedException, ExecutionException {
+  @Test public void testMultiNodePCAGLRM() throws InterruptedException, ExecutionException {
     PCAModel model = null;
     Frame fr = null, fr2= null;
-    Frame tr = null, te= null;
 
     try {
-      fr = parse_test_file("smalldata/pca_test/pca_400c_20000R.csv");
-      SplitFrame sf = new SplitFrame(fr,new double[] { 0.9, 0.1 },new Key[] { Key.make("train.hex"), Key.make("test.hex")});
-
-      // Invoke the job
-      sf.exec().get();
-      Key[] ksplits = sf._destination_frames;
-      tr = DKV.get(ksplits[0]).get();
-      te = DKV.get(ksplits[1]).get();
+      fr = parse_test_file(Key.make("pca_400c_2000R.hex"), "smalldata/pca_test/pca_400c_20000R.csv");
 
       PCAModel.PCAParameters parms = new PCAModel.PCAParameters();
-      parms._train = ksplits[0];
-      parms._valid = ksplits[1];
+      parms._train = fr._key;
       parms._k = 4;
       parms._max_iterations = 1000;
-      parms._pca_method = PCAParameters.Method.GramSVD;
+      parms._pca_method = PCAParameters.Method.GLRM;
+      parms._use_all_factor_levels = true;
 
       model = new PCA(parms).trainModel().get();
 
       // Done building model; produce a score column with cluster choices
-      fr2 = model.score(te);
-      Assert.assertTrue(model.testJavaScoring(te, fr2, 1e-5));
+      fr2 = model.score(fr);
+      Assert.assertTrue(model.testJavaScoring(fr, fr2, 1e-5));
     } finally {
       if( fr  != null ) fr.delete();
       if( fr2 != null ) fr2.delete();
-      if( tr  != null ) tr .delete();
-      if( te  != null ) te .delete();
       if (model != null) model.delete();
     }
   }
