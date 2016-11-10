@@ -19,7 +19,7 @@ def pca_arrests():
   randomData = h2o.upload_file(pyunit_utils.locate("smalldata/pca_test/pca_400c_20000R.csv"))
   randomData.describe()
 
-  pca_k = 20
+  pca_k = 10
   print("H2O PCA with " + str(pca_k) + " dimensions:\n")
   pca_h2o = H2OPCA(k = pca_k, use_all_factor_levels=True, pca_method = "GLRM")
   pca_h2o.train(training_frame=randomData)
