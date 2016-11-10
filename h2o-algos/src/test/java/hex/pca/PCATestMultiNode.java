@@ -11,7 +11,7 @@ import java.util.concurrent.ExecutionException;
 
 public class PCATestMultiNode extends TestUtil {
   public static final double TOLERANCE = 1e-6;
-  @BeforeClass public static void setup() { stall_till_cloudsize(2); }
+  @BeforeClass public static void setup() { stall_till_cloudsize(5); }
 
 
   // quick fix for MarkC here.  Use GLRM for PCA for now since I fixed it already.
