@@ -1,6 +1,5 @@
 package hex.pca;
 
-import hex.pca.PCAModel.PCAParameters;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -12,7 +11,7 @@ import java.util.concurrent.ExecutionException;
 
 public class PCATestMultiNode extends TestUtil {
   public static final double TOLERANCE = 1e-6;
-  @BeforeClass public static void setup() { stall_till_cloudsize(2); }
+  @BeforeClass public static void setup() { stall_till_cloudsize(5); }
 
 
   // quick fix for MarkC here.  Use GLRM for PCA for now since I fixed it already.
@@ -28,7 +27,8 @@ public class PCATestMultiNode extends TestUtil {
       parms._train = fr._key;
       parms._k = 4;
       parms._max_iterations = 1000;
-      parms._pca_method = PCAParameters.Method.GLRM;
+      parms._pca_method = PCAModel.PCAParameters.Method.GLRM;
+
 //      parms._use_all_factor_levels = true;
 
       model = new PCA(parms).trainModel().get();
