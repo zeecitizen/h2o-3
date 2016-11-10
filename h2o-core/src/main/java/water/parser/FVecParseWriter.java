@@ -101,7 +101,8 @@ public class FVecParseWriter extends Iced implements StreamParseWriter {
       _nvs[_col = colIdx].addNum(number, exp);
       if(_ctypes != null && _ctypes[colIdx] == Vec.T_BAD ) _ctypes[colIdx] = Vec.T_NUM;
     } else
-      recordMissingColumnError(colIdx, number * PrettyPrint.pow10(exp));
+      if (canAddError()) // avoid unnecessary calculation & auto-boxing if there is no room for errors anyway
+        recordMissingColumnError(colIdx, number * PrettyPrint.pow10(exp));
   }
 
   @Override public final void addInvalidCol(int colIdx) {
@@ -180,9 +181,13 @@ public class FVecParseWriter extends Iced implements StreamParseWriter {
   public final void addError(ParseErr err) {
     if(_errs == null)
       _errs = new ParseErr[]{err};
-    else if(_errs.length < MAX_ERR_CNT)
+    else if(canAddError())
       _errs = ArrayUtils.append(_errs,err);
     _errCnt++;
+  }
+
+  private boolean canAddError() {
+    return _errs == null || _errs.length < MAX_ERR_CNT;
   }
 
   private void addMissingColumnsError() {
@@ -198,15 +203,17 @@ public class FVecParseWriter extends Iced implements StreamParseWriter {
   }
 
   private void recordMissingColumnError(int colIdx, Object value) {
+    if (! canAddError()) return; // Avoid doing any work if we already know a new error cannot be added
+
     // We only want to report values if they come sequentially as they were in the file (CSV parser is sequential, binary parsers might not be)
     // Cap the maximum number of reported values to 10
-    if ((_maxMissingCol == -1) && (colIdx == _col + 1))
+    if ((_maxMissingCol == -1) && (colIdx == _nCols))
       _missingColVals = new StringBuilder().append(value);
+    else if ((_missingColVals != null) && (_maxMissingCol + 1 == colIdx))
+      _missingColVals = (colIdx - _nCols < 10) ? _missingColVals.append(", ").append(value) : _missingColVals;
     else
-      if ((_missingColVals != null) && (_maxMissingCol + 1 == colIdx))
-        _missingColVals = (colIdx - _nCols < 10) ? _missingColVals.append(", ").append(value) : _missingColVals;
-      else
-        _missingColVals = null; // out-of-order detected, cancel reporting
+      _missingColVals = null; // out-of-order detected, cancel reporting
+
     _maxMissingCol = Math.max(colIdx, _maxMissingCol);
   }
 
