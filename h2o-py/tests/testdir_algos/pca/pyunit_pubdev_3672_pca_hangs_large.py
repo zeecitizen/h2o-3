@@ -16,7 +16,7 @@ from h2o.transforms.decomposition import H2OPCA
 
 def pca_arrests():
   print("Importing dataset 20000 rows by 400 columns ...")
-  randomData = h2o.upload_file(pyunit_utils.locate("smalldata/pca_test/pca_400c_20000R.csv"))
+  randomData = h2o.upload_file(pyunit_utils.locate("bigdata/laptop/jira/pca_pubdev_3672_400c_20000R.csv.zip"))
   randomData.describe()
 
   pca_k = 10
