@@ -71,11 +71,8 @@ public class PCA extends ModelBuilder<PCAModel,PCAModel.PCAParameters,PCAModel.P
     // TODO: Initialize _parms._k = min(ncolExp(_train), nrow(_train)) if not set
     int k_min = (int)Math.min(_ncolExp, _train.numRows());
     if (_parms._k < 1 || _parms._k > k_min) error("_k", "_k must be between 1 and " + k_min);
-    if (!_parms._use_all_factor_levels && _parms._pca_method == PCAParameters.Method.GLRM) {
-      _parms._use_all_factor_levels = true;
-      warn("_use_all_factor_levels", "GLRM only implemented for _use_all_factor_levels = true. \n" +
-              "Setting _use_all_factor_levels = true now.");
-    }
+    if (!_parms._use_all_factor_levels && _parms._pca_method == PCAParameters.Method.GLRM)
+      error("_use_all_factor_levels", "GLRM only implemented for _use_all_factor_levels = true");
 
     if (_parms._pca_method != PCAParameters.Method.GLRM && expensive && error_count() == 0) checkMemoryFootPrint();
   }
