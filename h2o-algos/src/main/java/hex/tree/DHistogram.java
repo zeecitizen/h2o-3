@@ -53,21 +53,21 @@ public final class DHistogram extends Iced {
   public double wY(int i){ return _vals[3*i+1];}
   public double wYY(int i){return _vals[3*i+2];}
 
-  private double [] _naCnts;
+
   public void addNasAtomic(double y, double wy, double wyy) {
-    AtomicUtils.DoubleArray.add(_naCnts,0,y);
-    AtomicUtils.DoubleArray.add(_naCnts,1,wy);
-    AtomicUtils.DoubleArray.add(_naCnts,2,wyy);
+    AtomicUtils.DoubleArray.add(_vals,3*_nbin+0,y);
+    AtomicUtils.DoubleArray.add(_vals,3*_nbin+1,wy);
+    AtomicUtils.DoubleArray.add(_vals,3*_nbin+2,wyy);
   }
   public void addNasPlain(double... ds) {
-    _naCnts[0] += ds[0];
-    _naCnts[1] += ds[1];
-    _naCnts[2] += ds[2];
+    _vals[3*_nbin+0] += ds[0];
+    _vals[3*_nbin+1] += ds[1];
+    _vals[3*_nbin+2] += ds[2];
   }
 
-  public double wNA()   { return _naCnts[0]; }
-  public double wYNA()  { return _naCnts[1]; }
-  public double wYYNA() { return _naCnts[2]; }
+  public double wNA()   { return _vals[3*_nbin+0]; }
+  public double wYNA()  { return _vals[3*_nbin+1]; }
+  public double wYYNA() { return _vals[3*_nbin+2]; }
 
 
 
@@ -205,7 +205,7 @@ public final class DHistogram extends Iced {
     assert( !Double.isNaN(col_data) ); //NAs go to a separate bucket
     if (Double.isInfinite(col_data)) // Put infinity to most left/right bin
       if (col_data<0) return 0;
-      else return _w.length-1;
+      else return _nbin-1;
     assert _min <= col_data && col_data < _maxEx : "Coldata " + col_data + " out of range " + this;
     // When the model is exposed to new test data, we could have data that is
     // out of range of any bin - however this binning call only happens during
@@ -219,8 +219,8 @@ public final class DHistogram extends Iced {
     } else {
       idx1 = (int) pos;
     }
-    if (idx1 == _w.length) idx1--; // Roundoff error allows idx1 to hit upper bound, so truncate
-    assert 0 <= idx1 && idx1 < _w.length : idx1 + " " + _w.length;
+    if (idx1 == _nbin) idx1--; // Roundoff error allows idx1 to hit upper bound, so truncate
+    assert 0 <= idx1 && idx1 < _nbin : idx1 + " " + _nbin;
     return idx1;
   }
   public double binAt( int b ) {
@@ -272,8 +272,7 @@ public final class DHistogram extends Iced {
     else assert(_histoType== SharedTreeModel.SharedTreeParameters.HistogramType.UniformAdaptive);
     //otherwise AUTO/UniformAdaptive
     assert(_nbin>0);
-    _vals = MemoryManager.malloc8d(3*_nbin);
-    _naCnts = new double[3];
+    _vals = MemoryManager.malloc8d(3*_nbin+3);
   }
 
   // Add one row to a bin found via simple linear interpolation.
@@ -305,7 +304,6 @@ public final class DHistogram extends Iced {
     ArrayUtils.add(_vals,dsh._vals);
     if( _min2 > dsh._min2  ) _min2 = dsh._min2;
     if( _maxIn < dsh._maxIn) _maxIn = dsh._maxIn;
-    addNasPlain(dsh._naCnts);
   }
 
   // Inclusive min & max
@@ -673,7 +671,7 @@ public final class DHistogram extends Iced {
 
   public void reducePrecision(){
     if(_vals == null) return;
-    for(int i = 0; i < _vals.length; i+=3) {
+    for(int i = 0; i < _vals.length-3 /* do not reduce precision of NAs */; i+=3) {
       _vals[i+1] = (float)_vals[i+1];
       _vals[i+2] = (float)_vals[i+2];
     }
