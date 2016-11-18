@@ -45,19 +45,15 @@ import water.util.VecUtils;
  * the previous passes' DHistograms.
  *
  *
- * Non-shared histogram update:
+ * No CAS update:
  *
  * Sharing the histograms proved to be a performance problem on larger multi-cpu machines with many running threads, CAS was the bottleneck.
  *
- * To remove the CAS while minimizing the memory overhead of private copies of histograms, phase 2 is paralellized primarily over columns.
- * Each column (block of columns) is then processed in local mr task with number of tasks given by
+ * To remove the CAS while minimizing the memory overhead (private copies of histograms), phase 2 is paralellized both over columns and rows.
+ * Each column (block of columns) is processed in LocalMrTask.
+ * Expected number of tasks running in parallel (and hence private Historgam copies made) is given by
  *
- *    nthreads = max(1,desired_parallelization - num_cols/col_block_sz)
- *
- *    desired_parallization defaults to number of threads available to H2O, col_block_sz defsaults to 2 (empirical result).*
- *
- * If histogram sharing option is set to false (which it is default), the number of extra private copies made is exactly nthreads-1.
- * If histogram sharing is on, no private copies are made and histograms are still updated via CAS.
+ *    exp(nthreads) = max(1,H2O.NUMCPUS - num_cols/COL_BLOCK_SZ)
  *
  */
 public class ScoreBuildHistogram2 extends ScoreBuildHistogram {
@@ -193,7 +189,6 @@ public class ScoreBuildHistogram2 extends ScoreBuildHistogram {
       }
       @Override
       protected void map(int id) {
-
         Vec[] vecs = _fr2.vecs();
         for(id = cidx.getAndIncrement(); id < _cids.length; id = cidx.getAndIncrement()) {
           int cidx = _cids[id];
@@ -207,7 +202,6 @@ public class ScoreBuildHistogram2 extends ScoreBuildHistogram {
       public void onCompletion(CountedCompleter cc){
         int ncols = _ncols;
         int colBlockSz = Math.min(ncols,COL_BLOCK_SZ);
-
         for(int i = 0; i < ncols; i += colBlockSz) {
           ScoreBuildHistogram2.this.addToPendingCount(1);
           final int colFrom= i;
@@ -312,7 +306,6 @@ public class ScoreBuildHistogram2 extends ScoreBuildHistogram {
     for(DHistogram [] ary:_hcs)
       for(DHistogram dh:ary) {
         if(dh == null) continue;
-        if(dh._err != null) System.out.println("err = " + Arrays.toString(dh._err));
         dh.reducePrecision();
       }
   }

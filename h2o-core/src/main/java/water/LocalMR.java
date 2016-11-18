@@ -7,8 +7,11 @@ import java.util.concurrent.CancellationException;
 /**
  * Created by tomas on 11/5/16.
  *
- * Generic Local MRTask utility. Will launch requested number of tasks (on local node!), organized in a binary tree fashion.
+ * Generic lightewight Local MRTask utility. Will launch requested number of tasks (on local node!), organized in a binary tree fashion, similar to MRTask.
+ * Will attempt to share local results (MrFun instances) if the previous task has completed before launching current task.
  *
+ * User expected to pass in MrFun implementing map(id), reduce(MrFun) and makeCopy() functions.
+ * At the end of the task, MrFun holds the result.
  */
 public class LocalMR<T extends MrFun<T>> extends H2O.H2OCountedCompleter<LocalMR> {
   private int _lo;
@@ -24,7 +27,7 @@ public class LocalMR<T extends MrFun<T>> extends H2O.H2OCountedCompleter<LocalMR
     super(cc);
     if(nthreads <= 0) throw new IllegalArgumentException("nthreads must be positive");
     _root = this;
-    _mrFun = mrt;
+    _mrFun = mrt; // used as golden copy and also will hold the result after task has finished.
     _lo = 0;
     _hi = nthreads;
     _prevTsk = null;
@@ -40,7 +43,7 @@ public class LocalMR<T extends MrFun<T>> extends H2O.H2OCountedCompleter<LocalMR
 
   private LocalMR<T> _left;
   private LocalMR<T> _rite;
-  private final LocalMR<T> _prevTsk; // right child will attempt to share MrFun with " left sibling" if the whole left subtree is done
+  private final LocalMR<T> _prevTsk; //will attempt to share MrFun with "previous task" if it's done by the time we start
 
 
   volatile boolean completed; // this task and all it's children completed
@@ -65,9 +68,8 @@ public class LocalMR<T extends MrFun<T>> extends H2O.H2OCountedCompleter<LocalMR
           }
           addToPendingCount(pending);
           if(_rite != null) _rite.fork();
-          _left.fork();
+          _left.compute2();
         } else {
-
           if(_prevTsk != null && _prevTsk.completed){
             _mrFun = _prevTsk._mrFun;
             _prevTsk._mrFun = null;

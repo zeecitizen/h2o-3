@@ -295,7 +295,6 @@ public final class DHistogram extends Iced {
     if( y != 0 && w != 0) incr0(b,y,w);
   }
 
-  double [] _err;
   // Merge two equal histograms together.  Done in a F/J reduce, so no
   // synchronization needed.
   public void add( DHistogram dsh ) {
@@ -629,24 +628,15 @@ public final class DHistogram extends Iced {
     return new DTree.Split(col,best,nasplit,bs,equal,seBefore,best_seL, best_seR, nLeft, nRight, predLeft / nLeft, predRight / nRight);
   }
 
-
-  public void updateHisto(double w, double c, double y) {
-    double wy = w * y;
-    double wyy = wy * y;
-    if (Double.isNaN(c)) {
-      //separate bucket for NA - atomically added to the shared histo
-      addNasPlain(w,wy,wyy);
-    } else {
-      // increment local pre-thread histograms
-      int b = bin(c);
-      _vals[3*b] += w;
-      _vals[3*b+1] += wy;
-      _vals[3*b+2] += wyy;
-      if(c < _min2 ) _min2  = c;
-      if(c > _maxIn) _maxIn = c;
-    }
-  }
-
+  /**
+   * Update counts in appropriate bins. Not thread safe, assumed to have private copy.
+   * @param ws observation weights
+   * @param cs column data
+   * @param ys response
+   * @param rows rows sorted by leaf assignemnt
+   * @param hi  upper bound on index into rows array to be processed by this call (exclusive)
+   * @param lo  lower bound on index into rows array to be processed by this call (exclusive)
+   */
   public void updateHisto(double[] ws, double[] cs, double[] ys, int [] rows, int hi, int lo){
     // Gather all the data for this set of rows, for 1 column and 1 split/NID
     // Gather min/max, wY and sum-squares.
@@ -668,6 +658,10 @@ public final class DHistogram extends Iced {
     }
   }
 
+  /**
+   * Cast bin values *except for sums of weights and Na-bucket counters to floats to drop least significant bits.
+   * Improves reproducibility (drop bits most affected by floating point error).
+   */
   public void reducePrecision(){
     if(_vals == null) return;
     for(int i = 0; i < _vals.length -3 /* do not reduce precision of NAs */; i+=3) {

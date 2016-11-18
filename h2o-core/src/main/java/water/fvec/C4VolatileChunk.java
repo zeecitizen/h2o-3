@@ -5,6 +5,9 @@ import water.util.UnsafeUtils;
 
 /**
  * The empty-compression function, where data is in 'int's.
+ * Can only be used locally (intentionally does not serialize).
+ * Intended for temporary data which gets modified frequently.
+ * Exposes data directly as int[]
  */
 public class C4VolatileChunk extends Chunk {
   static protected final long _NA = Integer.MIN_VALUE;

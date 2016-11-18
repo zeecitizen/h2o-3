@@ -5,6 +5,9 @@ import water.util.UnsafeUtils;
 
 /**
  * The empty-compression function, where data is in 'double's.
+ * Can only be used locally (intentionally does not serialize).
+ * Intended for temporary data which gets modified frequently.
+ * Exposes data directly as double[]
  */
 public final class C8DVolatileChunk extends Chunk {
   private transient final double [] _ds;
@@ -24,9 +27,6 @@ public final class C8DVolatileChunk extends Chunk {
   @Override boolean set_impl(int idx, long l) {
     return false;
   }
-
-
-
   @Override boolean set_impl(int i, double d) {
     _ds[i] = d;
     return true;
@@ -35,8 +35,6 @@ public final class C8DVolatileChunk extends Chunk {
     _ds[i] = f;
     return true;
   }
-
-
   @Override boolean setNA_impl(int idx) { UnsafeUtils.set8d(_mem,(idx<<3),Double.NaN); return true; }
   @Override public NewChunk inflate_impl(NewChunk nc) {
     //nothing to inflate - just copy
