@@ -6,16 +6,14 @@ import water.util.UnsafeUtils;
 /**
  * The empty-compression function, where data is in 'double's.
  */
-public class C8DVolatileChunk extends Chunk {
+public final class C8DVolatileChunk extends Chunk {
   private transient final double [] _ds;
   C8DVolatileChunk(double[] ds ) { _mem=new byte[0]; _start = -1; _len = ds.length; _ds = ds; }
 
-  public double [] getValuesForWriting(){
-    _vec.preWriting();
-    return _ds;
-  }
+
+  public double [] getValues(){return _ds;}
   @Override protected final long   at8_impl( int i ) {
-    double res = atd_impl(i);
+    double res = _ds[i];
     if( Double.isNaN(res) ) throw new IllegalArgumentException("at8_abs but value is missing");
     return (long)res;
   }
@@ -27,13 +25,7 @@ public class C8DVolatileChunk extends Chunk {
     return false;
   }
 
-  /**
-   * Fast explicit set for double.
-   * @param i
-   * @param d
-   */
-  public void set8D(int i, double d) {_ds[i] = d;}
-  public double get8D(int i) {return _ds[i];}
+
 
   @Override boolean set_impl(int i, double d) {
     _ds[i] = d;
@@ -57,9 +49,7 @@ public class C8DVolatileChunk extends Chunk {
   // 3.3333333e33
 //  public int pformat_len0() { return 22; }
 //  public String pformat0() { return "% 21.15e"; }
-  @Override public final void initFromBytes () {
-    throw H2O.unimpl();
-  }
+  @Override public final void initFromBytes () {throw H2O.unimpl("should not be used for a volatile chunk");}
 
   @Override
   public double [] getDoubles(double [] vals, int from, int to){
