@@ -1767,9 +1767,21 @@ h2o.quantile <- function(x,
   #if(type != 2 && type != 7) stop("type must be either 2 (mean interpolation) or 7 (linear interpolation)")
   #if(type != 7) stop("Unimplemented: Only type 7 (linear interpolation) is supported from the console")
   res <- .newExpr("quantile", x, .num.list(probs), .quote(combine_method), weights_column)
+  # H2O 11x2
   tr <- as.matrix(t(res))
+  #         C1    C2   C3    C4     C5   C6     C7    C8   C9   C10    C11
+  #[1,]  0.001  0.01  0.1  0.25  0.333  0.5  0.667  0.75  0.9  0.99  0.999
+  #[2,] 44.516 50.79 57.0 62.00 64.000 67.0 70.000 71.00 74.0 78.00 79.000
   rownames(tr) <- colnames(res)
+  if (!is.numeric(tr[1,])) {
+    str(tr)
+    print(tr)
+    tr <- as.numeric(tr)
+  }
   colnames(tr) <- paste0(100*tr[1,],"%")
+  #               0.1%    1%  10%   25%  33.3%  50%  66.7%   75%  90%   99%  99.9%
+  #Probs         0.001  0.01  0.1  0.25  0.333  0.5  0.667  0.75  0.9  0.99  0.999
+  #AGEQuantiles 44.516 50.79 57.0 62.00 64.000 67.0 70.000 71.00 74.0 78.00 79.000
   tr[-1,]
 }
 
