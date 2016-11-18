@@ -29,7 +29,7 @@ public class AstSumAxis extends AstPrimitive {
 
   @Override
   public String example() {
-    return "(sum frame na_rm axis)";
+    return "(sumaxis frame na_rm axis)";
   }
 
   @Override
