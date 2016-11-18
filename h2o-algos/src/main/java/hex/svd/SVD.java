@@ -204,7 +204,7 @@ public class SVD extends ModelBuilder<SVDModel,SVDModel.SVDParameters,SVDModel.S
         rtsk.doAll(_parms._nv, Vec.T_NUM, dinfo._adaptedFrame);
         ybig = rtsk.outputFrame(Key.<Frame>make(), null, null);
 
-        // Make input frame [A,Q,Y] where A = read-only training data, Y = A \tilde{Q}, Q from Y = QR factorization
+        // Make input frame [A,Y,Q] where A = read-only training data, Y = A \tilde{Q}, Q from Y = QR factorization
         // Note: If A is n by p (p = num cols with categoricals expanded), then \tilde{Q} is p by k and Q is n by k
         Frame ayqfrm = new Frame(dinfo._adaptedFrame);
         ayqfrm.add(ybig);
