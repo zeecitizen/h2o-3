@@ -104,7 +104,7 @@ public class LocalMRTest extends TestUtil {
       // and with completer
       try {
         H2O.H2OCountedCompleter cc = new H2O.H2OCountedCompleter(){};
-        H2O.submitTask(new LocalMR(new MrFunTest2(exId,active),cnt,cc));
+        H2O.submitTask(new LocalMR(new MrFunTest2(exId,active),cnt,null,cc));
         cc.join();
         assertTrue("should've thrown test exception",false);
       } catch(TestException t) {

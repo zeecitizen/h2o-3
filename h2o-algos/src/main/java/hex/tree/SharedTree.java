@@ -482,43 +482,29 @@ public abstract class SharedTree<M extends SharedTreeModel<M,P,O>, P extends Sha
       new ScoreBuildHistogram2(this,_k, _st._ncols, _nbins, _nbins_cats, _tree, _leafOffsets[_k], _hcs[_k], _family, _weightIdx, _workIdx, _nidIdx).dfork2(null,_fr2,_build_tree_one_node);
     }
     @Override public void onCompletion(CountedCompleter caller) {
-      ScoreBuildHistogram sbh = (ScoreBuildHistogram)caller;
-//      for(int i = 0; i < sbh._hcs.length; ++i)
-//          for(int j = 0; j < sbh._hcs[i].length;++j) {
-//            System.out.println();
-//            System.out.println(i + ", " + j);
-//            DHistogram d = sbh._hcs[i][j];
-//            if (d == null) {
-//              System.out.println("null");
-//            } else {
-//              System.out.println("w: " + Arrays.toString(d._w));
-//              System.out.println("wY: " + Arrays.toString(d._wY));
-//              System.out.println("wYY: " + Arrays.toString(d._wYY));
-//            }
-//          }
-      //System.out.println(sbh.profString());
+      ScoreBuildHistogram sbh = (ScoreBuildHistogram) caller;
       final int leafOffset = _leafOffsets[_k];
       int tmax = _tree.len();   // Number of total splits in tree K
-      for(int leaf = leafOffset; leaf<tmax; leaf++ ) { // Visit all the new splits (leaves)
+      for (int leaf = leafOffset; leaf < tmax; leaf++) { // Visit all the new splits (leaves)
         DTree.UndecidedNode udn = _tree.undecided(leaf);
 //        System.out.println((_st._nclass==1?"Regression":("Class "+_st._response.domain()[_k]))+",\n  Undecided node:"+udn);
         // Replace the Undecided with the Split decision
-        DTree.DecidedNode dn = _st.makeDecided(udn,sbh._hcs[leaf-leafOffset]);
+        DTree.DecidedNode dn = _st.makeDecided(udn, sbh._hcs[leaf - leafOffset]);
 //        System.out.println(dn + "\n" + dn._split);
-        if( dn._split == null ) udn.do_not_split();
+        if (dn._split == null) udn.do_not_split();
         else {
           _did_split = true;
           DTree.Split s = dn._split; // Accumulate squared error improvements per variable
-          float improvement = (float)(s.pre_split_se()-s.se());
-          assert(improvement>=0);
-          AtomicUtils.FloatArray.add(_improvPerVar,s.col(),improvement);
+          float improvement = (float) (s.pre_split_se() - s.se());
+          assert (improvement >= 0);
+          AtomicUtils.FloatArray.add(_improvPerVar, s.col(), improvement);
         }
       }
-      _leafOffsets[_k]=tmax;          // Setup leafs for next tree level
-      int new_leafs = _tree.len()-tmax; //new_leafs can be 0 if no actual splits were made
+      _leafOffsets[_k] = tmax;          // Setup leafs for next tree level
+      int new_leafs = _tree.len() - tmax; //new_leafs can be 0 if no actual splits were made
       _hcs[_k] = new DHistogram[new_leafs][/*ncol*/];
-      for( int nl = tmax; nl<_tree.len(); nl ++ )
-        _hcs[_k][nl-tmax] = _tree.undecided(nl)._hs;
+      for (int nl = tmax; nl < _tree.len(); nl++)
+        _hcs[_k][nl - tmax] = _tree.undecided(nl)._hs;
 //      if (_did_split && new_leafs > 0) _tree._depth++;
       if (_did_split) _tree._depth++; //
     }

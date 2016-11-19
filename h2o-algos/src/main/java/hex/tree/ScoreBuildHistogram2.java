@@ -7,6 +7,8 @@ import water.fvec.*;
 import water.util.ArrayUtils;
 
 import java.util.Arrays;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import water.util.VecUtils;
@@ -63,7 +65,7 @@ public class ScoreBuildHistogram2 extends ScoreBuildHistogram {
   transient int [][] _rss;
   Frame _fr2;
 
-  private static int COL_BLOCK_SZ = 2;
+  private static int MIN_COL_BLOCK_SZ = 2;
   public ScoreBuildHistogram2(H2O.H2OCountedCompleter cc, int k, int ncols, int nbins, int nbins_cats, DTree tree, int leaf, DHistogram[][] hcs, DistributionFamily family, int weightIdx, int workIdx, int nidIdxs) {
     super(cc, k, ncols, nbins, nbins_cats, tree, leaf, hcs, family, weightIdx, workIdx, nidIdxs);
   }
@@ -201,16 +203,19 @@ public class ScoreBuildHistogram2 extends ScoreBuildHistogram {
     },new H2O.H2OCountedCompleter(this){
       public void onCompletion(CountedCompleter cc){
         int ncols = _ncols;
-        int colBlockSz = Math.min(ncols,COL_BLOCK_SZ);
-        for(int i = 0; i < ncols; i += colBlockSz) {
+        int colBlockSz = Math.max(MIN_COL_BLOCK_SZ,ncols/H2O.NUMCPUS);
+        int colTo = 0;
+        LocalMR.TaskQ taskQ = new LocalMR.TaskQ();
+        while(colTo < ncols) {
+          int colFrom = colTo;
           ScoreBuildHistogram2.this.addToPendingCount(1);
-          final int colFrom= i;
-          final int colTo = Math.min(ncols,colFrom+colBlockSz);
+          colTo = ((ncols-colFrom) >= 2*colBlockSz)?colFrom+colBlockSz:ncols;
           DHistogram[][] hcs = _hcs.clone();
           for(int j = 0; j < hcs.length; ++j)
             hcs[j] = Arrays.copyOfRange(hcs[j],colFrom,colTo);
-            new LocalMR<ComputeHistoThread>(new ComputeHistoThread(hcs,colFrom,colTo,fLargestChunkSz,new AtomicInteger()), ScoreBuildHistogram2.this).fork();
+          taskQ.submit(new LocalMR(new ComputeHistoThread(hcs,colFrom,colTo,fLargestChunkSz,new AtomicInteger()),H2O.NUMCPUS,taskQ,ScoreBuildHistogram2.this));
         }
+        assert colTo == ncols;
       }
     }).fork();
   }
@@ -248,7 +253,6 @@ public class ScoreBuildHistogram2 extends ScoreBuildHistogram {
       ComputeHistoThread res = new ComputeHistoThread(ArrayUtils.deepClone(_lhcs),_colFrom,_colTo,_maxChunkSz,_cidx);
       return res;
     }
-
 
     @Override
     protected void map(int id){
