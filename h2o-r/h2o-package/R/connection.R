@@ -670,3 +670,19 @@ h2o.networkTest <- function() {
 .h2o.garbageCollect <- function() {
   res <- .h2o.__remoteSend("GarbageCollect", method = "POST")
 }
+
+#' Find .h2oconfig file starting from currenting directory and going up all parent directories until it reaches
+#' the root directory.
+#' If .h2oconfig is not found, then an error is returned.
+#'
+h2o.candidate_log_files <- function(){
+  current_directory = getwd()
+  while(identical(Sys.glob(".h2oconfig"),character(0))){
+    if(getwd() == "/"){
+      stop("Reached root directory and .h2config is not found.")
+    }
+    setwd("..")
+    current_directory = getwd()
+  }
+  return(paste0(current_directory,"/.h2oconfig"))
+}
